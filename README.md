@@ -29,8 +29,8 @@ Deliver with Evidence
 Đăng ký marketplace và cài plugin:
 
 ```text
-/plugin marketplace add PilothOS/piloth
-/plugin install piloth@piloth
+/plugin marketplace add thangnd96/piloth
+/plugin install piloth@piloth-marketplace
 ```
 
 Khởi động một Claude Code session mới trong project, sau đó chạy:
@@ -58,7 +58,7 @@ SELF-CHECK PASSED
 Clone Piloth và stage vào project:
 
 ```bash
-git clone https://github.com/PilothOS/piloth /tmp/piloth
+git clone https://github.com/thangnd96/piloth /tmp/piloth
 /tmp/piloth/scripts/stage.sh /path/to/your/project
 ```
 

@@ -32,8 +32,8 @@ Append finding / lesson when appropriate
 ### Claude Code Plugin
 
 ```text
-/plugin marketplace add <github-user>/piloth
-/plugin install piloth@piloth
+/plugin marketplace add thangnd96/piloth
+/plugin install piloth@piloth-marketplace
 /piloth:init
 ```
 
