@@ -1,0 +1,23 @@
+{
+  "name": "piloth",
+  "version": "1.8.3",
+  "description": "Agentic operating layer for governed, evidence-driven software delivery.",
+  "author": {
+    "name": "Thang"
+  },
+  "homepage": "https://github.com/thangnd96/piloth",
+  "repository": "https://github.com/thangnd96/piloth",
+  "license": "MIT",
+  "keywords": [
+    "piloth",
+    "aios",
+    "agents",
+    "agentic-os",
+    "operating-system",
+    "agents-md",
+    "claude",
+    "codex",
+    "cursor",
+    "antigravity"
+  ]
+}

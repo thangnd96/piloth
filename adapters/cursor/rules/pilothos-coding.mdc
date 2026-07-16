@@ -1,0 +1,6 @@
+---
+description: PilothOS coding behavior bridge
+alwaysApply: true
+---
+
+Apply `pilothOS/rules/coding-behavior.md` and `pilothOS/rules/evidence.md`.

@@ -1,0 +1,373 @@
+{
+ "schema_version": 1,
+ "piloth_version": "1.8.3",
+ "generated_at": "2026-07-15T15:52:59.074528+00:00",
+ "files": [
+  {
+   "path": ".antigravity/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".antigravity/rules/pilothos-core.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".antigravity/rules/pilothos-evidence.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".antigravity/rules/pilothos-team-routing.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/agents/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/commands/piloth-team.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/commands/pilothos-init.md",
+   "class": "installer-facade"
+  },
+  {
+   "path": ".claude/commands/pilothos-uninstall.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/rules/00-pilothos-bridge.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/rules/10-coding-behavior.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/rules/20-evidence.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/rules/30-layer-boundary.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/settings.json",
+   "class": "consumer-owned"
+  },
+  {
+   "path": ".claude/skills/piloth-team-setup/SKILL.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/skills/pilothos-init/SKILL.md",
+   "class": "installer-facade"
+  },
+  {
+   "path": ".codex/config.toml",
+   "class": "verbatim"
+  },
+  {
+   "path": ".cursor/rules/pilothos-coding.mdc",
+   "class": "verbatim"
+  },
+  {
+   "path": ".cursor/rules/pilothos-core.mdc",
+   "class": "verbatim"
+  },
+  {
+   "path": ".gitignore",
+   "class": "consumer-owned"
+  },
+  {
+   "path": "AGENTS.md",
+   "class": "consumer-owned"
+  },
+  {
+   "path": "CLAUDE.md",
+   "class": "consumer-owned",
+   "personalize": true
+  },
+  {
+   "path": "pilothOS/CHANGELOG.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/LICENSE",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/PilothOS.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/VALIDATION.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agent-teams/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agent-teams/piloth-team.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agent-teams/task-routing.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agent-teams/team-contract.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agents/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agents/software-engineer.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agents/team-roles/critical-evaluator.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agents/team-roles/lead-solution-architect.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agents/team-roles/solution-generator.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/bootstrap.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/evaluation/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/evaluation/quality-gates.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/examples/task-routing.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/governance/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/governance/operational-controls.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/knowledge/architecture/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/knowledge/domain/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/knowledge/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/knowledge/standards/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/memory/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/memory/lessons-learned.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/memory/state/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rot/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rot/registry.md",
+   "class": "verbatim",
+   "personalize": true
+  },
+  {
+   "path": "pilothOS/rot/review-guide.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rot/review-log.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rules/coding-behavior.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rules/evidence.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rules/hooks.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rules/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/rules/layer-boundary.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/context-loading.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/task-lifecycle.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/team-orchestration.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/scripts/pilothos_guard.py",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/scripts/pilothos_installer.py",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/integration/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/SKILL.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/claude-adapter-sentinel.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/elicitation.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/recommendation-matrix.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/role-archetypes.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/team-architecture-principles.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/templates/agent-base.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/templates/cleanup-logs.sh",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/templates/qa-verdict-gate.sh",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/templates/runtime-skill.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/templates/slash-command.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-team-setup/templates/team-workflow.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/SKILL.md",
+   "class": "installer-facade"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/brownfield.md",
+   "class": "installer-facade"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/greenfield.md",
+   "class": "installer-facade"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/manifest-spec.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/payloads/identity-block.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/payloads/settings.json",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-init/payloads/startup-contract-block.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/templates/agent.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/templates/knowledge.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/templates/rule.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/templates/skill.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/mcp/README.md",
+   "class": "verbatim"
+  }
+ ]
+}

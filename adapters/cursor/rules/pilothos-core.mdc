@@ -1,0 +1,12 @@
+---
+description: PilothOS core bridge
+alwaysApply: true
+---
+
+Read `AGENTS.md` and `pilothOS/bootstrap.md` before non-trivial work.
+
+- Use progressive context loading.
+- Identify affected PilothOS layer.
+- Keep changes surgical.
+- Use Evidence before conclusions.
+- Do not create generic Rules, Skills, Agents or Teams without real need.

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "piloth-marketplace",
+  "version": "1.0.0",
+  "description": "Official marketplace for Piloth plugins.",
+  "owner": {
+    "name": "TBeo"
+  },
+  "plugins": [
+    {
+      "name": "piloth",
+      "description": "Agentic operating layer for governed, evidence-driven software delivery.",
+      "version": "1.8.3",
+      "author": {
+        "name": "TBeo"
+      },
+      "source": "./",
+      "category": "development",
+      "homepage": "https://github.com/thangnd96/piloth"
+    }
+  ]
+}
