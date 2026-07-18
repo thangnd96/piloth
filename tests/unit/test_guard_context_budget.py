@@ -45,3 +45,37 @@ def test_token_estimate_tracks_bytes(guard):
     # ~4 bytes per token heuristic.
     assert out["loaded_tokens_est"] == (out["loaded_bytes"] + 3) // 4
     assert out["metric"] == "context_load"
+
+
+# ---------------------------------------------- mode-aware context (P7.1)
+
+def test_lean_mode_loads_fewer_tokens_than_standard(guard):
+    std = guard.context_budget_payload({"task_signal": "bug fix"})
+    lean = guard.context_budget_payload({"task_signal": "bug fix", "mode": "lean"})
+    assert lean["context_mode"] == "lean"
+    assert std["context_mode"] == "standard"
+    assert lean["loaded_tokens_est"] < std["loaded_tokens_est"]
+
+
+def test_lean_mode_drops_standard_only_context_docs(guard):
+    lean = guard.context_budget_payload({"task_signal": "bug fix", "mode": "lean"})
+    names = [f["file"] for f in lean["loaded_files"]]
+    for dropped in guard.LEAN_DROPPED_CONTEXT:
+        assert dropped not in names
+
+
+def test_default_mode_is_standard_and_unchanged(guard):
+    # No mode == standard: nothing dropped (backward compatible).
+    std = guard.context_budget_payload({"task_signal": "bug fix"})
+    names = [f["file"] for f in std["loaded_files"]]
+    assert std["context_mode"] == "standard"
+    assert "evaluation/quality-gates.md" in names  # still present in standard
+
+
+def test_route_lean_drops_docs_but_standard_keeps_them(guard):
+    lean = guard.route_task_payload({"task_signal": "bug fix", "mode": "lean"})
+    std = guard.route_task_payload({"task_signal": "bug fix"})
+    lean_ctx = lean["index_first"] + lean["context_layers"]
+    std_ctx = std["index_first"] + std["context_layers"]
+    assert "runtime/consumer-assets.md" in std_ctx
+    assert "runtime/consumer-assets.md" not in lean_ctx

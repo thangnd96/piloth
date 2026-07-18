@@ -2871,6 +2871,32 @@ def normalize_task_signal(value):
     return aliases.get(raw, raw)
 
 
+# Context docs only needed once standard/strict evidence (quality gates,
+# consumer-asset routing) actually runs. lean/micro tasks skip them to cut
+# context tokens without losing the context needed to do the work correctly.
+LEAN_DROPPED_CONTEXT = frozenset({
+    "evaluation/quality-gates.md",
+    "runtime/consumer-assets.md",
+})
+
+
+def context_mode_from_payload(payload):
+    """lean | standard | strict from payload.mode; default standard (no trim)."""
+    raw = str((payload or {}).get("mode", "")).strip().lower()
+    if raw in ("lean", "light", "micro"):
+        return "lean"
+    if raw == "strict":
+        return "strict"
+    return "standard"
+
+
+def apply_context_mode(files, mode):
+    """Drop standard-only context docs for lean mode; keep order otherwise."""
+    if mode == "lean":
+        return [f for f in files if f not in LEAN_DROPPED_CONTEXT]
+    return list(files)
+
+
 def route_task_payload(payload):
     if not isinstance(payload, dict):
         return {"result": "route_rejected", "errors": ["route payload must be a JSON object"]}
@@ -2954,12 +2980,17 @@ def route_task_payload(payload):
             "finding": "no matching consumer asset detected by deterministic audit",
         })
 
+    mode = context_mode_from_payload(payload)
+    index_first = apply_context_mode(
+        ["runtime/consumer-assets.md", "runtime/context-loading.md"], mode)
+    context_layers = apply_context_mode(list(route["context_layers"]), mode)
     return {
         "result": "route_suggested",
         "task_signal": route["task_signal"],
+        "context_mode": mode,
         "load_policy": route["load_policy"],
-        "index_first": ["runtime/consumer-assets.md", "runtime/context-loading.md"],
-        "context_layers": list(route["context_layers"]),
+        "index_first": index_first,
+        "context_layers": context_layers,
         "inspect_asset_types": list(route["asset_types"]),
         "detected_assets": asset_rows,
         "skipped_assets": skipped_assets,
@@ -3063,6 +3094,7 @@ def context_budget_payload(payload):
         "metric": "context_load",
         "note": "kernel context footprint (bytes/estimated tokens); not llm_usage telemetry",
         "task_signal": payload.get("task_signal") or "not_routed",
+        "context_mode": context_mode_from_payload(payload),
         "routed": routed_ok,
         "loaded_files": loaded_detail,
         "loaded_count": len(loaded_detail),

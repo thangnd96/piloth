@@ -47,6 +47,24 @@ Nói cách khác: một task được route chỉ kéo **~9-12%** kernel vào co
 100%. Đây là guardrail có unit test (`tests/unit/test_guard_context_budget.py`) —
 nếu routing phình to trong tương lai, test sẽ fail.
 
+### Mode-aware context (lean nạp ít hơn)
+
+`context-budget` và `route-task` nhận `mode`. Ở `mode=lean`, Piloth **bỏ các doc
+chỉ cần cho gate/asset** (`evaluation/quality-gates.md`, `runtime/consumer-assets.md`)
+vì lean chạy ít gate hơn:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"lean"}'
+```
+
+| task_signal | standard | lean | giảm thêm |
+|---|:---:|:---:|:---:|
+| bug fix | ~6,966 | ~4,748 | **−32%** |
+| API/backend | ~5,845 | ~4,850 | −17% |
+| UI/component | ~5,400 | ~4,405 | −18% |
+
+Default (không `mode`) = `standard` — không đổi hành vi cũ.
+
 ## Chọn profile nhẹ cho task nhỏ
 
 Với task nhỏ (sửa 1 dòng, đổi text, fix nhỏ), dùng preset `light` để bỏ qua các
