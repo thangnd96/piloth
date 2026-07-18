@@ -13,13 +13,18 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 GUARD_PATH = REPO / "pilothOS" / "scripts" / "pilothos_guard.py"
+INSTALLER_PATH = REPO / "pilothOS" / "scripts" / "pilothos_installer.py"
 
 
-def _load_guard():
-    spec = importlib.util.spec_from_file_location("pilothos_guard", GUARD_PATH)
+def _load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_guard():
+    return _load_module("pilothos_guard", GUARD_PATH)
 
 
 @pytest.fixture()
@@ -46,3 +51,8 @@ def good_receipt():
 @pytest.fixture()
 def light_contract():
     return {"operational_preset": "light"}
+
+
+@pytest.fixture()
+def installer():
+    return _load_module("pilothos_installer", INSTALLER_PATH)
