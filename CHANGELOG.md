@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (targets 1.9.0)
+
+> Bump version bằng `scripts/bump-version.sh 1.9.0` tại thời điểm release và cập
+> nhật assertion `1.8.3` trong `tests/install/run-tests.sh` +
+> `tests/docs/run-tests.sh` cho khớp — hai file này pin cứng version hiện tại.
+
+- Release gate reproducible: `run_all.sh` thêm meta-guard abort to tiếng khi một
+  suite khai báo thiếu `run-tests.sh` trên clean clone; track các suite
+  `evaluation`/`docs`/`benchmark` + lifecycle case `lc6–lc9` vốn còn untracked.
+- CI: thêm GitHub Actions chạy full gate (Python 3.9/3.11/3.13) + `self-host-check`
+  + `production-review` + `pytest` trên mỗi push/PR.
+- Unit safety net: `tests/unit/` pytest cho các hàm quyết định của guard
+  (`validate_deliver_receipt`, routing, reuse, context-budget) — lần đầu guard
+  có coverage đơn vị, mở đường refactor/giảm code an toàn.
+- Token optimization đo được: command `context-budget` đo footprint context
+  (bytes/token) mà routing nạp vs full kernel; task được route chỉ kéo ~9–12%
+  kernel (~88–91% nhỏ hơn). Nhãn `context_load`, không phải `llm_usage` telemetry.
+  Guide: `docs/token-optimization.md`.
+- Giảm code: bỏ 4 hàm chết trong `pilothos_guard.py` (-28 dòng), hành vi giữ nguyên.
+
 ## 1.8.3
 - Harden staging for release: replace Bash process substitution with deterministic Python-backed staging and keep `stage.sh` as a thin stable wrapper.
 - Add `pilothOS/dist-manifest.json` to the version-bump contract so the fifth version location is updated by process, not luck.
