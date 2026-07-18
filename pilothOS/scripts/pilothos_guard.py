@@ -2878,12 +2878,20 @@ LEAN_DROPPED_CONTEXT = frozenset({
     "evaluation/quality-gates.md",
     "runtime/consumer-assets.md",
 })
+# micro (throwaway / pass-through work) additionally skips the heavy always-on
+# governance docs a script with no architecture impact does not need.
+MICRO_DROPPED_BOOTSTRAP = frozenset({
+    "PilothOS.md",
+    "rot/registry.md",
+})
 
 
 def context_mode_from_payload(payload):
-    """lean | standard | strict from payload.mode; default standard (no trim)."""
+    """micro | lean | standard | strict from payload.mode; default standard."""
     raw = str((payload or {}).get("mode", "")).strip().lower()
-    if raw in ("lean", "light", "micro"):
+    if raw == "micro":
+        return "micro"
+    if raw in ("lean", "light"):
         return "lean"
     if raw == "strict":
         return "strict"
@@ -2891,9 +2899,16 @@ def context_mode_from_payload(payload):
 
 
 def apply_context_mode(files, mode):
-    """Drop standard-only context docs for lean mode; keep order otherwise."""
-    if mode == "lean":
+    """Drop standard-only context docs for lean/micro; keep order otherwise."""
+    if mode in ("lean", "micro"):
         return [f for f in files if f not in LEAN_DROPPED_CONTEXT]
+    return list(files)
+
+
+def apply_bootstrap_mode(files, mode):
+    """micro also skips the heavy always-on governance bootstrap docs."""
+    if mode == "micro":
+        return [f for f in files if f not in MICRO_DROPPED_BOOTSTRAP]
     return list(files)
 
 
@@ -3065,7 +3080,8 @@ def context_budget_payload(payload):
             "errors": ["context-budget payload must be a JSON object"],
         }
 
-    bootstrap = list(BOOTSTRAP_CONTEXT_FILES)
+    mode = context_mode_from_payload(payload)
+    bootstrap = apply_bootstrap_mode(BOOTSTRAP_CONTEXT_FILES, mode)
     routed = []
     routed_ok = False
     if payload.get("task_signal"):

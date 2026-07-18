@@ -72,6 +72,23 @@ def test_default_mode_is_standard_and_unchanged(guard):
     assert "evaluation/quality-gates.md" in names  # still present in standard
 
 
+def test_micro_mode_loads_less_than_lean_than_standard(guard):
+    std = guard.context_budget_payload({"task_signal": "bug fix"})
+    lean = guard.context_budget_payload({"task_signal": "bug fix", "mode": "lean"})
+    micro = guard.context_budget_payload({"task_signal": "bug fix", "mode": "micro"})
+    assert micro["context_mode"] == "micro"
+    assert micro["loaded_tokens_est"] < lean["loaded_tokens_est"] < std["loaded_tokens_est"]
+
+
+def test_micro_mode_drops_constitution_and_rot_from_bootstrap(guard):
+    micro = guard.context_budget_payload({"task_signal": "bug fix", "mode": "micro"})
+    names = [f["file"] for f in micro["loaded_files"]]
+    for dropped in guard.MICRO_DROPPED_BOOTSTRAP:
+        assert dropped not in names
+    # still keeps the bare orientation entry point
+    assert "bootstrap.md" in names and "rules/index.md" in names
+
+
 def test_route_lean_drops_docs_but_standard_keeps_them(guard):
     lean = guard.route_task_payload({"task_signal": "bug fix", "mode": "lean"})
     std = guard.route_task_payload({"task_signal": "bug fix"})

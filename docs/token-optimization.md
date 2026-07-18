@@ -57,13 +57,20 @@ vì lean chạy ít gate hơn:
 python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"lean"}'
 ```
 
-| task_signal | standard | lean | giảm thêm |
+| task_signal | standard | lean | micro |
 |---|:---:|:---:|:---:|
-| bug fix | ~6,966 | ~4,748 | **−32%** |
-| API/backend | ~5,845 | ~4,850 | −17% |
-| UI/component | ~5,400 | ~4,405 | −18% |
+| bug fix | ~6,966 | ~4,748 (−32%) | **~3,215 (−54%)** |
+| API/backend | ~5,845 | ~4,850 (−17%) | ~3,317 (−43%) |
+| UI/component | ~5,400 | ~4,405 (−18%) | ~2,872 (−47%) |
 
-Default (không `mode`) = `standard` — không đổi hành vi cũ.
+- `micro` = pass-through cho **script vứt đi / không tác động kiến trúc**: bỏ thêm
+  Constitution (`PilothOS.md`) và `rot/registry.md` khỏi bootstrap, chỉ giữ orient
+  tối thiểu. Chỉ dùng khi task thật sự không đụng kiến trúc.
+- Default (không `mode`) = `standard` — không đổi hành vi cũ.
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"micro"}'
+```
 
 ## Chọn profile nhẹ cho task nhỏ
 
