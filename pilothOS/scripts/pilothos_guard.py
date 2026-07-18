@@ -7180,8 +7180,10 @@ def state_doctor():
 
 
 def guard_registered_modes():
-    guard_text = read_text_safe(PILOTHOS_DIR / "scripts" / "pilothos_guard.py", limit=0)
-    return set(re.findall(r"(?:if|elif)\s+mode\s*==\s*\"([^\"]+)\"", guard_text))
+    # Modes come from the dispatch table (the single source of truth for what
+    # this guard registers), not from regex-parsing the source — the table is
+    # authoritative and can't drift from the actual handlers.
+    return set(COMMAND_TABLE)
 
 
 def control_plane_check_result(active_policy="auto"):
@@ -7572,95 +7574,73 @@ def self_check():
     print("SELF-CHECK " + ("PASSED" if ok else "FAILED"))
 
 
+# Command dispatch: mode -> (handler, arg_kind). One source of truth for every
+# guard mode, replacing a long if/elif chain. arg_kind selects how the handler
+# is invoked:
+#   "hook" -> handler(read_hook_input())   (only these modes read stdin)
+#   "argv" -> handler(sys.argv[2:])
+#   "none" -> handler()
+COMMAND_TABLE = {
+    # hook modes (read hook JSON from stdin)
+    "session-start": (session_start, "hook"),
+    "prompt-check": (prompt_check, "hook"),
+    "stop-check": (stop_check, "hook"),
+    "pre-edit": (pre_edit, "hook"),
+    "post-edit": (post_edit, "hook"),
+    # argv modes (JSON arg / file / stdin payload)
+    "contract-write": (task_contract_write, "argv"),
+    "evidence-add": (evidence_add, "argv"),
+    "tool-check": (tool_check, "argv"),
+    "receipt-write": (receipt_write, "argv"),
+    "os-start": (os_start, "argv"),
+    "os-status": (os_status, "argv"),
+    "os-evidence": (os_evidence, "argv"),
+    "os-close": (os_close, "argv"),
+    "os-verify": (os_verify, "argv"),
+    "os-report": (os_report, "argv"),
+    "asset-scan": (asset_scan, "argv"),
+    "asset-health": (asset_health, "argv"),
+    "asset-sync": (asset_sync, "argv"),
+    "route-task": (route_task, "argv"),
+    "context-budget": (context_budget, "argv"),
+    "reuse-scan": (reuse_scan, "argv"),
+    "ds-scan": (ds_scan, "argv"),
+    "scheduler-suggest": (scheduler_suggest, "argv"),
+    "scheduler-record": (scheduler_record, "argv"),
+    "receipt-seal": (receipt_seal, "argv"),
+    "receipt-verify": (receipt_verify, "argv"),
+    "artifact-janitor": (artifact_janitor, "argv"),
+    "control-plane-check": (control_plane_check, "argv"),
+    "team-contract-write": (team_contract_write, "argv"),
+    "team-receipt-write": (team_receipt_write, "argv"),
+    "log-append": (log_append, "argv"),
+    # no-arg modes
+    "receipt-template": (receipt_template, "none"),
+    "statusline": (statusline, "none"),
+    "self-check": (self_check, "none"),
+    "self-host-check": (self_host_check, "none"),
+    "preflight": (preflight, "none"),
+    "detect": (detect, "none"),
+    "audit-assets": (audit_consumer_assets, "none"),
+    "registry-assets": (registry_consumer_assets, "none"),
+    "state-doctor": (state_doctor, "none"),
+    "production-review": (production_review, "none"),
+}
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "check"
-    hook_input = read_hook_input() if mode in (
-        "session-start", "prompt-check", "stop-check",
-        "pre-edit", "post-edit") else {}
-    if mode == "session-start":
-        session_start(hook_input)
-    elif mode == "prompt-check":
-        prompt_check(hook_input)
-    elif mode == "stop-check":
-        stop_check(hook_input)
-    elif mode == "contract-write":
-        task_contract_write(sys.argv[2:])
-    elif mode == "pre-edit":
-        pre_edit(hook_input)
-    elif mode == "post-edit":
-        post_edit(hook_input)
-    elif mode == "evidence-add":
-        evidence_add(sys.argv[2:])
-    elif mode == "tool-check":
-        tool_check(sys.argv[2:])
-    elif mode == "receipt-write":
-        receipt_write(sys.argv[2:])
-    elif mode == "receipt-template":
-        receipt_template()
-    elif mode == "os-start":
-        os_start(sys.argv[2:])
-    elif mode == "os-status":
-        os_status(sys.argv[2:])
-    elif mode == "os-evidence":
-        os_evidence(sys.argv[2:])
-    elif mode == "os-close":
-        os_close(sys.argv[2:])
-    elif mode == "os-verify":
-        os_verify(sys.argv[2:])
-    elif mode == "os-report":
-        os_report(sys.argv[2:])
-    elif mode == "statusline":
-        statusline()
-    elif mode == "self-check":
-        self_check()
-    elif mode == "self-host-check":
-        self_host_check()
-    elif mode == "preflight":
-        preflight()
-    elif mode == "detect":
-        detect()
-    elif mode == "audit-assets":
-        audit_consumer_assets()
-    elif mode == "registry-assets":
-        registry_consumer_assets()
-    elif mode == "asset-scan":
-        asset_scan(sys.argv[2:])
-    elif mode == "asset-health":
-        asset_health(sys.argv[2:])
-    elif mode == "asset-sync":
-        asset_sync(sys.argv[2:])
-    elif mode == "route-task":
-        route_task(sys.argv[2:])
-    elif mode == "context-budget":
-        context_budget(sys.argv[2:])
-    elif mode == "reuse-scan":
-        reuse_scan(sys.argv[2:])
-    elif mode == "ds-scan":
-        ds_scan(sys.argv[2:])
-    elif mode == "scheduler-suggest":
-        scheduler_suggest(sys.argv[2:])
-    elif mode == "scheduler-record":
-        scheduler_record(sys.argv[2:])
-    elif mode == "state-doctor":
-        state_doctor()
-    elif mode == "receipt-seal":
-        receipt_seal(sys.argv[2:])
-    elif mode == "receipt-verify":
-        receipt_verify(sys.argv[2:])
-    elif mode == "artifact-janitor":
-        artifact_janitor(sys.argv[2:])
-    elif mode == "control-plane-check":
-        control_plane_check(sys.argv[2:])
-    elif mode == "production-review":
-        production_review()
-    elif mode == "team-contract-write":
-        team_contract_write(sys.argv[2:])
-    elif mode == "team-receipt-write":
-        team_receipt_write(sys.argv[2:])
-    elif mode == "log-append":
-        log_append(sys.argv[2:])
-    else:
+    entry = COMMAND_TABLE.get(mode)
+    if entry is None:
         print(f"PilothOS guard: {mode}")
+        sys.exit(0)
+    handler, kind = entry
+    if kind == "hook":
+        handler(read_hook_input())
+    elif kind == "argv":
+        handler(sys.argv[2:])
+    else:
+        handler()
     sys.exit(0)
 
 
