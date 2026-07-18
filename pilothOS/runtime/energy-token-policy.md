@@ -82,6 +82,10 @@ need.
 ## Guard Support
 
 - `context-loading.md` defines progressive loading order.
+- `context-budget` measures the deterministic kernel context footprint
+  (bytes / estimated tokens) a routed task loads versus the full-kernel ceiling,
+  so progressive-loading savings are a `context_load` evidence number rather
+  than a claim. It is not `llm_usage` telemetry and cannot back a "cheaper" claim.
 - `tool-check` requires timeout, risk and expected evidence.
 - `post-edit` records diff facts and warns on large deltas.
 - `receipt-write` requires warning checklist entries when generated warnings
