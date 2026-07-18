@@ -19,6 +19,20 @@
   kernel (~88–91% nhỏ hơn). Nhãn `context_load`, không phải `llm_usage` telemetry.
   Guide: `docs/token-optimization.md`.
 - Giảm code: bỏ 4 hàm chết trong `pilothos_guard.py` (-28 dòng), hành vi giữ nguyên.
+- Dispatch table: `main()` thay ~45 nhánh `if/elif` bằng `COMMAND_TABLE`
+  (mode → handler, arg_kind); `guard_registered_modes()` derive từ table thay vì
+  regex-parse source (fix một class regression control-plane-check bắt được bởi
+  benchmark). Completeness unit test khóa lại.
+- Accuracy: unit test cho installer fail-closed core (`safe_rel` path-traversal,
+  `check_target_writable_zone`, `merge_settings_content` deny-wins/conflict) —
+  tổng 45 unit test. Init greenfield end-to-end verify `SELF-CHECK PASSED`.
+
+Đã hoãn có chủ đích (làm ở bước sau, kèm lý do):
+- Tách `pilothos_guard.py` thành package vật lý — rủi ro regression cao so với
+  coverage hiện có; dispatch table đã lấy phần lớn lợi ích maintainability.
+- Token telemetry thật (mở khóa cost-claim) — phụ thuộc adapter ghi
+  prompt/completion token; không dựng plumbing giả.
+- Bump version 1.9.0 — coupling với 2 test pin `1.8.3` (bước release).
 
 ## 1.8.3
 - Harden staging for release: replace Bash process substitution with deterministic Python-backed staging and keep `stage.sh` as a thin stable wrapper.
