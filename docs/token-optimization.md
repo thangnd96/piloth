@@ -59,11 +59,14 @@ vì lean chạy ít gate hơn:
 python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"lean"}'
 ```
 
-| task_signal | standard | lean | micro |
+| task_signal | standard | lean (lazy rot) | micro |
 |---|:---:|:---:|:---:|
-| bug fix | ~6,966 | ~4,748 (−32%) | **~3,215 (−54%)** |
-| API/backend | ~5,845 | ~4,850 (−17%) | ~3,317 (−43%) |
-| UI/component | ~5,400 | ~4,405 (−18%) | ~2,872 (−47%) |
+| bug fix | ~6,966 | ~4,169 (−40%) | **~3,215 (−54%)** |
+| API/backend | ~5,845 | ~4,271 (−27%) | ~3,317 (−43%) |
+| UI/component | ~5,400 | ~3,826 (−29%) | ~2,872 (−47%) |
+
+`lean`/`micro` còn dùng **lazy rot**: thay vì nạp cả bảng `rot/registry.md` (~579 tok),
+gọi `rot-status` (chỉ scope quá hạn — thường "healthy", ~20 tok).
 
 - `micro` = pass-through cho **script vứt đi / không tác động kiến trúc**: bỏ thêm
   Constitution (`PilothOS.md`) và `rot/registry.md` khỏi bootstrap, chỉ giữ orient

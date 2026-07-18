@@ -80,6 +80,22 @@ def test_micro_mode_loads_less_than_lean_than_standard(guard):
     assert micro["loaded_tokens_est"] < lean["loaded_tokens_est"] < std["loaded_tokens_est"]
 
 
+def test_lean_uses_lazy_rot_dropping_registry(guard):
+    lean = guard.context_budget_payload({"task_signal": "bug fix", "mode": "lean"})
+    std = guard.context_budget_payload({"task_signal": "bug fix"})
+    lean_names = [f["file"] for f in lean["loaded_files"]]
+    std_names = [f["file"] for f in std["loaded_files"]]
+    assert "rot/registry.md" in std_names        # standard keeps the full table
+    assert "rot/registry.md" not in lean_names    # lean uses rot-status instead
+
+
+def test_rot_status_is_compact_and_reports_health(guard):
+    out = guard.rot_status_payload()
+    assert out["result"] == "rot_status"
+    assert set(out) >= {"healthy", "overdue", "overdue_count", "note"}
+    assert isinstance(out["overdue"], list)
+
+
 def test_micro_mode_drops_constitution_and_rot_from_bootstrap(guard):
     micro = guard.context_budget_payload({"task_signal": "bug fix", "mode": "micro"})
     names = [f["file"] for f in micro["loaded_files"]]

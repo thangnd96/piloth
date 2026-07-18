@@ -21,6 +21,7 @@ Các mode:
   asset-sync      Writes generated asset registry section between markers.
   route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
   context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
+  rot-status      Rot signal gọn (chỉ scope quá hạn) — lazy load thay vì cả registry.
   reuse-scan      Evidence-shaped semantic reuse candidate scan.
   ds-scan         Evidence-shaped design-system candidate scan.
   scheduler-suggest Recommend context/assets/evidence/tests from local history.
@@ -214,6 +215,7 @@ READ_ONLY_GUARD_MODES = {
     "context-budget",
     "control-plane-check",
     "ds-scan",
+    "rot-status",
     "production-review",
     "receipt-verify",
     "reuse-scan",
@@ -2881,12 +2883,14 @@ LEAN_DROPPED_CONTEXT = frozenset({
     "evaluation/quality-gates.md",
     "runtime/consumer-assets.md",
 })
-# micro (throwaway / pass-through work) additionally skips the heavy always-on
-# governance docs a script with no architecture impact does not need.
-MICRO_DROPPED_BOOTSTRAP = frozenset({
-    "PilothOS.md",
+# lazy rot: lean/micro skip loading the full rot registry table and rely on the
+# compact `rot-status` command instead (it only surfaces overdue scopes).
+LEAN_DROPPED_BOOTSTRAP = frozenset({
     "rot/registry.md",
 })
+# micro (throwaway / pass-through work) additionally skips the Constitution — a
+# script with no architecture impact does not need the full layer contract.
+MICRO_DROPPED_BOOTSTRAP = LEAN_DROPPED_BOOTSTRAP | frozenset({"PilothOS.md"})
 
 
 def context_mode_from_payload(payload):
@@ -2909,9 +2913,11 @@ def apply_context_mode(files, mode):
 
 
 def apply_bootstrap_mode(files, mode):
-    """micro also skips the heavy always-on governance bootstrap docs."""
+    """lean uses lazy rot; micro also skips the Constitution."""
     if mode == "micro":
         return [f for f in files if f not in MICRO_DROPPED_BOOTSTRAP]
+    if mode == "lean":
+        return [f for f in files if f not in LEAN_DROPPED_BOOTSTRAP]
     return list(files)
 
 
@@ -3136,6 +3142,25 @@ def context_budget(argv):
         json_print({"result": "context_budget_rejected", "errors": [str(e)]})
         return
     json_print(context_budget_payload(payload))
+
+
+def rot_status_payload():
+    """Compact rot signal for lazy loading: surface overdue scopes only.
+
+    lean/micro tasks call this instead of loading the full rot registry table,
+    saving context tokens when the repo is healthy (the common case).
+    """
+    overdue = get_overdue_scopes()
+    if overdue is None:
+        return {"result": "rot_status", "healthy": None, "overdue": [],
+                "overdue_count": 0, "note": "registry not found"}
+    return {"result": "rot_status", "healthy": not overdue, "overdue": overdue,
+            "overdue_count": len(overdue),
+            "note": "healthy" if not overdue else f"{len(overdue)} scope(s) overdue"}
+
+
+def rot_status():
+    json_print(rot_status_payload())
 
 
 # --------------------------------------------------------- semantic scan modes
@@ -7658,6 +7683,7 @@ COMMAND_TABLE = {
     "asset-sync": (asset_sync, "argv"),
     "route-task": (route_task, "argv"),
     "context-budget": (context_budget, "argv"),
+    "rot-status": (rot_status, "none"),
     "reuse-scan": (reuse_scan, "argv"),
     "ds-scan": (ds_scan, "argv"),
     "scheduler-suggest": (scheduler_suggest, "argv"),
