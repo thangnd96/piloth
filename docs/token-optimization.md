@@ -95,6 +95,33 @@ hoặc khai `"operational_preset": "light"` trong task contract / receipt.
 - `strict` — dùng cho scope rộng, release/deploy, hoặc claim tuyệt đối; yêu cầu
   verification sạch, không chấp nhận skipped/failed.
 
+## Bật `real_token_telemetry` (mở khóa cost claim)
+
+Cơ chế đã sẵn: ghi evidence `llm_usage` với số token THẬT từ adapter, rồi cost
+claim mới được os-close chấp nhận. Contract:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py os-evidence '{
+  "id": "llm-usage", "kind": "metric", "metric_type": "llm_usage",
+  "metric_name": "adapter token telemetry", "phase": "verify",
+  "real_token_telemetry": true,
+  "input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000
+}'
+```
+
+- `metric_name` bắt buộc (mọi metric evidence). `real_token_telemetry` phải là
+  `true` **và** số token phải từ telemetry thật của harness (prompt/completion),
+  không phải ước lượng byte/artifact.
+- Đã kiểm chứng end-to-end: khi có evidence này, os-close **chấp nhận** cost claim
+  (telemetry gate PASS → `os_closed`). Không có nó, claim "rẻ hơn" bị từ chối.
+- `consumer_superiority` chỉ ra `consumer_value` (thay vì `consumer_value_failed`)
+  khi thêm benchmark cho thấy consumer win trên metric bắt buộc.
+
+**Điều kiện phụ thuộc harness:** adapter (vd Claude Code hook) phải expose được
+prompt/completion token. Chừng nào chưa có nguồn số thật, Piloth cố tình để
+`real_tokens: unavailable` và **từ chối** mọi claim "rẻ hơn" — đây là thiết kế,
+không phải thiếu sót.
+
 ## Giới hạn trung thực (đọc kỹ)
 
 `context-budget` đo **`context_load`** (footprint kernel text nạp vào context) —
