@@ -9,6 +9,7 @@ Cách dùng:
   python3 pilothos_installer.py validate <plan.json>
   python3 pilothos_installer.py dry-run  <plan.json>
   python3 pilothos_installer.py apply    <plan.json>
+  python3 pilothos_installer.py unattended --mode greenfield --persona ... --goals ... --owner ...
   python3 pilothos_installer.py uninstall [--confirm]
   python3 pilothos_installer.py explain
 
@@ -30,6 +31,7 @@ import shutil
 import datetime
 import subprocess
 import pathlib
+import argparse
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 PILOTHOS_DIR = SCRIPT_DIR.parent
@@ -46,12 +48,18 @@ REMOVE_ALLOWLIST = (".cursor", ".codex", ".antigravity")
 # Self-prune: installer tự dọn mặt tiền install sau khi cài (mặc định).
 # CHỈ các path chính xác dưới đây — payloads/ và manifest-spec.md KHÔNG BAO GIỜ
 # xóa được (uninstall và engine cần chúng).
-SELF_PRUNE_ALLOWED = {
+SELF_PRUNE_ORDER = [
     ".claude/commands/pilothos-init.md",
     ".claude/skills/pilothos-init",
     "pilothOS/skills/workflow/pilothos-init/SKILL.md",
     "pilothOS/skills/workflow/pilothos-init/greenfield.md",
     "pilothOS/skills/workflow/pilothos-init/brownfield.md",
+]
+SELF_PRUNE_ALLOWED = set(SELF_PRUNE_ORDER)
+OPTIONAL_ADAPTER_PATHS = {
+    "cursor": ".cursor",
+    "codex": ".codex",
+    "antigravity": ".antigravity",
 }
 PLAN_TOP_FIELDS = {"plan_version", "mode", "fill", "options", "steps"}
 STEP_FIELDS = {"op", "payload", "target", "lines"}
@@ -260,8 +268,8 @@ def validate_and_simulate(plan):
         raise PlanError(f"field la trong plan: {sorted(extra)}")
     if plan.get("plan_version") != 1:
         raise PlanError("plan_version phai la 1")
-    if plan.get("mode") not in ("greenfield", "brownfield"):
-        raise PlanError("mode phai la greenfield|brownfield")
+    if plan.get("mode") not in ("greenfield", "brownfield", "upgrade"):
+        raise PlanError("mode phai la greenfield|brownfield|upgrade")
     steps = plan.get("steps")
     if not isinstance(steps, list) or not steps:
         raise PlanError("steps phai la list khong rong")
@@ -269,8 +277,10 @@ def validate_and_simulate(plan):
     if set(options) - OPTION_FIELDS:
         raise PlanError(f"option la: {sorted(set(options) - OPTION_FIELDS)}")
     fill = plan.get("fill") or {}
-    if MARKER.exists():
-        raise PlanError("pilothOS/.initialized da ton tai — re-init chua ho tro")
+    if MARKER.exists() and plan.get("mode") != "upgrade":
+        raise PlanError("pilothOS/.initialized da ton tai — re-init/upgrade can mode=upgrade")
+    if plan.get("mode") == "upgrade" and not MARKER.exists():
+        raise PlanError("mode=upgrade can pilothOS/.initialized ton tai")
 
     notes, actions = [], []
     virtual = {}  # target -> content sau simulate (de bat create-trung)
@@ -385,7 +395,14 @@ def do_apply(plan, plan_path):
             (removed if a["kind"] == "remove" else modified).append(entry)
         else:
             created.append(a["target"])
-    created.append(str(MARKER.relative_to(REPO_ROOT)))
+    marker_rel = str(MARKER.relative_to(REPO_ROOT))
+    marker_backup = bdir / marker_rel
+    if MARKER.exists():
+        marker_backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(MARKER, marker_backup)
+        modified.append({"path": marker_rel, "backup": str(marker_backup.relative_to(REPO_ROOT))})
+    else:
+        created.append(marker_rel)
     manifest = {
         "pilothos_version": "1.8.3", "timestamp": ts, "mode": plan["mode"],
         "created": created, "modified": modified, "removed": removed,
@@ -434,7 +451,10 @@ def do_apply(plan, plan_path):
                     shutil.copy2(src, p)
             elif p.exists():
                 shutil.rmtree(p) if p.is_dir() else p.unlink()
-        if MARKER.exists():
+        if marker_backup.exists():
+            MARKER.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(marker_backup, MARKER)
+        elif MARKER.exists():
             MARKER.unlink()
         fail(3, {"result": "rolled_back", "error": str(e),
                  "backup": str(bdir.relative_to(REPO_ROOT))})
@@ -454,6 +474,121 @@ def do_apply(plan, plan_path):
         "manifest": str((bdir / "manifest.json").relative_to(REPO_ROOT)),
     }
     print(json.dumps(receipt, ensure_ascii=False, indent=2))
+
+
+# --------------------------------------------------------------- unattended
+
+def selected_adapters(raw):
+    if not raw:
+        return {"claude", "cursor", "codex", "antigravity"}
+    adapters = {x.strip().lower() for x in raw.split(",") if x.strip()}
+    allowed = {"claude", "cursor", "codex", "antigravity"}
+    unknown = sorted(adapters - allowed)
+    if unknown:
+        raise PlanError(f"unknown adapter(s): {', '.join(unknown)}")
+    return adapters
+
+
+def add_optional_adapter_removals(steps, adapters):
+    for name, target in OPTIONAL_ADAPTER_PATHS.items():
+        if name not in adapters and (REPO_ROOT / target).exists():
+            steps.append({"op": "remove_path", "target": target})
+
+
+def add_self_prune(steps):
+    for target in SELF_PRUNE_ORDER:
+        if (REPO_ROOT / target).exists():
+            steps.append({"op": "remove_path", "target": target})
+
+
+def build_unattended_plan(argv):
+    parser = argparse.ArgumentParser(prog="unattended")
+    parser.add_argument("--mode", choices=("greenfield", "brownfield", "upgrade"),
+                        default="greenfield")
+    parser.add_argument("--persona", default="")
+    parser.add_argument("--goals", default="")
+    parser.add_argument("--owner", default="")
+    parser.add_argument("--adapters", default="claude,cursor,codex,antigravity")
+    parser.add_argument("--statusline", choices=("consumer", "pilothos", "chain"))
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--print-plan", action="store_true")
+    args = parser.parse_args(argv)
+
+    plan = {
+        "plan_version": 1,
+        "mode": args.mode,
+        "fill": {"PERSONA": args.persona, "GOALS": args.goals, "OWNER": args.owner},
+        "steps": [],
+    }
+    if args.statusline:
+        plan["options"] = {"statusline": args.statusline}
+    steps = plan["steps"]
+
+    if args.mode == "greenfield":
+        if (REPO_ROOT / "CLAUDE.md").exists():
+            steps.append({"op": "fill_placeholders", "target": "CLAUDE.md"})
+        if (REPO_ROOT / "pilothOS/rot/registry.md").exists():
+            steps.append({"op": "fill_placeholders", "target": "pilothOS/rot/registry.md"})
+    elif args.mode == "brownfield":
+        if (REPO_ROOT / "pilothOS/rot/registry.md").exists():
+            steps.append({"op": "fill_placeholders", "target": "pilothOS/rot/registry.md"})
+        claude = REPO_ROOT / "CLAUDE.md"
+        if claude.exists():
+            text = claude.read_text(encoding="utf-8", errors="replace")
+            if "@pilothOS/bootstrap.md" in text:
+                steps.append({"op": "fill_placeholders", "target": "CLAUDE.md"})
+            else:
+                steps.append({"op": "prepend_block", "payload": "identity-block.md",
+                              "target": "CLAUDE.md"})
+        agents = REPO_ROOT / "AGENTS.md"
+        if agents.exists():
+            text = agents.read_text(encoding="utf-8", errors="replace")
+            if "PilothOS Startup Contract" not in text:
+                steps.append({"op": "prepend_block", "payload": "startup-contract-block.md",
+                              "target": "AGENTS.md"})
+        if (REPO_ROOT / ".claude/settings.json").exists():
+            steps.append({"op": "merge_settings", "payload": "settings.json",
+                          "target": ".claude/settings.json"})
+        if (REPO_ROOT / ".gitignore").exists():
+            steps.append({"op": "append_lines", "target": ".gitignore",
+                          "lines": ["", "pilothOS/.backup/",
+                                    "pilothOS/.pending-plan.json"]})
+
+    add_optional_adapter_removals(steps, selected_adapters(args.adapters))
+    add_self_prune(steps)
+    steps.append({"op": "write_marker"})
+    return plan, args
+
+
+def do_unattended(argv):
+    try:
+        plan, args = build_unattended_plan(argv)
+    except PlanError as pe:
+        fail(2, {"result": "plan_rejected", "error": str(pe)})
+    if args.print_plan:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return
+    pending = PILOTHOS_DIR / ".pending-plan.json"
+    pending.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+                       encoding="utf-8")
+    try:
+        actions, notes = validate_and_simulate(plan)
+    except NeedsJudgment as nj:
+        fail(4, {"result": "needs_judgment", "items": nj.items,
+                 "pending_plan": str(pending.relative_to(REPO_ROOT))})
+    except PlanError as pe:
+        fail(2, {"result": "plan_rejected", "error": str(pe),
+                 "pending_plan": str(pending.relative_to(REPO_ROOT))})
+    if args.dry_run:
+        print(json.dumps({
+            "result": "plan_valid", "notes": notes,
+            "pending_plan": str(pending.relative_to(REPO_ROOT)),
+            "effects": [{"target": a["target"], "kind": a["kind"]}
+                        for a in actions] + [{"target": "pilothOS/.initialized",
+                                              "kind": "create" if not MARKER.exists() else "modify"}],
+        }, ensure_ascii=False, indent=2))
+        return
+    do_apply(plan, pending)
 
 
 # ----------------------------------------------------------------- uninstall
@@ -503,6 +638,9 @@ def main():
     if cmd == "explain":
         print(MERGE_SEMANTICS)
         return
+    if cmd == "unattended":
+        do_unattended(args[1:])
+        return
     if cmd == "uninstall":
         do_uninstall("--confirm" in args)
         return
@@ -527,7 +665,7 @@ def main():
                 "result": "plan_valid", "notes": notes,
                 "effects": [{"target": a["target"], "kind": a["kind"]}
                             for a in actions] + [{"target": "pilothOS/.initialized",
-                                                  "kind": "create"}],
+                                                  "kind": "modify" if MARKER.exists() else "create"}],
             }, ensure_ascii=False, indent=2))
             return
         do_apply(plan, plan_path)

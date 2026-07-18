@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.8.3",
- "generated_at": "2026-07-15T15:52:59.074528+00:00",
+ "generated_at": "2026-07-17T18:14:09.891363+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -234,11 +234,31 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/rules/ui-design-system.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/consumer-assets.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/context-loading.md",
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/runtime/energy-token-policy.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/os-control-plane.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/self-hosting.md",
    "class": "verbatim"
   },
   {

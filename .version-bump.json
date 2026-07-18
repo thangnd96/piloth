@@ -1,0 +1,39 @@
+{
+  "files": [
+    {
+      "path": ".claude-plugin/plugin.json",
+      "field": "version"
+    },
+    {
+      "path": ".claude-plugin/marketplace.json",
+      "field": "plugins.0.version"
+    },
+    {
+      "path": "pilothOS/skills/workflow/pilothos-init/payloads/settings.json",
+      "field": "env.PILOTHOS_VERSION"
+    },
+    {
+      "path": "pilothOS/dist-manifest.json",
+      "field": "piloth_version"
+    },
+    {
+      "path": "pilothOS/scripts/pilothos_installer.py",
+      "pattern": "\"pilothos_version\": \"{VER}\""
+    },
+    {
+      "path": "docs/workflow.md",
+      "pattern": "Piloth v{VER}"
+    },
+    {
+      "path": "docs/structure.md",
+      "pattern": "Piloth v{VER}"
+    }
+  ],
+  "audit": {
+    "exclude": [
+      ".git/",
+      ".backup/",
+      "CHANGELOG.md"
+    ]
+  }
+}

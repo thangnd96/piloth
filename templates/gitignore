@@ -1,2 +1,8 @@
 
 pilothOS/.backup/
+pilothOS/.pending-plan.json
+pilothOS/memory/state/scheduler-history.jsonl
+pilothOS/memory/state/receipt-seals.jsonl
+pilothOS/memory/state/*.jsonl
+pilothOS/memory/state/team-runs/
+pilothOS/memory/state/os-runs/
