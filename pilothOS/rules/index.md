@@ -26,6 +26,7 @@ Quản lý **POLICY** của PilothOS: các quy tắc bắt buộc và cơ chế 
 | `evidence.md` | Quy tắc kết luận dựa trên Evidence |
 | `layer-boundary.md` | Quy tắc đặt đúng responsibility |
 | `hooks.md` | Nguyên tắc cho hook enforcement |
+| `ui-design-system.md` | Quy tắc reuse design system/component/token cho UI |
 
 ## Convention
 

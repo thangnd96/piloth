@@ -1,5 +1,9 @@
 # Local Codex config hint for PilothOS.
 # Copy to CODEX_HOME/config.toml if your Codex setup does not read repo-local config.
+# Mechanical enforcement for Codex is routed through AGENTS.md + pilothOS_guard.py
+# contract-write / pre-edit / post-edit / receipt-write. Use PilothOS as the OS
+# entry point, include context/reuse evidence before edits, do not bypass
+# consumer skills/hooks/tools/design systems, and do not fork policy here.
 
 project_doc_fallback_filenames = ["AGENTS.md", "CLAUDE.md"]
 project_doc_max_bytes = 65536

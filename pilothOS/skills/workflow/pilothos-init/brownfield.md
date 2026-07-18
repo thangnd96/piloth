@@ -6,14 +6,42 @@
 
 ## Audit (việc của Claude)
 
-1. Liệt kê tài sản: CLAUDE.md/AGENTS.md cũ, `.claude/`, `.cursor/`, skills, docs,
-   conventions → bảng `Tài sản | Nội dung chính | Xử lý đề xuất`.
-2. Nguyên tắc: tài sản consumer **giữ nguyên vị trí** khi tool cần nó ở đó;
+1. Chạy baseline audit:
+
+   ```bash
+   python3 pilothOS/scripts/pilothos_guard.py audit-assets
+   ```
+
+   Output là bảng máy móc ban đầu. Claude bổ sung judgment cho asset bị thiếu,
+   conflict hoặc capability không thể suy ra bằng path/config.
+   Khi cần registry 9 cột để route trong runtime, chạy thêm:
+
+   ```bash
+   python3 pilothOS/scripts/pilothos_guard.py registry-assets
+   ```
+
+2. Liệt kê tài sản hiện có:
+   - agent docs: `CLAUDE.md`, `AGENTS.md`;
+   - adapters: `.claude`, `.cursor`, `.codex`, `.antigravity`;
+   - skills, hooks, commands;
+   - MCP/tool configs;
+   - test/build/lint scripts;
+   - design system docs/components/tokens;
+   - project conventions.
+3. Output audit bắt buộc:
+
+   | Asset | Type | Capability | Owner | Risk | Proposed Piloth Handling |
+   |---|---|---|---|---|---|
+   | `path-or-config` | `skill|hook|tool|mcp|command|design-system|doc|convention|test-runner|build-runner` | short capability | consumer/piloth | low/medium/high | preserve/index/route/wrap/merge/needs-judgment/ignore |
+
+4. Nguyên tắc: tài sản consumer **giữ nguyên vị trí** khi tool cần nó ở đó;
    đăng ký vào index layer là tùy chọn, hoãn được. Bỏ qua rác (`.DS_Store`...).
-3. CLAUDE.md consumer chứa khối nghi là policy/fact → THẢO LUẬN với user việc
+5. Không move/rewrite consumer assets trong install. Chỉ index hoặc merge
+   settings/hook theo engine semantics.
+6. CLAUDE.md consumer chứa khối nghi là policy/fact → THẢO LUẬN với user việc
    chuyển layer (đề xuất, chờ quyết) — việc chuyển làm sau init như task thường,
    KHÔNG nhét vào plan.
-4. Xung đột nguyên tắc giữa AGENTS.md cũ và PilothOS → flag theo Instruction
+7. Xung đột nguyên tắc giữa AGENTS.md cũ và PilothOS → flag theo Instruction
    Precedence, chờ user quyết trước khi soạn plan.
 
 ## Soạn plan (các step điển hình)

@@ -24,9 +24,9 @@ AI Coding Agent
 ```text
 piloth/
 ├── .claude-plugin/           # Manifest cho Claude Code plugin/marketplace
-├── .github/                  # Issue templates cho bug và adoption feedback
 ├── adapters/                 # Native adapters cho từng AI coding tool
 ├── commands/                 # Plugin commands: init và uninstall
+├── docs/                     # Tài liệu workflow và cấu trúc phân phối
 ├── pilothOS/                 # Kernel, runtime, rules và installer SSOT
 ├── scripts/                  # Staging, manifest và version tooling
 ├── templates/                # Root files được merge vào consumer project

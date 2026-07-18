@@ -40,8 +40,41 @@ Chuyển task thành goal kiểm chứng được:
 - Không tuyên bố hoàn thành khi chưa chạy verification phù hợp.
 - Báo rõ phần chưa kiểm chứng hoặc Evidence còn thiếu.
 
+## 6. No Guessing / No Duplicate / Reuse First
 
-## 6. Test-First (khi task có test harness)
+- Search existing code before creating new code.
+- Reuse helper, component, tool or pattern if sufficient.
+- Do not invent API, config or state outside consumer scope.
+- Do not add abstraction for one use.
+- Do not build a component if the design system has one.
+- If context is missing, ask or declare assumption before editing.
+
+Receipt for code/UI/runtime/rules/adapter changes must include:
+
+```json
+{
+  "reuse_discipline": {
+    "existing_code_checked": "...",
+    "existing_component_checked": "...",
+    "existing_pattern_followed": "...",
+    "new_code_reason": "...",
+    "duplicate_risk": "...",
+    "kiss_dry_rationale": "..."
+  }
+}
+```
+
+UI-specific receipt fields:
+
+```json
+{
+  "design_system_checked": "...",
+  "component_reuse_decision": "...",
+  "token_reuse_decision": "..."
+}
+```
+
+## 7. Test-First (khi task có test harness)
 
 - Định nghĩa test phản ánh success criteria trước khi implement.
 - Xác nhận test fail trước, rồi mới implement để test pass.

@@ -21,6 +21,23 @@ Hooks là cơ chế biến Rule dạng văn bản thành enforcement thật. Cá
   một cách im lặng — không lỗi, không cảnh báo.
 - Hook mới hoặc hook bị sửa cần được approve lại trong Claude Code (`/hooks`).
 
+## Consumer Hook Preservation
+
+- Consumer hooks are preserved.
+- Consumer hooks run before PilothOS hooks unless an explicit conflict requires
+  judgment.
+- PilothOS hooks enforce contract/receipt after consumer-specific workflow has
+  run.
+- Conflicts produce `NEEDS-JUDGMENT`, never silent overwrite.
+
+`.claude/settings.json` merge semantics:
+
+- Keep consumer hook entries first.
+- Append PilothOS hook entries.
+- Deduplicate exact same hook objects.
+- If event/matcher is the same but command differs, keep both.
+- If `env` or `statusLine` conflicts, return `NEEDS-JUDGMENT`.
+
 ## Verify tại đích
 
 - Mỗi cơ chế có đích output riêng: hook SessionStart/UserPromptSubmit → context
@@ -37,17 +54,96 @@ Hooks là cơ chế biến Rule dạng văn bản thành enforcement thật. Cá
 | SessionStart | `session-start` | Inject cảnh báo Rot vào context khi mở session |
 | UserPromptSubmit | `prompt-check` | Inject cảnh báo Rot ở mỗi lượt message |
 | statusLine | `statusline` | 🔴 trên UI khi có scope quá hạn; im lặng khi healthy |
-| PreToolUse / PostToolUse | `pre-edit` / `post-edit` | Target no-op ổn định, siết dần khi có nhu cầu thật |
-| Stop | `stop-check` | AUTO-LOG GATE: chặn kết thúc phiên có thay đổi file mà log chưa được cân nhắc; block đúng một lần, không loop |
+| PreToolUse | `pre-edit` | Enforce task contract + allowed paths + layer/path checks cơ học |
+| PostToolUse | `post-edit` | Ghi diff facts: files, layers, line counts, docs/tests/evidence flags |
+| Stop | `stop-check` | DELIVER GATE: auto-log + deliver receipt đủ evidence; block đúng một lần, không loop |
+| (thủ công) | `contract-write` | Ghi task contract trước khi sửa file |
+| (thủ công) | `tool-check` | Kiểm tra risk/timeout/approval trước khi chạy tool command |
+| (thủ công) | `receipt-write` | Ghi deliver receipt có changed files/layers/verification/result và kiểm lại scope với contract |
 | (thủ công) | `self-check` | Kiểm tra settings.json + registry sau mỗi lần sửa cấu hình |
 
-## Auto-Log Gate
+## Task Contract Gate
+
+Trước khi sửa file, agent phải ghi task contract bằng:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py contract-write <contract.json>
+```
+
+Contract tối thiểu:
+
+- `task_scope`
+- `consumer_scope` (bắt buộc cho non-doc/test work)
+- `affected_layers`
+- `allowed_paths`
+- `expected_evidence`
+- `out_of_scope_paths`
+- `context_evidence` (bắt buộc cho non-doc/test work)
+- `reuse_evidence` (bắt buộc cho non-doc/test work)
+- `decision_limits` (bắt buộc cho non-doc/test work)
+- `consumer_asset_routing` (bắt buộc cho non-doc/test work; có thể ghi
+  `not_applicable` kèm lý do)
+- `ui_design_system_evidence` (bắt buộc khi contract khai UI path rõ ràng,
+  và khi UI path cụ thể được sửa)
+
+`pre-edit` chặn máy móc khi thiếu contract, sửa ngoài `allowed_paths`, sửa
+`out_of_scope_paths`, sửa core runtime/tool nhạy cảm mà không khai
+`Tools/Runtime`, sửa adapter mà không khai adapter/tool layer phù hợp, hoặc sửa
+UI path mà thiếu design-system evidence. Docs/test-only work không bắt buộc các
+field context/reuse mới nhưng vẫn nên ghi khi có. Miễn trừ docs/test chỉ áp
+dụng khi cả `affected_layers` và `allowed_paths` đều là docs/test thực sự; nếu
+contract khai `Docs` nhưng path là code/runtime/rules/adapter/UI, guard vẫn
+yêu cầu `consumer_scope`, `context_evidence`, `reuse_evidence`,
+`decision_limits`, và `consumer_asset_routing`.
+
+`receipt-write` cũng đối chiếu lại toàn bộ changed files từ diff facts và receipt
+với contract hiện hành. Nếu receipt khai file ngoài `allowed_paths` hoặc thuộc
+`out_of_scope_paths`, deliver receipt bị reject dù `pre-edit` từng pass trước đó.
+
+Operational preset:
+
+- `light`: giữ basic path/receipt evidence, nhưng không block các checklist nâng
+  cao như context/reuse/UI/warning.
+- `standard`: mặc định; enforce context/reuse/UI/warning receipt shape.
+- `strict`: `standard` + verification phải sạch; `not run`, `skipped`, `failed`,
+  `blocked`, `unable` không được chấp nhận dù có limitation.
+
+## Deliver Gate
 
 - Điều kiện "phiên có thay đổi file mà review-log/lessons-learned chưa được cập nhật"
   là máy móc → được enforce bằng Stop hook, đúng Enforcement Ladder.
 - Khi bị chặn, agent phải: append log entry phù hợp, HOẶC nêu rõ trong reply cuối
   "Không có finding hoặc lesson cần ghi" kèm một câu lý do.
-- Gate chỉ chặn MỘT lần mỗi lượt dừng (stop_hook_active) — không bao giờ tạo loop.
+- Receipt phải có `changed_files`, `affected_layers`, `verification_command`,
+  `result`; nếu verify không chạy/failed/skipped thì phải có `limitation`.
+- Với code/UI/runtime/rules/adapter changes, receipt phải có `scope_evidence`
+  và `context_used` để người nhận thấy rõ vì sao thay đổi nằm trong scope và
+  context nào đã được dùng.
+- Với code/UI/runtime/rules/adapter changes, receipt phải có
+  `consumer_asset_routing` để nêu asset consumer nào được route hoặc vì sao
+  không áp dụng.
+- Với code/UI/runtime/rules/adapter changes, receipt phải có `learning_review`
+  để ghi rõ có lesson/finding cần append/promote không. Hook chỉ kiểm shape;
+  model/người chịu trách nhiệm đánh giá nội dung.
+- Với code/UI/runtime/rules/adapter changes, receipt phải có
+  `quality_gates.reuse_non_duplication.result` và `evidence` với result là
+  `PASS`, `FAIL` hoặc `NOT_APPLICABLE`.
+- Với code/UI/runtime/rules/adapter changes, receipt phải có
+  `reuse_discipline`.
+- Với UI changes, receipt phải có `design_system_checked`,
+  `component_reuse_decision`, `token_reuse_decision`.
+- Với dependency file changes, receipt phải có
+  `warning_checklist.dependency_change_reason`.
+- Với warning generated bởi `post-edit`, receipt phải có checklist tương ứng:
+  `dependency_change_reason`, `new_component_reason`,
+  `ui_design_system_gap_reason`, `code_without_test_reason`, hoặc
+  `large_delta_reason`.
+- Nếu receipt khai `tool_uses`, mỗi tool use phải có `tool`, `command`, `risk`,
+  `timeout`, `result`, `evidence_output`; high-risk tool/command phải có
+  `approval_evidence`; skipped/failed tool phải có `limitation`.
+- Với thay đổi cần judgment, receipt phải trả lời checklist: đúng layer, abstraction,
+  scope, evidence. Hook chỉ kiểm checklist có câu trả lời, không tự phán nội dung.
+- Gate chỉ chặn MỘT lần mỗi lượt dừng (`stop_hook_active`) — không bao giờ tạo loop.
 - Giới hạn trung thực: gate đảm bảo câu hỏi "có gì đáng ghi không?" LUÔN được đặt ra;
   chất lượng câu trả lời (nhận diện đúng lesson) vẫn cần judgment của model.
 - Cảnh báo Rot qua UserPromptSubmit chỉ phát MỘT LẦN mỗi phiên cho cùng trạng thái

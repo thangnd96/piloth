@@ -111,6 +111,8 @@ Phân loại project:
 - `dirty` hoặc cần xử lý thủ công.
 
 Agent phải trình verdict và Evidence để consumer xác nhận; không tự rẽ nhánh im lặng.
+Với `re-init`, không chạy lại greenfield/brownfield plan; dùng upgrade flow
+(`stage.sh --upgrade` + plan `mode=upgrade`) nếu user muốn nâng cấp.
 
 ### Audit + Elicit
 
@@ -409,17 +411,35 @@ Healthy thì im lặng.
 
 ## Pre/Post Tool Hooks
 
-`pre-edit` và `post-edit` là target ổn định nhưng hiện là no-op có chủ đích. Các vi phạm cần judgment được enforce qua Identity, Rules và Review thay vì overclaim là mechanical block.
+`pre-edit` enforce các điều kiện máy kiểm được từ task contract:
 
-## Auto-Log Gate
+- đã có `task_scope`, `affected_layers`, `allowed_paths`, `expected_evidence`,
+  `out_of_scope_paths`;
+- edit nằm trong `allowed_paths` và không nằm trong `out_of_scope_paths`;
+- file runtime/tool nhạy cảm phải khai `Tools/Runtime`;
+- adapter change phải khai layer adapter/tool phù hợp.
 
-Trước khi session có thay đổi file kết thúc, Stop hook kiểm tra việc ghi nhận learning.
+`post-edit` chỉ ghi diff facts: file đổi, layer bị đụng, số dòng đổi, có docs/test
+liên quan không, evidence command đã ghi chưa. Hook không judge đúng/sai.
+
+## Deliver Gate
+
+Trước khi session có thay đổi file kết thúc, Stop hook kiểm tra auto-log và
+deliver receipt.
 
 Agent phải:
 
 - append vào `rot/review-log.md`; hoặc
 - append vào `memory/lessons-learned.md`; hoặc
 - nêu rõ không có finding/lesson và lý do.
+
+Receipt phải có:
+
+- changed files;
+- affected layers;
+- verification command;
+- result;
+- limitation nếu không test được.
 
 Gate chỉ chặn một lần để không tạo loop.
 
