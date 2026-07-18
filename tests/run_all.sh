@@ -4,7 +4,7 @@ set -uo pipefail
 D="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$D/bin/run_with_timeout.py"
 SUITE_TIMEOUT="${SUITE_TIMEOUT:-150}"
-SUITES="engine install lifecycle evaluation docs benchmark/figma-ui"
+SUITES="engine install lifecycle evaluation docs benchmark/figma-ui unit"
 fail=0
 
 # Meta-guard: every declared suite must have a runner committed to the tree.
