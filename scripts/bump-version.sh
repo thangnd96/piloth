@@ -4,15 +4,24 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 NEW="${1:?Cach dung: bump-version.sh <version-moi>}"
 OLD=$(python3 -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+
+if [ "$OLD" = "$NEW" ]; then
+python3 - "$NEW" << 'PY'
+import json, sys, pathlib
+new = sys.argv[1]
+cfg = json.load(open(".version-bump.json"))
+for item in cfg["files"]:
+    text = pathlib.Path(item["path"]).read_text(encoding="utf-8")
+    assert new in text, f"THIEU version: {item['path']}"
+    print(f"verified {item['path']}")
+PY
+exit 0
+fi
+
 python3 - "$NEW" "$OLD" << 'PY'
 import json, sys, pathlib
 new, old = sys.argv[1], sys.argv[2]
 cfg = json.load(open(".version-bump.json"))
-if old == new:
-    for item in cfg["files"]:
-        assert new in pathlib.Path(item["path"]).read_text(encoding="utf-8"), f"THIEU version: {item['path']}"
-        print(f"verified {item['path']}")
-    sys.exit(0)
 for item in cfg["files"]:
     p = pathlib.Path(item["path"])
     if "field" in item:
@@ -28,7 +37,11 @@ for item in cfg["files"]:
         p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     else:
         t = p.read_text(encoding="utf-8")
-        t = t.replace(item["pattern"].replace("{VER}", old), item["pattern"].replace("{VER}", new))
+        before = item["pattern"].replace("{VER}", old)
+        after = item["pattern"].replace("{VER}", new)
+        if before not in t:
+            raise AssertionError(f"THIEU pattern version cu trong {p}: {before}")
+        t = t.replace(before, after)
         p.write_text(t, encoding="utf-8")
     print(f"bumped {p}")
 PY

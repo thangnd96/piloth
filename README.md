@@ -98,6 +98,11 @@ Identity · Rules · Memory · Knowledge · Skills · Runtime · Agents · Tools
 
 `pilothOS/` là **Single Source of Truth**. Adapter chỉ giúp từng công cụ native-load đúng instruction, skill, hook hoặc agent contract; adapter không fork business logic của PilothOS.
 
+PilothOS là **control plane**: nó inventory, classify, route, sandbox, observe
+và learn từ tài sản consumer. Skills, hooks, tools, MCP, design system và
+convention riêng của consumer là **userland apps/drivers**; PilothOS không sở
+hữu hoặc overwrite chúng.
+
 ## Cách Piloth hoạt động
 
 Piloth bắt đầu từ lúc coding agent nhận task. Thay vì nhảy ngay vào implementation, agent phải xác định mục tiêu, assumptions, layer bị ảnh hưởng và tiêu chí thành công.
@@ -212,7 +217,7 @@ Installer:
 - rollback tự động nếu postcondition thất bại;
 - hỗ trợ uninstall dựa trên install manifest thay vì xóa mù.
 
-Chi tiết: [workflow.md](workflow.md)
+Chi tiết: [workflow.md](docs/workflow.md)
 
 ## Agent Teams
 
@@ -244,6 +249,7 @@ Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution r
 - **Native adapters** — Claude Code, Codex, Cursor và Antigravity.
 - **Transactional installation** — plan, approval, backup, manifest, receipt và rollback.
 - **Progressive context loading** — chỉ nạp đúng context cần thiết.
+- **Measurable token optimization** — `context-budget` đo footprint context (bytes/token) mỗi task nạp vs full kernel; routing tiết kiệm ~88–91% context. Xem [token-optimization.md](docs/token-optimization.md).
 - **Rules & Hooks** — instruction-level policies và mechanical enforcement khi có thể.
 - **Evidence-first delivery** — verify trước khi claim completion.
 - **Rot Management** — cadence, next due, owner, checklist và append-only review log.
@@ -285,7 +291,6 @@ piloth/
     ├── governance/
     ├── evaluation/
     ├── rot/
-    ├── adapters/
     └── scripts/
 ```
 
@@ -303,7 +308,7 @@ piloth/
 
 Governance, Evaluation, Rot Management và Adapters là các hệ thống cắt ngang, không thay thế trách nhiệm của bảy layer cốt lõi.
 
-Chi tiết: [structure.md](structure.md)
+Chi tiết: [structure.md](docs/structure.md)
 
 ## Các nguyên tắc
 
@@ -337,18 +342,19 @@ Trong Claude Code:
 /piloth:uninstall
 ```
 
-Hoặc thực hiện uninstall workflow được định nghĩa trong:
+Hoặc thực hiện uninstall workflow được định nghĩa trong command:
 
 ```text
-pilothOS/skills/workflow/pilothos-uninstall/SKILL.md
+commands/uninstall.md
 ```
 
 Uninstaller sử dụng manifest và backup của installation để khôi phục file consumer an toàn.
 
 ## Documentation
 
-- [structure.md](structure.md) — cấu trúc plugin, kernel, adapters và project sau khi cài.
-- [workflow.md](workflow.md) — installation, bootstrap, task lifecycle, hooks, teams và uninstall.
+- [structure.md](docs/structure.md) — cấu trúc plugin, kernel, adapters và project sau khi cài.
+- [workflow.md](docs/workflow.md) — installation, bootstrap, task lifecycle, hooks, teams và uninstall.
+- [token-optimization.md](docs/token-optimization.md) — đo và giảm token: routing, preset, adaptive mode.
 - [`pilothOS/PilothOS.md`](pilothOS/PilothOS.md) — Constitution của Agentic Operating System.
 - [`pilothOS/VALIDATION.md`](pilothOS/VALIDATION.md) — những capability đã được validate và giới hạn enforcement.
 - [`CHANGELOG.md`](CHANGELOG.md) — lịch sử release.

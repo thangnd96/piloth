@@ -5,8 +5,16 @@ alwaysApply: true
 
 Read `AGENTS.md` and `pilothOS/bootstrap.md` before non-trivial work.
 
+- Use PilothOS as the OS entry point.
 - Use progressive context loading.
 - Identify affected PilothOS layer.
 - Keep changes surgical.
 - Use Evidence before conclusions.
 - Do not create generic Rules, Skills, Agents or Teams without real need.
+- Before editing, record a task contract with
+  `python3 pilothOS/scripts/pilothos_guard.py contract-write <contract.json>`
+  including context/reuse evidence.
+- Before delivery, record a receipt with
+  `python3 pilothOS/scripts/pilothos_guard.py receipt-write <receipt.json>`.
+- Do not bypass consumer skills/hooks/tools/design systems.
+- Do not fork PilothOS policy in Cursor rules.

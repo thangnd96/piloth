@@ -9,6 +9,10 @@ MAP = [("pilothOS","pilothOS"),("adapters/claude",".claude"),("adapters/cursor",
        ("templates/gitignore",".gitignore"),
        ("pilothOS/skills/workflow/pilothos-init/payloads/settings.json",".claude/settings.json"),
        ("LICENSE","pilothOS/LICENSE"),("CHANGELOG.md","pilothOS/CHANGELOG.md")]
+IGNORE_NAMES = {".DS_Store", "Thumbs.db"}
+IGNORE_DIRS = {"__pycache__"}
+LOCAL_STATE_FILES = {"memory/state/scheduler-history.jsonl", "memory/state/receipt-seals.jsonl"}
+LOCAL_STATE_DIRS = {"memory/state/team-runs", "memory/state/os-runs"}
 CONSUMER = {"CLAUDE.md","AGENTS.md",".gitignore",".claude/settings.json"}
 FACADE = {".claude/commands/pilothos-init.md",".claude/skills/pilothos-init/SKILL.md",
           "pilothOS/skills/workflow/pilothos-init/SKILL.md",
@@ -16,13 +20,27 @@ FACADE = {".claude/commands/pilothos-init.md",".claude/skills/pilothos-init/SKIL
           "pilothOS/skills/workflow/pilothos-init/brownfield.md"}
 PERSONALIZE = {"CLAUDE.md","pilothOS/rot/registry.md"}
 entries = {}
+def ignored_distribution_artifact(path):
+    rel = pathlib.PurePosixPath(str(path))
+    rel_text = rel.as_posix()
+    return (
+        rel.name in IGNORE_NAMES
+        or any(part in IGNORE_DIRS for part in rel.parts)
+        or rel_text in LOCAL_STATE_FILES
+        or (rel_text.startswith("memory/state/") and rel.suffix == ".jsonl")
+        or any(rel_text == item or rel_text.startswith(item + "/") for item in LOCAL_STATE_DIRS)
+    )
+
 for src, dest in MAP:
     sp = ROOT / src
     if sp.is_file():
-        entries[dest] = None
+        if not ignored_distribution_artifact(pathlib.PurePosixPath(sp.name)):
+            entries[dest] = None
     elif sp.is_dir():
         for f in sorted(sp.rglob("*")):
             if f.is_file():
+                if ignored_distribution_artifact(f.relative_to(sp)):
+                    continue
                 rel = str(f.relative_to(sp))
                 entries[f"{dest}/{rel}"] = None
 entries.pop("pilothOS/dist-manifest.json", None)

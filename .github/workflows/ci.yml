@@ -1,0 +1,76 @@
+name: ci
+
+# Release gate as CI: the same suites, self-host and production-review checks
+# a maintainer runs locally, enforced on every push and pull request so
+# "evidence over claims" is machine-checked instead of trusted.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: test-gate (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor (3.9, matches type hints used in scripts) + current stable tiers.
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Full test gate (engine, install, lifecycle, evaluation, docs, benchmark)
+        env:
+          SUITE_TIMEOUT: "150"
+        run: bash tests/run_all.sh
+
+  self-host:
+    name: self-host + production-review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Self-host check (dogfood contract, manifest, runners)
+        run: python3 pilothOS/scripts/pilothos_guard.py self-host-check
+
+      - name: Production review (release-readiness)
+        run: python3 pilothOS/scripts/pilothos_guard.py production-review
+
+  pytest:
+    name: guard unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest
+        run: python3 -m pip install --quiet pytest
+
+      - name: Unit tests (skipped cleanly if none present yet)
+        run: |
+          if [ -d tests/unit ]; then
+            python3 -m pytest tests/unit -q
+          else
+            echo "no tests/unit yet — skipping"
+          fi

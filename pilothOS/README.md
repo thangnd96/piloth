@@ -13,6 +13,10 @@ PilothOS được phân phối theo hai lớp:
 1. **OS Source of Truth**: toàn bộ kiến trúc, rules, runtime, rot và contracts nằm trong `pilothOS/`.
 2. **Native Tool Adapters**: các thư mục như `.claude/`, `.cursor/`, `.codex/`, `.antigravity/` chỉ là bridge để từng tool đọc được PilothOS. Adapter không được định nghĩa lại source of truth.
 
+PilothOS là control plane. Tài sản consumer như skills, hooks, tools, MCP,
+commands, design system và project conventions là userland apps/drivers:
+PilothOS điều phối và ghi evidence, không sở hữu hoặc overwrite.
+
 Nếu adapter mâu thuẫn với `pilothOS/`, ưu tiên `pilothOS/` và ghi finding vào `pilothOS/rot/review-log.md`.
 
 Các file trong `pilothOS/templates/` chỉ là template dùng khi tạo artifact mới; template không được xem là operational state cho đến khi đã điền đủ dữ liệu bắt buộc.
