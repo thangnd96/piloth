@@ -560,14 +560,6 @@ def sha256_json(value):
     return sha256_bytes(canonical_json(value).encode("utf-8"))
 
 
-def path_is_relative_to(path, root):
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except (OSError, ValueError):
-        return False
-
-
 def redact_secret_text(value, limit=1000):
     text = str(value)
     for pattern in SECRET_VALUE_PATTERNS:
@@ -873,10 +865,6 @@ def valid_operational_preset(value):
 
 def preset_requires_standard_evidence(*configs):
     return operational_preset(*configs) != "light"
-
-
-def preset_is_strict(*configs):
-    return operational_preset(*configs) == "strict"
 
 
 def contract_layers(contract):
@@ -5305,15 +5293,6 @@ def request_paths(request):
     )
 
 
-def request_control_plane_paths(request):
-    return (
-        clean_string_list(request.get("allowed_paths"))
-        or clean_string_list(request.get("affected_paths"))
-        or clean_string_list(request.get("changed_paths"))
-        or clean_string_list(request.get("paths"))
-    )
-
-
 def layers_for_requested_paths(paths):
     concrete = [
         path for path in paths
@@ -6106,13 +6085,6 @@ def metric_records(os_evidence):
         item for item in os_evidence
         if isinstance(item, dict) and item.get("kind") == "metric"
     ]
-
-
-def metric_number(item, key):
-    try:
-        return float(item.get(key, 0) or 0)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def metric_int(value):
