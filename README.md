@@ -249,6 +249,7 @@ Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution r
 - **Native adapters** — Claude Code, Codex, Cursor và Antigravity.
 - **Transactional installation** — plan, approval, backup, manifest, receipt và rollback.
 - **Progressive context loading** — chỉ nạp đúng context cần thiết.
+- **Measurable token optimization** — `context-budget` đo footprint context (bytes/token) mỗi task nạp vs full kernel; routing tiết kiệm ~88–91% context. Xem [token-optimization.md](docs/token-optimization.md).
 - **Rules & Hooks** — instruction-level policies và mechanical enforcement khi có thể.
 - **Evidence-first delivery** — verify trước khi claim completion.
 - **Rot Management** — cadence, next due, owner, checklist và append-only review log.
@@ -353,6 +354,7 @@ Uninstaller sử dụng manifest và backup của installation để khôi phụ
 
 - [structure.md](docs/structure.md) — cấu trúc plugin, kernel, adapters và project sau khi cài.
 - [workflow.md](docs/workflow.md) — installation, bootstrap, task lifecycle, hooks, teams và uninstall.
+- [token-optimization.md](docs/token-optimization.md) — đo và giảm token: routing, preset, adaptive mode.
 - [`pilothOS/PilothOS.md`](pilothOS/PilothOS.md) — Constitution của Agentic Operating System.
 - [`pilothOS/VALIDATION.md`](pilothOS/VALIDATION.md) — những capability đã được validate và giới hạn enforcement.
 - [`CHANGELOG.md`](CHANGELOG.md) — lịch sử release.
