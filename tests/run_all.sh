@@ -4,8 +4,21 @@ set -uo pipefail
 D="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$D/bin/run_with_timeout.py"
 SUITE_TIMEOUT="${SUITE_TIMEOUT:-150}"
+SUITES="engine install lifecycle evaluation docs benchmark/figma-ui"
 fail=0
-for s in engine install lifecycle; do
+
+# Meta-guard: every declared suite must have a runner committed to the tree.
+# Prevents the "gate references an untracked/missing suite" hole where a clean
+# clone silently drops coverage instead of failing loudly.
+for s in $SUITES; do
+  if [ ! -f "$D/$s/run-tests.sh" ]; then
+    echo "$s: FAIL MISSING (no $D/$s/run-tests.sh)"
+    fail=1
+  fi
+done
+[ "$fail" -ne 0 ] && { echo "ABORTED: declared suites missing from tree"; exit 1; }
+
+for s in $SUITES; do
   t0=$(date +%s)
   LOG=$(mktemp)
   python3 "$RUNNER" "$SUITE_TIMEOUT" "$LOG" bash "$D/$s/run-tests.sh"
