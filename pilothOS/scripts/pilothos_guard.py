@@ -235,6 +235,9 @@ JUDGMENT_CHECKLIST_KEYS = {
     "evidence": "Evidence có chứng minh claim không?",
 }
 DOC_TEST_LAYERS = {"docs", "documentation", "tests", "test"}
+# A task touching this few concrete files is small enough for lean mode even
+# when it is code — its blast radius does not justify full standard governance.
+SMALL_SCOPE_MAX_PATHS = 3
 ADAPTER_LAYERS = {"adapters", "adapter", "tools", "tools/runtime"}
 RUNTIME_TOOL_LAYERS = {"tools", "runtime", "tools/runtime", "installer"}
 JUDGMENT_LAYERS = {
@@ -5446,6 +5449,10 @@ def choose_adaptive_mode(request, paths, layers, target):
         return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
     if "ui/component" in task_signal and len(paths) <= 4:
         reasons.append("small UI/component scope")
+        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
+    concrete_paths = [path for path in paths if not path_pattern_is_broad(path)]
+    if concrete_paths and len(concrete_paths) <= SMALL_SCOPE_MAX_PATHS:
+        reasons.append(f"small blast radius ({len(concrete_paths)} concrete paths)")
         return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
     if target_external:
         reasons.append("explicit external target with non-trivial scope")

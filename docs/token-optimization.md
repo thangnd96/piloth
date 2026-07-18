@@ -17,7 +17,9 @@ Ba đòn bẩy chính, từ tác động lớn tới nhỏ:
 2. **Operational preset** (`light` / `standard` / `strict`) — điều chỉnh lượng
    Evidence mà deliver receipt bắt buộc; `light` bỏ qua các gate nặng cho task nhỏ.
 3. **OS adaptive mode** (`lean` / `standard` / `strict`) — chọn mode nhẹ nhất vẫn
-   chứng minh được task; `lean` cho task UI/docs/test hẹp.
+   chứng minh được task; `lean` cho task UI/docs/test hẹp **và task code blast-radius
+   nhỏ** (≤3 file cụ thể) — tự động, không cần khai. Ví dụ: helper + test (2 file)
+   tự thành `lean` (7→3 gates, context ~5.845→~4.850 tok).
 
 ## Đo footprint context (deterministic)
 
