@@ -1,6 +1,6 @@
 # Piloth Structure
 
-Tài liệu này mô tả cấu trúc của **Piloth v1.8.3** và trách nhiệm của từng khu vực trong repository cũng như trong project sau khi cài đặt.
+Tài liệu này mô tả cấu trúc của **Piloth v1.9.0** và trách nhiệm của từng khu vực trong repository cũng như trong project sau khi cài đặt.
 
 ## Tổng quan
 

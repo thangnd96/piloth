@@ -1,6 +1,6 @@
 # Piloth Workflow
 
-Tài liệu này mô tả cách **Piloth v1.8.3** hoạt động từ lúc được cài vào project đến khi AI agent nhận, thực hiện, kiểm chứng và bàn giao một task.
+Tài liệu này mô tả cách **Piloth v1.9.0** hoạt động từ lúc được cài vào project đến khi AI agent nhận, thực hiện, kiểm chứng và bàn giao một task.
 
 ## Tổng quan
 

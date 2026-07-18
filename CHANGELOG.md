@@ -1,38 +1,40 @@
 # Changelog
 
-## Unreleased (targets 1.9.0)
+## 1.9.0
 
-> Bump version bằng `scripts/bump-version.sh 1.9.0` tại thời điểm release và cập
-> nhật assertion `1.8.3` trong `tests/install/run-tests.sh` +
-> `tests/docs/run-tests.sh` cho khớp — hai file này pin cứng version hiện tại.
+Reproducibility, safety net và token optimization.
 
 - Release gate reproducible: `run_all.sh` thêm meta-guard abort to tiếng khi một
   suite khai báo thiếu `run-tests.sh` trên clean clone; track các suite
   `evaluation`/`docs`/`benchmark` + lifecycle case `lc6–lc9` vốn còn untracked.
-- CI: thêm GitHub Actions chạy full gate (Python 3.9/3.11/3.13) + `self-host-check`
+- CI: GitHub Actions chạy full gate (Python 3.9/3.11/3.13) + `self-host-check`
   + `production-review` + `pytest` trên mỗi push/PR.
-- Unit safety net: `tests/unit/` pytest cho các hàm quyết định của guard
-  (`validate_deliver_receipt`, routing, reuse, context-budget) — lần đầu guard
-  có coverage đơn vị, mở đường refactor/giảm code an toàn.
-- Token optimization đo được: command `context-budget` đo footprint context
-  (bytes/token) mà routing nạp vs full kernel; task được route chỉ kéo ~9–12%
-  kernel (~88–91% nhỏ hơn). Nhãn `context_load`, không phải `llm_usage` telemetry.
-  Guide: `docs/token-optimization.md`.
-- Giảm code: bỏ 4 hàm chết trong `pilothos_guard.py` (-28 dòng), hành vi giữ nguyên.
-- Dispatch table: `main()` thay ~45 nhánh `if/elif` bằng `COMMAND_TABLE`
-  (mode → handler, arg_kind); `guard_registered_modes()` derive từ table thay vì
-  regex-parse source (fix một class regression control-plane-check bắt được bởi
-  benchmark). Completeness unit test khóa lại.
-- Accuracy: unit test cho installer fail-closed core (`safe_rel` path-traversal,
-  `check_target_writable_zone`, `merge_settings_content` deny-wins/conflict) —
-  tổng 45 unit test. Init greenfield end-to-end verify `SELF-CHECK PASSED`.
+- Unit safety net: `tests/unit/` pytest cho các hàm quyết định của guard/installer
+  (`validate_deliver_receipt`, routing, reuse, context-budget, `safe_rel`
+  path-traversal, `check_target_writable_zone`, `merge_settings_content`,
+  `choose_adaptive_mode`) — 59 unit test, lần đầu guard có coverage đơn vị.
+- Dispatch table: `main()` thay ~45 nhánh `if/elif` bằng `COMMAND_TABLE`;
+  `guard_registered_modes()` derive từ table thay vì regex-parse source (fix một
+  class regression control-plane-check bắt được bởi benchmark).
+- Giảm code: bỏ 4 hàm chết trong `pilothos_guard.py` (−28 dòng), hành vi giữ nguyên.
+- **Token optimization**:
+  - `context-budget` đo footprint context (bytes/token) routing nạp vs full kernel
+    (~88–91% nhỏ hơn); nhãn `context_load`, không phải `llm_usage` telemetry.
+  - Mode-aware context: `route-task`/`context-budget` nhận `mode`. `lean` bỏ
+    gate/asset docs + lazy rot (`rot-status` thay cả bảng registry); `micro` bỏ
+    thêm Constitution. standard→lean −27–40%, micro −43–54%.
+  - Blast-radius-aware mode: `choose_adaptive_mode` tự chọn `lean` cho task ≤3 file
+    cụ thể (không cần khai). Guide: `docs/token-optimization.md`.
+- `real_token_telemetry` verified: os-evidence `llm_usage` (cần `metric_name` +
+  `real_token_telemetry:true`) mở khóa cost claim ở os-close; thiếu → claim
+  "rẻ hơn" bị từ chối.
+- Init greenfield end-to-end verify `SELF-CHECK PASSED`.
 
-Đã hoãn có chủ đích (làm ở bước sau, kèm lý do):
-- Tách `pilothos_guard.py` thành package vật lý — rủi ro regression cao so với
-  coverage hiện có; dispatch table đã lấy phần lớn lợi ích maintainability.
-- Token telemetry thật (mở khóa cost-claim) — phụ thuộc adapter ghi
-  prompt/completion token; không dựng plumbing giả.
-- Bump version 1.9.0 — coupling với 2 test pin `1.8.3` (bước release).
+Đã hoãn có chủ đích:
+- Tách `pilothos_guard.py` thành package vật lý — rủi ro regression cao so với lợi
+  ích; dispatch table đã lấy phần lớn lợi ích maintainability.
+- Condense kernel docs (`agent-core` vs `extended`) — ROI thấp hơn, rủi ro cắt lố.
+- Nguồn token telemetry thật phụ thuộc adapter harness expose prompt/completion.
 
 ## 1.8.3
 - Harden staging for release: replace Bash process substitution with deterministic Python-backed staging and keep `stage.sh` as a thin stable wrapper.
