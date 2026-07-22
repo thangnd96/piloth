@@ -215,4 +215,26 @@ echo "== D10 generated doc blocks in sync with SSOT =="
 python3 scripts/sync_docs.py --check
 echo "D10 PASS"
 
+echo "== D11 startup-contract copy still covers bootstrap's targets =="
+# The baked copy (payloads/startup-contract-block.md, "for tools that don't read
+# bootstrap") is a context-adapted paraphrase, not a byte copy — it uses full
+# pilothOS/ paths and its own wording — so it cannot be generated verbatim. This
+# guards the drift it warns about: every doc target bootstrap's Startup Contract
+# names must still be referenced by the copy. Fuzzy on purpose (targets, not prose).
+python3 - <<'PY'
+import pathlib, re
+boot = pathlib.Path("pilothOS/bootstrap.md").read_text(encoding="utf-8")
+m = re.search(r"## Startup Contract\n(.*?)\n## ", boot, re.S)
+assert m, "bootstrap.md: Startup Contract section not found"
+targets = sorted(set(re.findall(r"`([^`]+\.md)`", m.group(1))))
+assert targets, "bootstrap.md Startup Contract: no doc targets parsed"
+copy = pathlib.Path("pilothOS/skills/workflow/pilothos-init/payloads/startup-contract-block.md").read_text(encoding="utf-8")
+missing = [t for t in targets if t not in copy and f"pilothOS/{t}" not in copy]
+assert not missing, (
+    f"startup-contract-block.md missing bootstrap targets: {missing}\n"
+    "  nguon chuan: pilothOS/bootstrap.md — cap nhat ban sao (bootstrap wins)")
+print(f"  copy mirrors {len(targets)} bootstrap startup targets")
+PY
+echo "D11 PASS"
+
 echo "DOCS SUITE: ALL PASS"
