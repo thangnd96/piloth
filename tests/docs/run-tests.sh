@@ -211,4 +211,8 @@ for needle in ("role-<role>.md", "qa-verdict.md", "final-lead-decision.md", "edi
 print("D9 PASS")
 PY
 
+echo "== D10 generated doc blocks in sync with SSOT =="
+python3 scripts/sync_docs.py --check
+echo "D10 PASS"
+
 echo "DOCS SUITE: ALL PASS"

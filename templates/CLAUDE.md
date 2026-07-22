@@ -3,6 +3,7 @@
 > **Identity Contract của implementation.** `/pilothos-init` sẽ điền Persona và
 > Mục tiêu. Kiến trúc, policy, workflow chi tiết thuộc `pilothOS/`.
 
+<!-- PILOTHOS-GENERATED:IDENTITY:START — không sửa tay; nguồn: pilothOS/skills/workflow/pilothos-init/payloads/identity-block.md; chạy `python3 scripts/sync_docs.py` -->
 @pilothOS/bootstrap.md
 
 # Identity
@@ -31,3 +32,4 @@
 ## Alignment
 Khi xung đột, áp dụng Instruction Precedence trong `pilothOS/bootstrap.md`:
 an toàn hệ thống > Identity > Constitution (`PilothOS.md`) > Rules & Hooks > task > runtime/conventions.
+<!-- PILOTHOS-GENERATED:IDENTITY:END -->
