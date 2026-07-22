@@ -69,13 +69,42 @@ selection but is **advisory**: only harnesses that can pin a per-phase model
 (e.g. Claude Code skill frontmatter `model:`) enforce it; others read it as a
 hint. Model hints are surfaced in `os-status` / `os-report`.
 
-## Budget ceiling (deferred)
+## Real token telemetry (`token-telemetry`)
 
-A hard USD/token ceiling (`max_usd`, `max_usd_per_step`) can only be enforced
-once `llm_usage` metrics carry `real_token_telemetry=true`. Until adapter token
-telemetry is wired, the budget stays advisory — the guard does not block on an
-estimated ceiling, and no cheaper/token-saving claim passes without real
-telemetry.
+Real per-turn LLM token usage is available on harnesses that expose it. For
+Claude Code, `token-telemetry` reads the session transcript
+(`~/.claude/projects/<slug>/<session>.jsonl`) where each assistant turn carries
+`message.usage` (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`,
+`cache_read_input_tokens`) + `message.model` + `timestamp` — genuine API usage,
+not an estimate. It sums usage windowed to the OS run's `created_at`, prices it
+via `runtime/model-pricing.json` (per-tier: input, output, cache-write ~1.25×,
+cache-read ~0.1×), and records
+`os-evidence kind=metric metric_type=llm_usage real_token_telemetry=true`
+(`cost_usd`, `model`, `window_start`, `subagent_scope=main_session_only`).
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--transcript <path>]
+```
+
+- **Attribution:** main-session transcript only; background subagent transcripts
+  are separate files and are not summed (disclosed via `subagent_scope`). The
+  per-turn numbers are real; the per-task figure is a sum over the run window.
+- **Fail-soft:** no transcript / harness without per-turn telemetry → records
+  `real_token_telemetry=false` + `unavailable_reason`.
+- **Unlocks cost claims:** with a real `llm_usage` metric present, `os-close` no
+  longer blocks a lower-cost/token claim. A **"cheaper than none-piloth" claim
+  still requires the benchmark** (`had-piloth` vs `none-piloth`) — real tokens
+  alone don't prove consumer savings.
+- **Cache pricing dominates accuracy:** a long 1M-context session is mostly
+  `cache_read`, so the price map must keep the cache tiers + `as_of` current.
+
+## Budget (advisory)
+
+An optional contract `budget.max_usd` produces a `budget_status` in
+`os-status` / `os-report`: `{max_usd, spent_usd, remaining_usd, over_budget}`
+computed from the real token cost. It is **advisory only — it never blocks
+`os-close`** (`advisory_unavailable` when no ceiling is set or no real cost is
+recorded yet). Promoting it to a hard ceiling is a deliberate future step.
 
 ## Contract / Receipt Signals
 

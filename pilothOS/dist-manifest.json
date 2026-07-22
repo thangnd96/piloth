@@ -258,6 +258,10 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/runtime/model-pricing.json",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/os-control-plane.md",
    "class": "verbatim"
   },

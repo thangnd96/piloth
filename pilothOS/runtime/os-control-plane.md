@@ -96,6 +96,15 @@ adapter does not provide prompt/completion usage, the ledger must say
 support a “cheaper” claim. Cost or token-saving claims require `llm_usage`
 evidence with `real_token_telemetry=true`.
 
+The `token-telemetry` mode produces exactly that `llm_usage` metric from the
+Claude Code session transcript (real `message.usage`), windowed to the run's
+`created_at` and priced via `runtime/model-pricing.json`; it records
+`cost_usd` + `subagent_scope=main_session_only`, and fails soft to
+`real_token_telemetry=false` when no transcript is available. An optional
+contract `budget.max_usd` yields an **advisory** `budget_status`
+(`spent_usd`/`remaining_usd`/`over_budget`) in `os-status`/`os-report` — it never
+blocks `os-close`. See `runtime/energy-token-policy.md`.
+
 ## Consumer Superiority Benchmark
 
 PilothOS must not claim consumer value merely because it produced a receipt or

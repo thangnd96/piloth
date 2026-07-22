@@ -51,6 +51,29 @@ Prototype phase + Discovery gate + pipeline stepper + recipe suggestions
   `tests/lifecycle/cases/lc11-prototype-roundtrip.sh`.
 - Docs: quality-gates, task-lifecycle, os-control-plane, energy-token-policy, skills/index.
 
+Real token telemetry (`token-telemetry`) + advisory budget — unlocks cost claims.
+
+- **`token-telemetry` guard mode**: reads real per-turn `message.usage` from the
+  Claude Code session transcript (`~/.claude/projects/<slug>/<session>.jsonl`),
+  windowed to the OS run's `created_at`, prices it via `runtime/model-pricing.json`
+  (input/output + cache-write ~1.25× / cache-read ~0.1×), and records
+  `os-evidence kind=metric metric_type=llm_usage real_token_telemetry=true`
+  (`cost_usd`, `model`, `window_start`, `subagent_scope=main_session_only`).
+  Fail-soft: no transcript → `real_token_telemetry=false` + `unavailable_reason`.
+  This is what unblocks `os-close` cost/token claims (superiority still needs a
+  benchmark).
+- **Price map** `pilothOS/runtime/model-pricing.json` (advisory, `as_of` dated;
+  helpers `load_model_pricing`/`model_price`/`compute_token_cost_usd`).
+- **Metric schema extended**: `cache_creation_input_tokens`,
+  `cache_read_input_tokens`, `cost_usd`, `model` (+ `pricing_source`,
+  `window_start`, `subagent_scope`) on `llm_usage`; `cost_ledger_summary` surfaces
+  cache tokens + total `cost_usd`.
+- **Advisory budget**: optional contract `budget.max_usd` → `budget_status`
+  (`spent_usd`/`remaining_usd`/`over_budget`) in `os-status`/`os-report`; **never
+  blocks `os-close`**.
+- Tests: `tests/unit/test_guard_token_telemetry.py` (pricing/cost, cost ledger,
+  metric schema, transcript parse/window) + `tests/unit/test_guard_budget.py`.
+
 ## 1.9.0
 
 Reproducibility, safety net và token optimization.

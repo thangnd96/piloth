@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-07-22",
+  "unit": "usd_per_mtok",
+  "source": "claude-api skill / anthropic pricing; cache_write_5m = 1.25x input, cache_read = 0.1x input",
+  "notes": "Advisory only. Sonnet 5 has intro pricing ($2 input / $10 output) through 2026-08-31; the durable sticker rate ($3/$15) is used here as a conservative baseline. Update as_of + values when Anthropic prices change. cache_write_5m is the 5-minute-TTL write premium; the 1-hour TTL write is 2x input.",
+  "models": {
+    "claude-opus-4-8":            {"input": 5.00,  "output": 25.00, "cache_write_5m": 6.25,  "cache_read": 0.50},
+    "claude-opus-4-7":            {"input": 5.00,  "output": 25.00, "cache_write_5m": 6.25,  "cache_read": 0.50},
+    "claude-opus-4-6":            {"input": 5.00,  "output": 25.00, "cache_write_5m": 6.25,  "cache_read": 0.50},
+    "claude-sonnet-5":            {"input": 3.00,  "output": 15.00, "cache_write_5m": 3.75,  "cache_read": 0.30},
+    "claude-sonnet-4-6":          {"input": 3.00,  "output": 15.00, "cache_write_5m": 3.75,  "cache_read": 0.30},
+    "claude-haiku-4-5":           {"input": 1.00,  "output": 5.00,  "cache_write_5m": 1.25,  "cache_read": 0.10},
+    "claude-haiku-4-5-20251001":  {"input": 1.00,  "output": 5.00,  "cache_write_5m": 1.25,  "cache_read": 0.10},
+    "claude-fable-5":             {"input": 10.00, "output": 50.00, "cache_write_5m": 12.50, "cache_read": 1.00},
+    "claude-mythos-5":            {"input": 10.00, "output": 50.00, "cache_write_5m": 12.50, "cache_read": 1.00}
+  }
+}
