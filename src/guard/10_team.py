@@ -91,12 +91,9 @@ def team_contract_write(argv):
     contract["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     path = team_contract_state_path(contract["task_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, contract)
     MARKER_DIR.mkdir(exist_ok=True)
-    repo_state_file("team-contract.json").write_text(
-        json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("team-contract.json"), contract)
     json_print({"result": "team_contract_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
 
 
@@ -245,7 +242,7 @@ def team_receipt_write(argv):
     receipt["generated_artifacts"] = materialize_team_artifacts(receipt, contract)
     path = team_receipt_state_path(receipt["task_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, receipt)
     json_print({"result": "team_receipt_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
 
 

@@ -99,6 +99,16 @@ def json_print(payload):
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def write_json(path, obj):
+    """Write obj as the canonical PilothOS state-file JSON: UTF-8, sorted keys,
+    2-space indent, trailing newline. Single writer for every persisted
+    state/contract/receipt/seal file so their on-disk format cannot drift."""
+    path.write_text(
+        json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def canonical_json(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -161,14 +171,11 @@ def read_os_current_task_id():
 
 def write_os_current_task_id(task_id):
     OS_CURRENT.parent.mkdir(parents=True, exist_ok=True)
-    OS_CURRENT.write_text(
-        json.dumps({
-            "task_id": task_id,
-            "repo_key": REPO_KEY,
-            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        }, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(OS_CURRENT, {
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    })
 
 
 def load_os_state(task_id=None):
@@ -220,10 +227,7 @@ def save_os_state(state):
     state["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     path = os_state_path(task_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(path, state)
     write_os_current_task_id(task_id)
     return path
 

@@ -621,6 +621,16 @@ def json_print(payload):
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def write_json(path, obj):
+    """Write obj as the canonical PilothOS state-file JSON: UTF-8, sorted keys,
+    2-space indent, trailing newline. Single writer for every persisted
+    state/contract/receipt/seal file so their on-disk format cannot drift."""
+    path.write_text(
+        json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def canonical_json(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -683,14 +693,11 @@ def read_os_current_task_id():
 
 def write_os_current_task_id(task_id):
     OS_CURRENT.parent.mkdir(parents=True, exist_ok=True)
-    OS_CURRENT.write_text(
-        json.dumps({
-            "task_id": task_id,
-            "repo_key": REPO_KEY,
-            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        }, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(OS_CURRENT, {
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    })
 
 
 def load_os_state(task_id=None):
@@ -742,10 +749,7 @@ def save_os_state(state):
     state["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     path = os_state_path(task_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(path, state)
     write_os_current_task_id(task_id)
     return path
 
@@ -4109,12 +4113,9 @@ def team_contract_write(argv):
     contract["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     path = team_contract_state_path(contract["task_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, contract)
     MARKER_DIR.mkdir(exist_ok=True)
-    repo_state_file("team-contract.json").write_text(
-        json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("team-contract.json"), contract)
     json_print({"result": "team_contract_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
 
 
@@ -4263,7 +4264,7 @@ def team_receipt_write(argv):
     receipt["generated_artifacts"] = materialize_team_artifacts(receipt, contract)
     path = team_receipt_state_path(receipt["task_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, receipt)
     json_print({"result": "team_receipt_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
 
 
@@ -7142,22 +7143,13 @@ def os_start(argv):
         "scheduler_suggestion": scheduler,
     }
     state_path = save_os_state(state)
-    os_state_path(task_id, "contract.json").write_text(
-        json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os_state_path(task_id, "target-snapshot.json").write_text(
-        json.dumps(target_snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(os_state_path(task_id, "contract.json"), contract)
+    write_json(os_state_path(task_id, "target-snapshot.json"), target_snapshot)
     repo_contract = dict(contract)
     repo_contract["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     repo_contract["source"] = state_path.relative_to(REPO_ROOT).as_posix()
     MARKER_DIR.mkdir(exist_ok=True)
-    repo_state_file("task-contract.json").write_text(
-        json.dumps(repo_contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("task-contract.json"), repo_contract)
     empty_facts = {
         "changed_files": {},
         "affected_layers": [],
@@ -7292,10 +7284,7 @@ def write_active_receipt(receipt):
     MARKER_DIR.mkdir(exist_ok=True)
     receipt = dict(receipt)
     receipt["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    repo_state_file("deliver-receipt.json").write_text(
-        json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("deliver-receipt.json"), receipt)
     return receipt, repo_state_file("deliver-receipt.json")
 
 
@@ -7348,10 +7337,7 @@ def os_close_result(receipt, task_id=None, dry_run=False):
     else:
         target_diff = target_changed_paths(state)
     if not dry_run:
-        os_state_path(state["task_id"], "target-diff.json").write_text(
-            json.dumps(target_diff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        write_json(os_state_path(state["task_id"], "target-diff.json"), target_diff)
     facts = facts_from_target_diff(target_diff, active_facts)
     enforcement_advisory = cross_project_enforcement_advisory(active_facts, target_diff)
     if enforcement_advisory:
@@ -7435,10 +7421,7 @@ def os_close_result(receipt, task_id=None, dry_run=False):
     save_diff_facts({}, facts)
     seal = record_receipt_seal(receipt, contract, facts)
     target_seal = build_target_seal(state, receipt, target_diff)
-    os_state_path(state["task_id"], "target-seal.json").write_text(
-        json.dumps(target_seal, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(os_state_path(state["task_id"], "target-seal.json"), target_seal)
     state["status"] = "closed"
     state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + [
         "quality gates",
@@ -7574,7 +7557,7 @@ def review_request(argv):
     })
     path = os_state_path(task_id, "review-request.json")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(body, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, body)
     state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review"]))
     save_os_state(state)
     json_print({
