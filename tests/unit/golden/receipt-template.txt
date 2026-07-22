@@ -1,0 +1,39 @@
+{
+  "operational_preset": "standard",
+  "changed_files": [
+    "tests/docs/run-tests.sh"
+  ],
+  "affected_layers": [
+    "Tests"
+  ],
+  "verification_command": "<command or 'not run'>",
+  "result": "passed",
+  "limitation": "<required only if result is not run/failed/skipped>",
+  "quality_gates": {
+    "scope": {
+      "result": "PASS",
+      "evidence": "<evidence proving scope>"
+    },
+    "correctness": {
+      "result": "PASS",
+      "evidence": "<evidence proving correctness>"
+    },
+    "traceability": {
+      "result": "PASS",
+      "evidence": "<evidence proving traceability>"
+    },
+    "disclosure": {
+      "result": "PASS",
+      "evidence": "<evidence proving disclosure>"
+    }
+  },
+  "claims": [
+    {
+      "claim": "<what you did, no absolute 1:1/complete/fully claims unless evidence backs it>",
+      "evidence_refs": [
+        "<os-evidence id>",
+        "quality_gates.correctness"
+      ]
+    }
+  ]
+}
