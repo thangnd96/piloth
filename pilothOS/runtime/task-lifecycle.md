@@ -21,9 +21,15 @@
 - Không chuyển Deliver khi quality gate chưa đạt.
 - Retry, timeout và escalation tuân theo Governance.
 - Canonical path: `os-start` → edit/tool evidence → `os-evidence` →
-  `os-close` → `os-verify`.
+  `os-close` → `os-verify`. Use `os-close --dry-run` to validate the receipt
+  (full gate set) without sealing, and `receipt-template` for a gate-aware
+  skeleton; `os-start --explain` prints the request schema.
 - For controlled-target work, pass an absolute `target_repo` to `os-start` and
   use `target_paths` plus target-relative receipt `changed_files`.
+- Driving a target from another repo's session means the target's own hooks do
+  not fire (empty diff-facts, Stop-gate skipped); `os-close` still seals from the
+  git/manifest target-diff but emits a non-blocking `enforcement_advisory`. Run
+  inside the target's own session for full hook enforcement.
 - Explicit controlled targets default to `execution_strategy=controlled_target`
   and `target_footprint_policy=no_control_plane_files`; the target must not get
   `pilothOS/`, `.claude/`, `.codex/`, `.cursor/` or `.antigravity/`.

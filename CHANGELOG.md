@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+Lifecycle ergonomics + taxonomy hardening (từ dogfood build landing page).
+
+- **`os-close --dry-run`**: chạy TOÀN BỘ validator của os-close (quality gates,
+  truth-in-seal, expected-evidence, footprint, janitor — không chỉ validator lõi)
+  và trả `{would_pass, errors}` mà KHÔNG mutate state / seal / ghi `target-diff.json`.
+  Lặp tới khi `would_pass:true` rồi close thật.
+- **`receipt-template` gate-aware**: chỉ in field mà run này thực sự cần (docs-only
+  bỏ field UI), enum điền sẵn giá trị hợp lệ (không còn `<placeholder>`); allowed
+  values gom trong `_allowed_values`.
+- **`os-start --explain`**: in schema request (field/required/default/allowed/alias)
+  — SSOT dạng máy, mirror `installer explain`.
+- **`energy_budget_reason` passthrough**: `build_os_contract` giờ nhận field này từ
+  request (trước đây gate full-suite đòi nó nhưng os-start không có cách cấp) — cũng
+  liệt kê trong `os-start --explain`.
+- **`browser_smoke`** thêm vào `METRIC_TYPES` (loại evidence UI tự nhiên).
+- **Gộp vocab decision**: `SEMANTIC_REVIEW_DECISIONS` alias `UI_DESIGN_SYSTEM_DECISIONS`
+  (một nguồn, chống drift); `ASSET_ROUTING_DECISIONS` giữ riêng (khác ngữ nghĩa).
+- **Error message rõ hơn**: `learning_review.promoted_to` liệt kê target hợp lệ +
+  cú pháp `<target>, upstream`; `lesson_decision` derive từ constant.
+- **Cross-project advisory** (không chặn): `os-close` phát `enforcement_advisory` khi
+  diff-facts rỗng nhưng target-diff có thay đổi (target hook không fire khi drive từ
+  session khác) — seal vẫn dựa trên git/manifest target-diff.
+- Tests: `tests/unit/test_guard_taxonomy.py`; lc7 mở rộng (dry-run + gate-aware
+  template). Docs: os-control-plane, task-lifecycle.
+
+State retention / janitor — dọn rác vòng đời task (Nhóm A đĩa + Nhóm B token).
+
+- **`state-janitor`** (detect mặc định, `--fix`): dọn `os-runs/<task>/artifacts/` của
+  run đã seal ngoài retention (giữ state/seal JSON), tail-truncate scheduler-history;
+  `receipt-seals.jsonl` (hash-chain) chỉ WARN. `--kernel-logs` rotate lossless
+  `lessons-learned.md`/`review-log.md` sang `*-archive.md` (không load context).
+  `os-close` tự chạy safe subset sau seal (fail-soft). `state-doctor` thêm advisory bloat.
+- Tests: `tests/unit/test_guard_state_janitor.py`. Docs: token-optimization,
+  energy-token-policy, os-control-plane, memory/state/README.
+
 Governed Visual Review — human-in-the-loop review + agent loop + hook bridge.
 
 - **Piloth Review** (`pilothOS/tools/review/`): companion tool tái hiện annotron 1:1

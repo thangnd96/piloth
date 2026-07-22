@@ -106,6 +106,17 @@ computed from the real token cost. It is **advisory only — it never blocks
 `os-close`** (`advisory_unavailable` when no ceiling is set or no real cost is
 recorded yet). Promoting it to a hard ceiling is a deliberate future step.
 
+## State retention (advisory hygiene)
+
+Task-lifecycle state accumulates on disk (`os-runs/`, `scheduler-history.jsonl`,
+`receipt-seals.jsonl`) and two kernel logs (`lessons-learned.md`,
+`review-log.md`) grow and re-load into context each session. `state-janitor`
+keeps them bounded (see `os-control-plane.md`). Like `budget`, it is **advisory
+hygiene, not enforcement**: `os-close` runs the safe subset automatically but
+**fail-soft** — a cleanup error is recorded, never blocks the close — and the
+kernel-log rotation is opt-in and lossless (rows move to `*-archive.md`, nothing
+is deleted). `receipt-seals.jsonl` is hash-chained and never auto-pruned.
+
 ## Contract / Receipt Signals
 
 For non-trivial work, the task contract should make resource use visible through:

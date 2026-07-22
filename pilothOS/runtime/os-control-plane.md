@@ -71,6 +71,55 @@ internally, then writes `target-seal.json` with target file hashes for receipt
 `changed_files`. The older guard modes remain kernel primitives for adapters and
 tests, but agents should use the OS lifecycle as the default path.
 
+## Authoring a receipt (dry-run + gate-aware template)
+
+Build the receipt without guessing which fields this run needs:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py receipt-template        # scaffold
+python3 pilothOS/scripts/pilothos_guard.py os-close --dry-run receipt.json
+```
+
+- `receipt-template` is **gate-aware**: it reads the active contract + diff facts
+  and emits only the fields the run's `required_gates` actually require (a
+  docs-only run omits the UI fields; a UI run includes `design_system_checked`
+  etc.), with **valid default enum values** — not `<placeholder>`. Allowed enum
+  values for each field are listed under the `_allowed_values` block; delete that
+  block before the real close for a clean seal.
+- `os-close --dry-run` runs the **full** close validation set (every quality gate,
+  truth-in-seal, expected-evidence, footprint and janitor check — not just the
+  core receipt validator) and returns `{would_pass, errors}` **without mutating
+  state, sealing, or writing `target-diff.json`**. Iterate until `would_pass:true`,
+  then run `os-close` for real.
+
+## os-start request schema
+
+Every field is optional; a bare `{}` opens a repo-local run. For the full,
+machine-readable schema (fields, required flags, defaults, allowed values,
+aliases) run:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py os-start --explain
+```
+
+Key fields: `task_id`, `intent` (→ `task_scope`), `task_signal`, `target_repo`
+(absolute; omit for repo-local), `target_paths`, `affected_layers`,
+`expected_evidence`, `out_of_scope_paths`, `evidence_profile`
+(`code|ui|design_tokens|docs|release|generic`), `mode`
+(`lean|standard|strict|adaptive|auto`), `requires_prototype`/`requires_human_review`,
+`budget`. `requires_prototype:true` also forces `requires_human_review:true`.
+
+## Driving a target from another session (enforcement caveat)
+
+The guard's git helpers are scoped to the control-plane repo. When you drive a
+self-hosted or controlled target **from a different repo's Claude Code session**,
+the target's own `PreToolUse`/`PostToolUse`/`Stop` hooks do not fire, so
+`diff-facts` stays empty and the Stop-time deliver gate never runs. `os-close`
+still seals using the git/manifest **target-diff**, but it emits a non-blocking
+`enforcement_advisory` when diff-facts is empty while the target-diff shows
+changes. For full hook coverage, run the lifecycle **inside the target's own
+session**.
+
 ## Adaptive Mode And Cost Ledger
 
 PilothOS defaults to adaptive control:
@@ -89,7 +138,8 @@ traceability, architecture, reuse and regression gates.
 
 Cost is recorded through `os-evidence` records with `kind=metric`. Supported
 metric types include `llm_usage`, `tool_output`, `context_load`, `command`,
-`ui_quality`, `retry`, `verification`, `repair` and `benchmark`. Exact token
+`ui_quality`, `browser_smoke`, `retry`, `verification`, `repair` and
+`benchmark`. Exact token
 cost may only be reported when a metric has `real_token_telemetry=true`. If the
 adapter does not provide prompt/completion usage, the ledger must say
 `real_tokens=unavailable`; artifact token estimates are only a proxy and cannot
@@ -387,6 +437,41 @@ python3 pilothOS/scripts/pilothos_guard.py artifact-janitor --fix
 
 `production-review` runs the janitor in detect mode by default and fails when
 artifacts remain.
+
+## State janitor (retention / GC)
+
+`artifact-janitor` targets build cruft. `state-janitor` targets the task
+lifecycle state that accumulates under `pilothOS/memory/state/` over time:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py state-janitor          # detect only
+python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix    # apply
+python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix --kernel-logs
+```
+
+- **os-run artifacts** — the heavy `os-runs/<task-id>/artifacts/` (prototype
+  HTML, screenshots) of **sealed** runs outside retention are removed; the
+  lightweight `state.json`/`target-seal.json` audit records are kept. Retention
+  keeps the active run + the last `N` runs + any run within `X` days
+  (defaults `N=10`, `X=14`; override with `--runs`/`--days` or
+  `PILOTHOS_RETENTION_RUNS`/`PILOTHOS_RETENTION_DAYS`). Unsealed/in-flight runs
+  are never touched.
+- **scheduler-history.jsonl** — tail-truncated to the last
+  `PILOTHOS_SCHEDULER_KEEP` lines (default 200). Not chained, so dropping the
+  oldest lines is safe.
+- **receipt-seals.jsonl** — **warn only**. It is a hash-chained ledger
+  (`previous_seal_sha256`); `state-janitor` never rewrites it. Archive it
+  manually if it grows large.
+- **kernel logs** (`--kernel-logs`, opt-in) — `lessons-learned.md` and
+  `review-log.md` grow with every session and are re-loaded into context. Rows
+  beyond `PILOTHOS_KERNEL_LOG_KEEP` (default 200) are moved **losslessly** to
+  `*-archive.md` siblings that are not part of any context load set.
+
+`state-janitor` is read-only by default, exactly like `artifact-janitor`.
+`os-close` runs the **safe subset** (os-run artifacts + scheduler history, never
+kernel logs) automatically after a successful seal. It is fail-soft: a cleanup
+error is recorded in the close payload but never rejects the close. `state-doctor`
+surfaces an advisory `state retention advisory` check so you know when to run it.
 
 ## Limits
 

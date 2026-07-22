@@ -137,6 +137,41 @@ không phải thiếu sót.
 Nói ngắn gọn: Piloth cho bạn bằng chứng rằng nó **nạp ít context hơn**; để tuyên bố
 **tổng token model thấp hơn**, cần telemetry thật từ harness.
 
+## State retention & janitor (dọn rác)
+
+Rác của Piloth có **hai nhóm khác hẳn nhau** — chỉ một nhóm thật sự tốn token:
+
+- **Nhóm A — rác trên đĩa (KHÔNG trực tiếp tốn token LLM).**
+  `os-runs/<task-id>/` (state + evidence + `artifacts/` HTML/PNG),
+  `scheduler-history.jsonl`, `receipt-seals.jsonl`. Chúng bị `.gitignore` và
+  **không** được re-load vào context (mỗi task chỉ nạp một run active). Chúng làm
+  phình đĩa và chậm I/O (glob quét mọi run), chứ không làm tốn token model.
+- **Nhóm B — rác thật sự làm token tăng dần.** `memory/lessons-learned.md` và
+  `rot/review-log.md` bị append mỗi session rồi **re-load vào context** ở task cần
+  memory/rot. Đây mới là "càng ngày càng tốn token". (`rot/registry.md` là bảng cố
+  định, update tại chỗ, đã lazy-drop ở `lean`/`micro`.)
+
+`state-janitor` xử lý cả hai (chi tiết cờ và policy ở
+`pilothOS/runtime/os-control-plane.md`):
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py state-janitor            # detect (Nhóm A)
+python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix      # dọn Nhóm A
+python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix --kernel-logs  # + rotate Nhóm B
+```
+
+- **Nhóm A** tự chạy (safe subset) sau khi `os-close` seal thành công — fail-soft,
+  chỉ xoá `artifacts/` của run **đã seal** ngoài retention (giữ state/seal JSON) và
+  tail-truncate scheduler-history. `receipt-seals.jsonl` (hash-chain) chỉ WARN.
+- **Nhóm B** là opt-in (`--kernel-logs`), rotate **lossless** row cũ sang
+  `*-archive.md` (không nằm trong context load set). Đây là đòn bẩy token thực sự
+  cho install chạy lâu — chạy thủ công khi `state-doctor` báo `lessons_rows` /
+  `review_log_rows` lớn.
+
+Retention mặc định: giữ run active + 10 run gần nhất + mọi run trong 14 ngày
+(`PILOTHOS_RETENTION_RUNS`, `PILOTHOS_RETENTION_DAYS`, `PILOTHOS_SCHEDULER_KEEP`,
+`PILOTHOS_KERNEL_LOG_KEEP`).
+
 ## Review checklist (cho reviewer)
 
 - Agent có nạp đúng context cần cho task không? (`context-budget` để kiểm chứng)

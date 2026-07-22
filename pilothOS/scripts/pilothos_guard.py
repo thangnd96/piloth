@@ -28,14 +28,20 @@ Các mode:
   scheduler-record  Append sanitized local scheduler history.
   state-doctor   Read-only health check for repo-local OS state.
   os-start       Open an adaptive OS task run and write the scoped contract.
+                 `os-start --explain` prints the request schema (no run opened).
   os-status      Show active OS task status, mode and cost ledger.
   os-evidence    Append sanitized command/tool/metric evidence to an OS run.
   os-close       Validate receipt, gates, truth claims and target seal.
+                 `os-close --dry-run` runs the full validation without sealing.
   os-verify      Verify active receipt/control-plane/target seals.
   os-report      Summarize mode decisions, cost ledger and consumer value status.
   receipt-seal   Emit deterministic receipt/contract/file hash seal evidence.
   receipt-verify Verify current receipt/files against a prior seal.
   artifact-janitor Detect or explicitly clean deterministic local artifacts.
+  state-janitor  Retention/GC rác vòng đời task: dọn artifacts/ của os-run cũ đã
+                 seal (giữ state/seal JSON), tail-truncate scheduler-history;
+                 --kernel-logs rotate lossless lessons/review-log. Detect mặc
+                 định, chỉ đổi đĩa khi --fix. Tự chạy (safe subset) ở os-close.
   control-plane-check Verify project-local OS control-plane readiness.
   production-review Mechanical release readiness review.
   team-contract-write Record a multi-agent team contract.
@@ -178,7 +184,11 @@ UI_RECEIPT_FIELDS = {
     "component_reuse_decision",
     "token_reuse_decision",
 }
-SEMANTIC_REVIEW_DECISIONS = {"reuse", "extend", "new", "not_applicable"}
+# Design-decision vocab (reuse/extend/new) is shared by every "what did you do
+# with this candidate" review field. Alias one constant so the two names cannot
+# drift apart. (Distinct from ASSET_ROUTING_DECISIONS, which is load-state, not
+# a design decision.)
+SEMANTIC_REVIEW_DECISIONS = UI_DESIGN_SYSTEM_DECISIONS
 # Structured human-review vocabulary (Governed Visual Review round-trip).
 REVIEW_SEVERITIES = {"blocker", "major", "minor", "nit"}
 REVIEW_DISPOSITIONS = {"approve", "request-changes"}
@@ -220,6 +230,7 @@ READ_ONLY_GUARD_MODES = {
     "asset-health",
     "asset-scan",
     "artifact-janitor",
+    "state-janitor",
     "context-budget",
     "control-plane-check",
     "ds-scan",
@@ -290,6 +301,7 @@ METRIC_TYPES = {
     "context_load",
     "command",
     "ui_quality",
+    "browser_smoke",
     "retry",
     "verification",
     "repair",
@@ -357,6 +369,28 @@ ARTIFACT_JANITOR_SKIP_DIRS = {
     "env",
 }
 ARTIFACT_JANITOR_MAX_FINDINGS = 200
+
+# State janitor / retention (Nhóm A rác đĩa + Nhóm B token). Xem docs/token-optimization.md.
+# Tất cả có thể override qua env, mirror pattern PILOTHOS_OPERATIONAL_PRESET.
+
+
+def _env_int(name, default):
+    try:
+        value = int(os.environ.get(name, "").strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+STATE_RETENTION_KEEP_RUNS = _env_int("PILOTHOS_RETENTION_RUNS", 10)
+STATE_RETENTION_KEEP_DAYS = _env_int("PILOTHOS_RETENTION_DAYS", 14)
+SCHEDULER_HISTORY_KEEP = _env_int("PILOTHOS_SCHEDULER_KEEP", 200)
+KERNEL_LOG_KEEP_ROWS = _env_int("PILOTHOS_KERNEL_LOG_KEEP", 200)
+RECEIPT_SEALS_WARN_LINES = _env_int("PILOTHOS_RECEIPT_SEALS_WARN", 500)
+STATE_JANITOR_MAX_FINDINGS = 500
+LESSONS_ARCHIVE = PILOTHOS_DIR / "memory" / "lessons-learned-archive.md"
+REVIEW_LOG_ARCHIVE = PILOTHOS_DIR / "rot" / "review-log-archive.md"
+
 SECRET_KEY_RE = re.compile(
     r"(secret|token|password|passwd|api[_-]?key|credential|authorization|bearer)",
     re.IGNORECASE,
@@ -4688,7 +4722,8 @@ def validate_learning_review(value):
         )
     if decision not in LEARNING_DECISIONS:
         errors.append(
-            "learning_review.lesson_decision must be recorded, none, deferred, or promoted"
+            "learning_review.lesson_decision must be one of: "
+            + ", ".join(sorted(LEARNING_DECISIONS))
         )
     if mistake == "none" and decision in LEARNING_DECISIONS and decision != "none":
         errors.append(
@@ -4700,7 +4735,9 @@ def validate_learning_review(value):
         )
     if not learning_promotion_target_valid(promoted_to):
         errors.append(
-            "learning_review.promoted_to must be a known target or not_applicable"
+            "learning_review.promoted_to must be one of: "
+            + ", ".join(sorted(LEARNING_PROMOTION_TARGETS))
+            + " (or '<target>, upstream' for cross-project lessons)"
         )
     if decision == "promoted" and promoted_to == "not_applicable":
         errors.append(
@@ -5339,110 +5376,96 @@ def receipt_verify(argv):
 
 
 def receipt_template():
+    """Emit a gate-aware receipt skeleton.
+
+    Instead of a static superset of every field os-close *might* demand, this
+    reads the active contract + diff facts and emits ONLY the fields the current
+    run actually needs, with valid default enum values (not `<placeholder>`) so
+    the skeleton passes `os-close --dry-run` structurally — the human only fills
+    real evidence. Allowed enum values are shown in a trailing `_allowed` hint.
+    """
     facts = load_diff_facts({})
     contract, _ = load_task_contract({})
     update_diff_fact_derived(facts, contract)
-    print(json.dumps({
+    probe = {}  # proxy receipt so gate predicates can read paths from facts
+    mode = contract.get("mode") if isinstance(contract, dict) else None
+    required_gates = required_gates_for_task(contract, mode=mode)
+    std_evidence = preset_requires_standard_evidence(contract)
+    needs_reuse = receipt_requires_reuse_discipline(facts, probe, contract)
+    touches_ui = receipt_touches_ui(facts, probe)
+    needs_judgment = std_evidence and receipt_needs_judgment(contract, facts, probe)
+
+    template = {
         "operational_preset": operational_preset(contract),
         "changed_files": sorted(facts.get("changed_files", {})),
         "affected_layers": facts.get("affected_layers", []),
-        "scope_evidence": "<why these changes were in scope>",
-        "context_used": [
-            {
-                "source": "<path-or-command>",
-                "reason": "<why loaded>",
-                "finding": "<what it proved>"
-            }
-        ],
-        "consumer_asset_routing": [
-            {
-                "task_signal": "<UI/component|API/backend|bug fix|release/deploy|tool/MCP|not_applicable>",
-                "asset_type": "<skill|hook|tool|mcp|command|design-system|doc|convention|test-runner|build-runner|not_applicable>",
-                "decision": "<loaded|skipped|approval_required|not_applicable>",
-                "reason": "<why exact asset was loaded or why not applicable>"
-            }
-        ],
         "verification_command": "<command or 'not run'>",
-        "result": "<pass|failed|not run>",
-        "limitation": "<required if not run/failed/skipped>",
-        "judgment_checklist": {
-            key: question for key, question in JUDGMENT_CHECKLIST_KEYS.items()
+        "result": "passed",
+        "limitation": "<required only if result is not run/failed/skipped>",
+        "quality_gates": {
+            gate: {"result": "PASS", "evidence": f"<evidence proving {gate}>"}
+            for gate in required_gates
         },
-        "reuse_discipline": {
+        "claims": [
+            {"claim": "<what you did, no absolute 1:1/complete/fully claims unless evidence backs it>",
+             "evidence_refs": ["<os-evidence id>", "quality_gates.correctness"]}
+        ],
+    }
+
+    if needs_judgment:
+        template["judgment_checklist"] = dict(JUDGMENT_CHECKLIST_KEYS)
+
+    # Enum hints live in one top-level block (validators ignore unknown keys);
+    # delete `_allowed_values` before the real close if you want a clean seal.
+    allowed = {}
+
+    if needs_reuse:
+        template["scope_evidence"] = "<why these changes were in scope>"
+        template["context_used"] = [
+            {"source": "<path-or-command>", "reason": "<why loaded>", "finding": "<what it proved>"}
+        ]
+        template["consumer_asset_routing"] = [
+            {
+                "task_signal": "not_applicable",
+                "asset_type": "not_applicable",
+                "decision": "not_applicable",
+                "reason": "<why the exact asset was loaded, or why not applicable>",
+            }
+        ]
+        template["reuse_discipline"] = {
             "existing_code_checked": "<paths/searches checked>",
             "existing_component_checked": "<component/design-system check or not_applicable>",
             "existing_pattern_followed": "<pattern reused>",
             "new_code_reason": "<why new code was needed>",
             "duplicate_risk": "<duplicate risk assessment>",
             "kiss_dry_rationale": "<why this stayed simple/non-duplicative>",
-        },
-        "semantic_reuse_candidates": [
-            {
-                "id": "<candidate id from reuse-scan>",
-                "path": "<candidate path>",
-                "confidence": 0.0,
-                "reason": "<scan reason>"
-            }
-        ],
-        "semantic_reuse_review": [
-            {
-                "candidate": "<candidate id|path|all>",
-                "decision": "<reuse|extend|new|not_applicable>",
-                "reason": "<decision reason>"
-            }
-        ],
-        "design_system_candidates": [
-            {
-                "id": "<candidate id from ds-scan>",
-                "path": "<candidate path>",
-                "confidence": 0.0,
-                "reason": "<scan reason>"
-            }
-        ],
-        "design_system_candidate_review": [
-            {
-                "candidate": "<candidate id|path|all>",
-                "decision": "<reuse|extend|new|not_applicable>",
-                "reason": "<decision reason>"
-            }
-        ],
-        "learning_review": {
-            "mistake_checked": "<guessed_without_context|ignored_asset|ignored_consumer_asset|duplicated_helper|duplicated_component|bypassed_ds|bypassed_design_system|wrong_tool|exceeded_scope|unneeded_abstraction|context_bloat|skipped_verification|none>",
-            "lesson_decision": "<recorded|none|deferred|promoted>",
-            "promoted_to": "<rules|knowledge|skills|tools|tools/index.md|runtime|evaluation|not_applicable|target, upstream>",
+        }
+        template["learning_review"] = {
+            "mistake_checked": "none",
+            "lesson_decision": "none",
+            "promoted_to": "not_applicable",
             "reason": "<why no lesson was needed, or where it was recorded/promoted>",
-        },
-        "quality_gates": {
-            "reuse_non_duplication": {
-                "result": "PASS|FAIL|NOT_APPLICABLE",
-                "evidence": "<context/reuse evidence, diff facts, verification result>"
-            }
-        },
-        "design_system_checked": "<required for UI changes>",
-        "component_reuse_decision": "<required for UI changes>",
-        "token_reuse_decision": "<required for UI changes>",
-        "warning_checklist": {
-            "dependency_change_reason": "<required when dependency files changed>",
-            "new_component_reason": "<required when new component-like files were added>",
-            "ui_design_system_gap_reason": "<required when UI changed without DS evidence>",
-            "code_without_test_reason": "<required when code changed without test/evidence facts>",
-            "large_delta_reason": "<required when a large delta warning is present>",
-            "approval_evidence": "<required when high-risk tool/command was used>"
-        },
-        "tool_uses": [
-            {
-                "tool": "<tool name>",
-                "command": "<command if applicable>",
-                "risk": "low|medium|high",
-                "timeout": "<timeout used, e.g. 500ms, 30s, 5m, or 1h>",
-                "result": "<result/output summary>",
-                "evidence_output": "<stdout/stderr/artifact summary or path>",
-                "approval_evidence": "<required for high risk>",
-                "limitation": "<required when skipped/failed/not run>"
-            }
-        ],
-        "diff_facts": facts,
-    }, ensure_ascii=False, indent=2))
+        }
+        allowed["consumer_asset_routing[].task_signal"] = sorted(ASSET_ROUTING_SIGNALS)
+        allowed["consumer_asset_routing[].asset_type"] = sorted(ASSET_ROUTING_TYPES)
+        allowed["consumer_asset_routing[].decision"] = sorted(ASSET_ROUTING_DECISIONS)
+        allowed["learning_review.mistake_checked"] = sorted(LEARNING_MISTAKE_CLASSES)
+        allowed["learning_review.lesson_decision"] = sorted(LEARNING_DECISIONS)
+        allowed["learning_review.promoted_to"] = sorted(LEARNING_PROMOTION_TARGETS) + ["<target>, upstream"]
+
+    if touches_ui and std_evidence:
+        template["design_system_checked"] = "<existing DS/tokens checked; result>"
+        template["component_reuse_decision"] = "not_applicable"
+        template["token_reuse_decision"] = "not_applicable"
+        template["design_system_candidate_review"] = [
+            {"candidate": "all", "decision": "not_applicable", "reason": "<decision reason>"}
+        ]
+        allowed["component_reuse_decision / token_reuse_decision / design_system_candidate_review[].decision"] = sorted(UI_DESIGN_SYSTEM_DECISIONS)
+
+    if allowed:
+        template["_allowed_values"] = allowed
+
+    print(json.dumps(template, ensure_ascii=False, indent=2))
 
 
 # --------------------------------------------------------- OS lifecycle modes
@@ -5796,7 +5819,7 @@ def build_os_contract(request, route, scheduler, target=None):
         "operational_preset", "allowed_entitlements", "requires_judgment",
         "benchmark_id", "requires_human_review", "requires_prototype",
         "requires_discovery", "discovery_decisions", "model_hints",
-        "ui_design_system_evidence",
+        "ui_design_system_evidence", "energy_budget_reason",
     ):
         if optional in request:
             contract[optional] = request[optional]
@@ -6955,7 +6978,43 @@ def consumer_superiority_ok(receipt, os_evidence):
     return False
 
 
+def os_start_schema_payload():
+    """Machine-readable os-start request schema (SSOT for the doc page).
+
+    Mirrors `installer explain`: field -> {required, default, allowed, aliases}.
+    """
+    return {
+        "result": "os_start_schema",
+        "note": "All fields optional; a bare {} opens a repo-local run. See runtime/os-control-plane.md.",
+        "fields": {
+            "task_id": {"required": False, "default": "task-<sha256[:12]> from intent", "aliases": ["id", "request_id"]},
+            "intent": {"required": False, "default": "repo-local OS task", "aliases": ["task_scope", "summary", "title"], "note": "becomes contract.task_scope"},
+            "task_signal": {"required": False, "default": "not_applicable", "allowed": sorted(ASSET_ROUTING_SIGNALS)},
+            "target_repo": {"required": False, "default": "<control-plane repo>", "note": "absolute path; must exist and not be inside pilothOS/memory/state"},
+            "target_kind": {"required": False, "allowed": sorted(TARGET_KINDS), "note": "cross-checked vs actual git detection"},
+            "target_paths": {"required": False, "default": ["**/*"], "aliases": ["allowed_paths", "affected_paths", "paths"], "note": "each must be a safe glob"},
+            "affected_layers": {"required": False, "default": "derived from paths", "note": "contract requires a non-empty list"},
+            "expected_evidence": {"required": False, "default": ["manual verification receipt"]},
+            "out_of_scope_paths": {"required": False, "default": []},
+            "evidence_profile": {"required": False, "default": "generic", "allowed": sorted(EVIDENCE_PROFILES)},
+            "mode": {"required": False, "default": "adaptive", "allowed": sorted(OS_MODE_REQUESTS), "aliases": ["os_mode", "piloth_mode"], "note": "adaptive/auto resolve to lean|standard|strict"},
+            "operational_preset": {"required": False, "allowed": sorted(OPERATIONAL_PRESETS)},
+            "target_footprint_policy": {"required": False, "allowed": sorted(TARGET_FOOTPRINT_POLICIES), "aliases": ["footprint_policy"], "default": "no_control_plane_files if explicit target else repo_local_state_allowed"},
+            "execution_strategy": {"required": False, "default": "controlled_target if explicit target else repo_local"},
+            "budget": {"required": False, "note": "object; budget.max_usd is an advisory cost ceiling"},
+            "success_metrics": {"required": False},
+            "requires_prototype": {"required": False, "default": False, "note": "true also forces requires_human_review"},
+            "requires_human_review": {"required": False, "default": False},
+            "requires_discovery": {"required": False, "default": False},
+            "energy_budget_reason": {"required": "when expected_evidence names a full-suite/broad run", "note": "justify the blast radius of an expensive run"},
+        },
+    }
+
+
 def os_start(argv):
+    if "--explain" in list(argv):
+        json_print(os_start_schema_payload())
+        return
     try:
         request, source = json_arg_or_stdin(argv, "os-start")
     except Exception as e:
@@ -7214,7 +7273,28 @@ def record_receipt_seal(receipt, contract, facts):
     return seal
 
 
-def os_close_result(receipt, task_id=None):
+def cross_project_enforcement_advisory(active_facts, target_diff):
+    """Non-blocking advisory when hooks likely did not fire on the target.
+
+    If diff-facts (populated only by the target's own PostToolUse hook) is empty
+    yet the git/manifest target-diff shows changes, the run was almost certainly
+    driven from a different session/repo, so the target's Stop-time deliver gate
+    never ran. Enforcement then rests on the target-diff alone. Returns an
+    advisory string (or "" when coverage looks normal).
+    """
+    if not (isinstance(active_facts, dict) and isinstance(target_diff, dict)):
+        return ""
+    if active_facts.get("changed_files") or not target_diff.get("changed_paths"):
+        return ""
+    return (
+        "diff-facts empty but target-diff shows changes: the target's PostToolUse/"
+        "Stop hooks likely did not fire (task driven from another session). "
+        "Enforcement relied on the git/manifest target-diff only; run inside the "
+        "target's own session for full hook coverage."
+    )
+
+
+def os_close_result(receipt, task_id=None, dry_run=False):
     state, state_path = load_os_state(task_id or (receipt.get("task_id") if isinstance(receipt, dict) else None))
     errors = []
     if not state:
@@ -7230,11 +7310,15 @@ def os_close_result(receipt, task_id=None):
         target_diff = target_diff_from_active_facts(state, active_facts)
     else:
         target_diff = target_changed_paths(state)
-    os_state_path(state["task_id"], "target-diff.json").write_text(
-        json.dumps(target_diff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    if not dry_run:
+        os_state_path(state["task_id"], "target-diff.json").write_text(
+            json.dumps(target_diff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     facts = facts_from_target_diff(target_diff, active_facts)
+    enforcement_advisory = cross_project_enforcement_advisory(active_facts, target_diff)
+    if enforcement_advisory:
+        state["enforcement_advisory"] = enforcement_advisory
     os_evidence = os_evidence_records(state["task_id"])
     errors.extend(validate_deliver_receipt(receipt, contract, facts))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
@@ -7277,6 +7361,20 @@ def os_close_result(receipt, task_id=None):
         and target_janitor.get("result") != "artifact_janitor_passed"
     ):
         errors.append("target artifact janitor found local artifacts; run artifact-janitor --target <path> --fix only if explicit cleanup is intended")
+    if dry_run:
+        result = {
+            "result": "os_close_dry_run",
+            "task_id": state["task_id"],
+            "would_pass": not errors,
+            "errors": errors,
+            "required_gates": required_gates,
+            "janitor": janitor,
+            "target_janitor": target_janitor,
+            "target_footprint": target_footprint,
+        }
+        if enforcement_advisory:
+            result["enforcement_advisory"] = enforcement_advisory
+        return result
     if errors:
         state["status"] = "close_rejected"
         state["last_close_errors"] = errors
@@ -7294,6 +7392,7 @@ def os_close_result(receipt, task_id=None):
             "target_footprint": target_footprint,
             "target_diff": target_diff,
             "state_path": state_path.relative_to(REPO_ROOT).as_posix() if state_path else "",
+            "enforcement_advisory": enforcement_advisory,
         }
     receipt, receipt_path = write_active_receipt(receipt)
     save_diff_facts({}, facts)
@@ -7340,6 +7439,13 @@ def os_close_result(receipt, task_id=None):
         }
     state["status"] = "sealed"
     state["control_plane"] = control
+    # Auto-clean rác đĩa (Nhóm A) sau khi seal thành công. Run vừa seal là
+    # active + mới nhất nên luôn được retention giữ lại; fail-soft tuyệt đối —
+    # lỗi dọn dẹp KHÔNG bao giờ làm hỏng os-close.
+    try:
+        state["state_janitor"] = state_janitor_result(fix=True)
+    except Exception as e:
+        state["state_janitor"] = {"result": "state_janitor_error", "reason": str(e)}
     save_os_state(state)
     return {
         "result": "os_closed",
@@ -7358,19 +7464,26 @@ def os_close_result(receipt, task_id=None):
         "target_diff_path": os_state_path(state["task_id"], "target-diff.json").relative_to(REPO_ROOT).as_posix(),
         "target_seal_path": os_state_path(state["task_id"], "target-seal.json").relative_to(REPO_ROOT).as_posix(),
         "control_plane": control.get("result"),
+        "state_janitor": state.get("state_janitor"),
+        "enforcement_advisory": enforcement_advisory,
     }
 
 
 def os_close(argv):
+    args = list(argv)
+    dry_run = False
+    if "--dry-run" in args:
+        dry_run = True
+        args = [a for a in args if a != "--dry-run"]
     try:
-        receipt, _ = json_arg_or_stdin(argv, "os-close")
+        receipt, _ = json_arg_or_stdin(args, "os-close")
     except Exception as e:
         json_print({"result": "os_close_rejected", "errors": [str(e)]})
         return
     if not isinstance(receipt, dict):
         json_print({"result": "os_close_rejected", "errors": ["receipt must be a JSON object"]})
         return
-    json_print(os_close_result(receipt))
+    json_print(os_close_result(receipt, dry_run=dry_run))
 
 
 def review_request(argv):
@@ -7979,6 +8092,353 @@ def artifact_janitor(argv):
     json_print(artifact_janitor_result(fix=fix, root=root))
 
 
+# ---------------------------------------------------------------------------
+# State janitor: retention/GC cho rác vòng đời task.
+#   Nhóm A (đĩa, gitignored): artifacts/ của os-run đã seal ngoài retention +
+#     tail-truncate scheduler-history.jsonl. receipt-seals.jsonl chỉ WARN
+#     (hash-chain — không tự sửa để khỏi gãy chuỗi).
+#   Nhóm B (token, opt-in --kernel-logs): rotate lossless row cũ của
+#     lessons-learned.md / review-log.md sang *-archive.md (không load context).
+# Mirror artifact-janitor: detect mặc định, chỉ đổi đĩa khi fix=True.
+# ---------------------------------------------------------------------------
+
+
+def _count_jsonl_lines(path):
+    if not path.exists():
+        return 0
+    count = 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    count += 1
+    except OSError:
+        return 0
+    return count
+
+
+def _artifacts_size_bytes(path):
+    total = 0
+    for current, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += (pathlib.Path(current) / name).stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _md_table_parts(path):
+    """Tách file log markdown thành (prefix, rows).
+
+    prefix = mọi thứ tính đến hết dòng separator `|---|` (kèm newline cuối);
+    rows = các dòng data-row `| ... |` sau đó. Trả None nếu không có bảng.
+    """
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    lines = text.splitlines()
+    sep_idx = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("|") and "-" in stripped and set(stripped) <= set("|-: "):
+            sep_idx = idx
+            break
+    if sep_idx is None:
+        return None
+    prefix = "\n".join(lines[: sep_idx + 1]) + "\n"
+    rows = [line.rstrip() for line in lines[sep_idx + 1:] if line.strip().startswith("|")]
+    return prefix, rows
+
+
+def _md_table_rowcount(path):
+    parts = _md_table_parts(path)
+    return len(parts[1]) if parts else 0
+
+
+def os_run_retention_plan(keep_runs=None, keep_days=None):
+    """Quyết định os-run nào giữ nguyên, os-run nào bị dọn artifacts/.
+
+    Giữ = run active (current.json) + N run gần nhất + mọi run cập nhật trong
+    X ngày. Chỉ run ĐÃ SEAL nằm ngoài cửa sổ đó mới đủ điều kiện dọn artifacts/;
+    run đang dở (chưa seal) luôn giữ nguyên vẹn.
+    """
+    keep_runs = STATE_RETENTION_KEEP_RUNS if keep_runs is None else keep_runs
+    keep_days = STATE_RETENTION_KEEP_DAYS if keep_days is None else keep_days
+    plan = {"keep_runs": keep_runs, "keep_days": keep_days, "runs": []}
+    if not OS_RUNS_DIR.exists():
+        return plan
+    active_task = read_os_current_task_id()
+    active_dir = safe_task_id(active_task) if active_task else ""
+    cutoff = time.time() - keep_days * 86400
+    entries = []
+    for state_path in OS_RUNS_DIR.glob("*/state.json"):
+        data = load_json_file(state_path)
+        if not isinstance(data, dict) or data.get("repo_key") != REPO_KEY:
+            continue
+        try:
+            mtime = state_path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        sealed = (
+            data.get("status") in {"closed", "sealed"}
+            and non_empty_string(data.get("seal_sha256"))
+        )
+        entries.append({
+            "dir": state_path.parent,
+            "name": state_path.parent.name,
+            "mtime": mtime,
+            "updated_at": data.get("updated_at", ""),
+            "sealed": sealed,
+        })
+    entries.sort(key=lambda e: (e["mtime"], e["updated_at"]), reverse=True)
+    for idx, entry in enumerate(entries):
+        keep = (
+            entry["name"] == active_dir
+            or idx < keep_runs
+            or entry["mtime"] >= cutoff
+        )
+        prunable = (
+            (not keep)
+            and entry["sealed"]
+            and (entry["dir"] / "artifacts").is_dir()
+        )
+        plan["runs"].append({
+            "name": entry["name"],
+            "keep": keep,
+            "sealed": entry["sealed"],
+            "prune_artifacts": prunable,
+        })
+    return plan
+
+
+def state_janitor_findings(keep_runs=None, keep_days=None, kernel_logs=False):
+    findings = []
+    plan = os_run_retention_plan(keep_runs=keep_runs, keep_days=keep_days)
+    for run in plan["runs"]:
+        if not run["prune_artifacts"]:
+            continue
+        artifacts = OS_RUNS_DIR / run["name"] / "artifacts"
+        findings.append({
+            "path": artifacts.relative_to(REPO_ROOT).as_posix(),
+            "kind": "dir",
+            "action": "remove",
+            "reason": "sealed run outside retention (keeps state/seal JSON)",
+            "bytes": _artifacts_size_bytes(artifacts),
+        })
+    sched_lines = _count_jsonl_lines(SCHEDULER_HISTORY)
+    if sched_lines > SCHEDULER_HISTORY_KEEP:
+        findings.append({
+            "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
+            "kind": "jsonl-tail",
+            "action": "truncate",
+            "keep": SCHEDULER_HISTORY_KEEP,
+            "lines": sched_lines,
+        })
+    seal_lines = _count_jsonl_lines(RECEIPT_SEALS)
+    if seal_lines > RECEIPT_SEALS_WARN_LINES:
+        findings.append({
+            "path": RECEIPT_SEALS.relative_to(REPO_ROOT).as_posix(),
+            "kind": "warn",
+            "action": "none",
+            "lines": seal_lines,
+            "reason": "hash-chained ledger; archive manually to preserve chain",
+        })
+    if kernel_logs:
+        for live, archive in ((LESSONS, LESSONS_ARCHIVE), (REVIEW_LOG, REVIEW_LOG_ARCHIVE)):
+            rows = _md_table_rowcount(live)
+            if rows > KERNEL_LOG_KEEP_ROWS:
+                findings.append({
+                    "path": live.relative_to(REPO_ROOT).as_posix(),
+                    "kind": "md-rows",
+                    "action": "rotate",
+                    "keep": KERNEL_LOG_KEEP_ROWS,
+                    "rows": rows,
+                    "archive": archive.relative_to(REPO_ROOT).as_posix(),
+                })
+    if len(findings) > STATE_JANITOR_MAX_FINDINGS:
+        findings = findings[:STATE_JANITOR_MAX_FINDINGS]
+        findings.append({
+            "path": "",
+            "kind": "limit",
+            "action": "stop",
+            "reason": f"finding limit reached: {STATE_JANITOR_MAX_FINDINGS}",
+        })
+    return findings
+
+
+def _prune_artifacts_dir(rel_path):
+    abs_path = (REPO_ROOT / rel_path).resolve()
+    runs_root = OS_RUNS_DIR.resolve()
+    # Bất biến an toàn: chỉ bao giờ xoá thư mục tên "artifacts" ngay dưới một
+    # os-run — không bao giờ đụng state/seal/receipt JSON hay thư mục run.
+    if abs_path.name != "artifacts" or abs_path.parent.parent != runs_root:
+        return {"path": rel_path, "status": "skipped", "reason": "not an os-run artifacts dir"}
+    if not abs_path.is_dir():
+        return {"path": rel_path, "status": "missing"}
+    try:
+        freed = _artifacts_size_bytes(abs_path)
+        shutil.rmtree(abs_path)
+        return {"path": rel_path, "status": "removed", "bytes": freed}
+    except OSError as e:
+        return {"path": rel_path, "status": "failed", "reason": str(e)}
+
+
+def _truncate_jsonl_tail(path, keep):
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    if not path.exists():
+        return {"path": rel, "status": "missing"}
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = [line for line in f if line.strip()]
+    except OSError as e:
+        return {"path": rel, "status": "failed", "reason": str(e)}
+    if len(lines) <= keep:
+        return {"path": rel, "status": "noop", "lines": len(lines)}
+    kept = lines[-keep:]
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            for line in kept:
+                f.write(line if line.endswith("\n") else line + "\n")
+    except OSError as e:
+        return {"path": rel, "status": "failed", "reason": str(e)}
+    return {"path": rel, "status": "truncated", "removed": len(lines) - keep, "kept": len(kept)}
+
+
+def _rotate_md_log(rel_path, item):
+    live = REPO_ROOT / rel_path
+    archive = REPO_ROOT / item.get("archive", "")
+    keep = item.get("keep", KERNEL_LOG_KEEP_ROWS)
+    parts = _md_table_parts(live)
+    if not parts:
+        return {"path": rel_path, "status": "skipped", "reason": "no markdown table"}
+    prefix, rows = parts
+    if len(rows) <= keep:
+        return {"path": rel_path, "status": "noop", "rows": len(rows)}
+    moved = rows[:-keep]
+    kept = rows[-keep:]
+    archive_parts = _md_table_parts(archive)
+    if archive_parts:
+        archive_prefix, archive_rows = archive_parts
+    else:
+        archive_prefix, archive_rows = prefix, []
+    new_archive_rows = archive_rows + moved
+    try:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text(archive_prefix + "\n".join(new_archive_rows) + "\n", encoding="utf-8")
+        live.write_text(prefix + "\n".join(kept) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {"path": rel_path, "status": "failed", "reason": str(e)}
+    return {
+        "path": rel_path,
+        "status": "rotated",
+        "moved": len(moved),
+        "kept": len(kept),
+        "archive": item.get("archive"),
+    }
+
+
+def state_janitor_apply(findings):
+    actions = []
+    for item in findings:
+        action = item.get("action")
+        if action == "remove" and item.get("kind") == "dir":
+            actions.append(_prune_artifacts_dir(item.get("path")))
+        elif action == "truncate" and item.get("kind") == "jsonl-tail":
+            actions.append(_truncate_jsonl_tail(SCHEDULER_HISTORY, item.get("keep", SCHEDULER_HISTORY_KEEP)))
+        elif action == "rotate" and item.get("kind") == "md-rows":
+            actions.append(_rotate_md_log(item.get("path"), item))
+    return actions
+
+
+def state_janitor_result(fix=False, keep_runs=None, keep_days=None, kernel_logs=False):
+    actionable_kinds = {"remove", "truncate", "rotate"}
+    findings = state_janitor_findings(keep_runs=keep_runs, keep_days=keep_days, kernel_logs=kernel_logs)
+    actionable = [f for f in findings if f.get("action") in actionable_kinds]
+    actions = []
+    if fix and actionable:
+        actions = state_janitor_apply(findings)
+        findings = state_janitor_findings(keep_runs=keep_runs, keep_days=keep_days, kernel_logs=kernel_logs)
+    if fix:
+        result = "state_janitor_cleaned" if actions else "state_janitor_clean"
+    else:
+        result = "state_janitor_findings" if actionable else "state_janitor_clean"
+    return {
+        "result": result,
+        "mode": "fix" if fix else "detect",
+        "retention": {
+            "keep_runs": STATE_RETENTION_KEEP_RUNS if keep_runs is None else keep_runs,
+            "keep_days": STATE_RETENTION_KEEP_DAYS if keep_days is None else keep_days,
+            "kernel_logs": kernel_logs,
+        },
+        "findings_count": len([f for f in findings if f.get("kind") != "limit"]),
+        "findings": findings,
+        "actions": actions,
+        "policy": {
+            "default": "read_only_detect",
+            "artifacts": "remove_only_artifacts_dir_of_sealed_runs_outside_retention",
+            "receipt_seals": "warn_only_hash_chain_preserved",
+            "kernel_logs": "lossless_rotate_to_archive_opt_in",
+        },
+    }
+
+
+def _parse_nonneg_int(value, flag, errors):
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        errors.append(f"{flag} requires a non-negative integer")
+        return None
+    if n < 0:
+        errors.append(f"{flag} requires a non-negative integer")
+        return None
+    return n
+
+
+def state_janitor(argv):
+    args = list(argv)
+    fix = False
+    kernel_logs = False
+    keep_runs = None
+    keep_days = None
+    errors = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--fix":
+            fix = True
+        elif arg == "--kernel-logs":
+            kernel_logs = True
+        elif arg == "--runs":
+            if i + 1 >= len(args):
+                errors.append("--runs requires a non-negative integer")
+                break
+            i += 1
+            keep_runs = _parse_nonneg_int(args[i], "--runs", errors)
+        elif arg.startswith("--runs="):
+            keep_runs = _parse_nonneg_int(arg.split("=", 1)[1], "--runs", errors)
+        elif arg == "--days":
+            if i + 1 >= len(args):
+                errors.append("--days requires a non-negative integer")
+                break
+            i += 1
+            keep_days = _parse_nonneg_int(args[i], "--days", errors)
+        elif arg.startswith("--days="):
+            keep_days = _parse_nonneg_int(arg.split("=", 1)[1], "--days", errors)
+        else:
+            errors.append(f"unsupported argument: {arg}")
+        i += 1
+    if errors:
+        json_print({"result": "state_janitor_rejected", "errors": errors})
+        return
+    json_print(state_janitor_result(
+        fix=fix, keep_runs=keep_runs, keep_days=keep_days, kernel_logs=kernel_logs,
+    ))
+
+
 def jsonl_state_doctor(path):
     rel = path.relative_to(REPO_ROOT).as_posix()
     if not path.exists():
@@ -8114,6 +8574,30 @@ def state_doctor_result():
         "repo-local state excluded from manifest",
         not shipped_state,
         "no JSONL state files shipped" if not shipped_state else shipped_state,
+    )
+
+    # Advisory hygiene: surface state bloat so người dùng biết khi nào nên chạy
+    # `state-janitor` (đặc biệt `--kernel-logs`). Luôn ok=True — không làm fail
+    # state-doctor; retention là dọn dẹp tuỳ chọn, không phải điều kiện đúng đắn.
+    total_runs = len(os_run_checks)
+    janitor = state_janitor_result(fix=False)
+    prunable = [f for f in janitor.get("findings", []) if f.get("action") == "remove"]
+    reclaimable = sum(int(f.get("bytes", 0) or 0) for f in prunable)
+    add_check(
+        "state retention advisory",
+        True,
+        {
+            "os_runs": total_runs,
+            "keep_runs": janitor.get("retention", {}).get("keep_runs"),
+            "keep_days": janitor.get("retention", {}).get("keep_days"),
+            "prunable_artifact_dirs": len(prunable),
+            "reclaimable_bytes": reclaimable,
+            "scheduler_history_lines": _count_jsonl_lines(SCHEDULER_HISTORY),
+            "receipt_seals_lines": _count_jsonl_lines(RECEIPT_SEALS),
+            "lessons_rows": _md_table_rowcount(LESSONS),
+            "review_log_rows": _md_table_rowcount(REVIEW_LOG),
+            "hint": "run `state-janitor --fix` (add --kernel-logs to rotate logs)",
+        },
     )
 
     errors = [check for check in checks if not check["ok"]]
@@ -8564,6 +9048,7 @@ COMMAND_TABLE = {
     "receipt-seal": (receipt_seal, "argv"),
     "receipt-verify": (receipt_verify, "argv"),
     "artifact-janitor": (artifact_janitor, "argv"),
+    "state-janitor": (state_janitor, "argv"),
     "control-plane-check": (control_plane_check, "argv"),
     "team-contract-write": (team_contract_write, "argv"),
     "team-receipt-write": (team_receipt_write, "argv"),
