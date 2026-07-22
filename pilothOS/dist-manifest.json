@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.9.0",
- "generated_at": "2026-07-18T10:51:42.119758+00:00",
+ "generated_at": "2026-07-21T23:32:00.489765+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -134,6 +134,10 @@
   },
   {
    "path": "pilothOS/agents/team-roles/critical-evaluator.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/agents/team-roles/designer.md",
    "class": "verbatim"
   },
   {
@@ -290,6 +294,14 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/skills/workflow/piloth-discovery/SKILL.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-prototype/SKILL.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/skills/workflow/piloth-team-setup/SKILL.md",
    "class": "verbatim"
   },
@@ -387,6 +399,46 @@
   },
   {
    "path": "pilothOS/tools/mcp/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/README.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/bin/review",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/hooks/hooks.json",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/hooks/review-hook.sh",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/integration/govern.js",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/package.json",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/src/chrome.html",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/src/mdRender.js",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/src/sdk.js",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/tools/review/src/server.js",
    "class": "verbatim"
   }
  ]

@@ -7,10 +7,11 @@
 | Intake | `os-start request.json` | Scope, assumptions, target repo, target paths, affected layers, task id |
 | Contract | `os-start` writes active contract | Scope, target-relative allowed paths, consumer scope, expected evidence, context evidence, reuse evidence, decision limits |
 | Route | `os-start` routes assets/scheduler | Consumer asset routing, health notes, expected evidence, target snapshot |
+| Prototype (optional) | Contract khai `requires_prototype` | ≥2 UI options + option đã chọn; `PROTOTYPE.md`; `os-evidence kind=prototype`; human pick qua human_review round-trip |
 | Execute | Contract active | Implementation/output + post-edit diff facts |
 | Tool/Evidence | Tool/checks run | `os-evidence evidence.json` entries; no full output/secrets |
-| Review | Có output | Required quality gates, judgment checklist khi cần |
-| Repair | Review chưa đạt | Issues đã xử lý và re-verified |
+| Review | Có output | Required quality gates, judgment checklist khi cần; với human-review: `review-request` → structured `review-feedback` (verdict + findings) |
+| Repair | Review chưa đạt | Issues đã xử lý và re-verified; blocker/major từ human-review được xử lý trước khi finalize |
 | Receipt | Tất cả gate đạt | Receipt with changed files/layers, verification, limitations and `claims[]` |
 | Seal | `os-close receipt.json` | Recorded receipt seal, target seal, clean control-plane/target janitors, passing control-plane check |
 
@@ -37,6 +38,23 @@
   `out_of_scope_paths` của task contract hiện hành.
 - Policy cần judgment phải có checklist/evidence; hook chỉ kiểm sự hiện diện,
   model/người chịu trách nhiệm đánh giá nội dung.
+- Task khai `requires_human_review` trong contract không được Seal khi chưa có
+  artifact `review-feedback` với `verdict=approve` + `finalized=true` và không còn
+  blocker/major chưa xử lý; blocker/major route ngược về Repair. Guard chỉ kiểm
+  sự tồn tại/đầy đủ của artifact, con người chịu trách nhiệm nội dung review.
+- Task khai `requires_prototype` tự động bật `requires_human_review` (human pick
+  tái dùng chính review round-trip). Gate `prototype` (mỏng) chỉ đạt khi
+  `os-evidence kind=prototype` có method hợp lệ, ≥2 options và một `chosen` nằm
+  trong options; thiếu → `os-close` route về Repair. Receipt tự khai
+  `prototype: PASS` mà không có evidence backing vẫn FAIL (chống honor-system).
+- Discovery gate là gate judgment phase chạy đầu (không phải hook tự trigger):
+  khi có ≥3 câu hỏi mở hoặc 1 câu high-impact, dùng skill `piloth-discovery` để
+  hỏi-xác nhận qua Governed Visual Review, rồi ghi `os-evidence kind=discovery`
+  và fold quyết định vào contract `discovery_decisions` để Traceability trace tới.
+  `DISCOVERY.md` là working doc, không thuộc `produces`/`depends_on`.
+- `phase_plan_suggestion` trong contract là **advisory** (recipe right-sizing):
+  khuyến nghị bật discovery/prototype, hiển thị ở `os-status`/`os-report`, nhưng
+  không tự bật phase — con người quyết ở `os-start` kế tiếp.
 - `os-close` reject claim tuyệt đối (`1:1`, `production-ready`, `fully verified`,
   `no issues`, `full`, `complete`, `all tokens`, `entire library`) khi evidence
   có limitation, skipped check, failed pixel diff, missing font hoặc blocker
@@ -51,6 +69,10 @@ Repo-local default target:
 ```bash
 python3 pilothOS/scripts/pilothos_guard.py os-start request.json
 python3 pilothOS/scripts/pilothos_guard.py os-evidence evidence.json
+# Human-review round-trip (khi contract khai requires_human_review):
+python3 pilothOS/scripts/pilothos_guard.py review-request <task-id>
+python3 pilothOS/scripts/pilothos_guard.py review-feedback feedback.json
+python3 pilothOS/scripts/pilothos_guard.py review-verify <task-id>
 python3 pilothOS/scripts/pilothos_guard.py os-close receipt.json
 python3 pilothOS/scripts/pilothos_guard.py os-verify
 ```

@@ -45,6 +45,15 @@
             "command": "python3 pilothOS/scripts/pilothos_guard.py stop-check"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh pilothOS/tools/review/hooks/review-hook.sh fire /hook/stop",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -56,6 +65,16 @@
             "command": "python3 pilothOS/scripts/pilothos_guard.py pre-edit"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read|Bash|Grep|Glob|WebFetch|WebSearch|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh pilothOS/tools/review/hooks/review-hook.sh gate /hook/pretool",
+            "timeout": 190
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -65,6 +84,27 @@
           {
             "type": "command",
             "command": "python3 pilothOS/scripts/pilothos_guard.py post-edit"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read|Bash|Grep|Glob|WebFetch|WebSearch|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh pilothOS/tools/review/hooks/review-hook.sh fire /hook/posttool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh pilothOS/tools/review/hooks/review-hook.sh fire /hook/notify",
+            "timeout": 5
           }
         ]
       }

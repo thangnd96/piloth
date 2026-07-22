@@ -168,12 +168,14 @@ from pathlib import Path
 
 settings = json.loads(Path(".claude/settings.json").read_text(encoding="utf-8"))
 pre = settings["hooks"]["PreToolUse"]
-assert len(pre) == 2, pre
+assert len(pre) == 3, pre
 assert pre[0]["hooks"][0]["command"] == "echo consumer-pre", pre
 assert pre[1]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py pre-edit", pre
+assert "review-hook.sh gate" in pre[2]["hooks"][0]["command"], pre
 stop = settings["hooks"]["Stop"]
-assert len(stop) == 1, stop
+assert len(stop) == 2, stop
 assert stop[0]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py stop-check", stop
+assert "review-hook.sh fire /hook/stop" in stop[1]["hooks"][0]["command"], stop
 print("C10b4 PASS: consumer hooks first, Piloth hooks appended, duplicates deduped")
 PY
 

@@ -1,0 +1,14 @@
+{
+  "name": "piloth-review",
+  "version": "0.1.0",
+  "description": "Governed Visual Review — annotron-faithful review loop (Node built-ins only, zero runtime dependency).",
+  "bin": {
+    "piloth-review": "bin/review"
+  },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "license": "MIT"
+}

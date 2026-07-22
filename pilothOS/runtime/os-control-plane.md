@@ -29,6 +29,8 @@ The project-local OS controls are deterministic, local and auditable:
   hashes against the OS run seal;
 - `os-report` summarizes mode decisions, target footprint, cost ledger, target
   seal and consumer superiority status;
+- `review-request`, `review-feedback` and `review-verify` run the structured
+  human-review round-trip that backs the `human_review` gate;
 - `control-plane-check` verifies the installed control-plane surface and, by
   default, requires active delivery evidence when the checkout has changes;
 - contracts act like scoped policy profiles;
@@ -255,6 +257,57 @@ Unqualified absolute claims such as `1:1`, `pixel-perfect`,
 evidence contains a limitation, skipped/blocked verification, failed pixel diff,
 missing font, failed quality gate or non-zero blockers. Qualified disclosure is
 allowed; the seal should state what was verified and what remains limited.
+
+## Human Review Round-Trip
+
+Khi `os-start` request khai `requires_human_review: true`, contract thêm gate
+`human_review` và task không thể Seal nếu chưa có human review được ghi bằng chứng.
+Vòng round-trip là Piloth-native (Python/MD/JSON), phỏng theo annotron:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py review-request <task-id>
+# reviewer tạo feedback.json (hoặc UI companion sinh ra), rồi:
+python3 pilothOS/scripts/pilothos_guard.py review-feedback feedback.json
+python3 pilothOS/scripts/pilothos_guard.py review-verify <task-id>
+```
+
+- `review-request` ghi `os-runs/<task>/review-request.json` (artifact under review,
+  gates, questions, `request_sha256`).
+- `review-feedback` validate + append một round vào
+  `os-runs/<task>/review-feedback.jsonl`, đồng thời ghi evidence `kind=human_review`.
+- Feedback schema: `{verdict: approve|request-changes|reject, finalized: bool,
+  findings: [{id, location:{file?,gate?,line?}, note, severity:
+  blocker|major|minor|nit, disposition: approve|request-changes}]}`.
+- `os-close` PASS gate `human_review` ⇔ round mới nhất có `verdict=approve`,
+  `finalized=true` và không còn finding `blocker`/`major` mang `request-changes`;
+  ngược lại reject và set task về Repair. Guard không tự khai PASS được — receipt
+  tự khai `human_review: PASS` mà thiếu artifact backing vẫn bị reject.
+- Companion tool `pilothOS/tools/review/` (annotron-faithful) cung cấp UI
+  point-and-click sinh ra chính feedback này — userland driver, không bắt buộc.
+  Khi bind `--task <id>`/`--govern`, UI thêm **pipeline/gate stepper** (đọc qua
+  `os-status`) và **option-picker** cho prototype; ungoverned thì stepper ẩn,
+  core chạy 1:1 standalone với annotron.
+
+## Prototype Phase & Discovery Gate
+
+- `requires_prototype: true` ⇒ contract tự bật `requires_human_review: true` và
+  thêm gate `prototype`. Skill `piloth-prototype` sinh ≥2 UI options
+  (`PROTOTYPE-option{N}.*` + `PROTOTYPE.md`) trong `os-runs/<task>/artifacts/`,
+  ghi `os-evidence kind=prototype` `{method, options:[{id,artifact,intent}],
+  chosen}`. Human pick **tái dùng** vòng `review-request`/`review-feedback` (gate
+  `human_review`) — không có cơ chế review riêng. Gate `prototype` (mỏng) chỉ
+  kiểm invariant: method hợp lệ, ≥2 options, `chosen` ∈ options.
+- Discovery gate (skill `piloth-discovery`) chạy đầu phase khi có ≥3 câu hỏi mở
+  hoặc 1 câu high-impact: hỏi-xác nhận qua Governed Visual Review, ghi
+  `os-evidence kind=discovery` `{decisions:[{q,answer,source}]}` và fold vào
+  contract `discovery_decisions`. `DISCOVERY.md` là working doc (không
+  produces/depends). Là gate judgment, không phải hook tự trigger.
+- `phase_plan_suggestion` (recipe right-sizing, advisory): `os-start` khuyến nghị
+  `recommend_discovery`/`recommend_prototype` dựa trên signal/scope, hiển thị ở
+  `os-status`/`os-report`, **không tự bật phase** (auto-enable = thêm chi phí).
+- `model_hints` (advisory): map phase → tier model (strong cho discovery/
+  prototype/plan; cost cho execute/test). Chỉ harness pin được per-phase model
+  (Claude Code frontmatter `model:`) mới enforce.
 
 ## Entitlement Profile
 

@@ -179,6 +179,14 @@ UI_RECEIPT_FIELDS = {
     "token_reuse_decision",
 }
 SEMANTIC_REVIEW_DECISIONS = {"reuse", "extend", "new", "not_applicable"}
+# Structured human-review vocabulary (Governed Visual Review round-trip).
+REVIEW_SEVERITIES = {"blocker", "major", "minor", "nit"}
+REVIEW_DISPOSITIONS = {"approve", "request-changes"}
+REVIEW_VERDICTS = {"approve", "request-changes", "reject"}
+REVIEW_BLOCKING_SEVERITIES = {"blocker", "major"}
+# Prototype phase (visual UI proposal before implementation): the design method
+# used to generate the >=2 UI variants a human then picks via human_review.
+PROTOTYPE_METHODS = {"artifacts", "figma", "design_system", "shadcn", "lofi"}
 TEAM_PERMISSION_ACTIONS = {"plan", "review", "edit", "qa", "advise"}
 HIGH_CONFIDENCE_THRESHOLD = 0.80
 TOOL_USE_REQUIRED_FIELDS = {
@@ -218,6 +226,7 @@ READ_ONLY_GUARD_MODES = {
     "rot-status",
     "production-review",
     "receipt-verify",
+    "review-verify",
     "reuse-scan",
     "route-task",
     "scheduler-suggest",
@@ -383,6 +392,9 @@ QUALIFIED_CLAIM_TERMS = (
 EVIDENCE_PROFILES = {"code", "ui", "design_tokens", "docs", "release", "generic"}
 OS_EVIDENCE_KINDS = {
     "command",
+    "discovery",
+    "human_review",
+    "prototype",
     "figma_node",
     "design_token_coverage",
     "quality_gate",
@@ -549,6 +561,23 @@ def git_changed_file_paths():
     return sorted(set(p for p in expanded if p))
 
 
+def is_git_repo():
+    """REPO_ROOT có nằm trong một git working tree hoạt động được không?
+
+    Dùng để phân biệt 'working tree sạch' với 'git không khả dụng': khi không
+    phải git repo, git_changed_file_paths() trả rỗng một cách mập mờ, nên gate
+    phải fallback về hành vi mtime cũ thay vì tưởng nhầm mọi thứ đã deliver.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--is-inside-work-tree"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5,
+        )
+    except Exception:
+        return False
+    return out.returncode == 0 and out.stdout.strip() == "true"
+
+
 def json_print(payload):
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
@@ -706,6 +735,55 @@ def append_os_evidence(task_id, evidence):
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(evidence, ensure_ascii=False, sort_keys=True) + "\n")
     return path
+
+
+def review_feedback_path(task_id):
+    return os_state_path(task_id, "review-feedback.jsonl")
+
+
+def append_review_feedback(task_id, record):
+    """Append one human-review round to the append-only review-feedback ledger.
+
+    Mirrors append_os_evidence: one JSON record per line, one line per review
+    round. os-close reads the highest-round record for the human_review gate.
+    """
+    path = review_feedback_path(task_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    return path
+
+
+def review_feedback_records(task_id):
+    path = review_feedback_path(task_id)
+    if not path.exists():
+        return []
+    records = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    records.append(item)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return records
+
+
+def latest_review_feedback(task_id):
+    records = review_feedback_records(task_id)
+    if not records:
+        return None
+
+    def _round(r):
+        try:
+            return int(r.get("review_round", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    return sorted(records, key=_round)[-1]
 
 
 # ---------------------------------------------------------------- stdin/session
@@ -2116,12 +2194,38 @@ def logs_touched_since(ts):
     return False
 
 
+def session_uncommitted_changes(ts):
+    """File còn CHƯA commit (working tree/staged/untracked) và bị sửa sau mốc ts.
+
+    Rỗng nghĩa là mọi thay đổi trong phiên đã được commit (hoặc revert) → coi như
+    đã Deliver qua git. Giữ nguyên ngoại lệ review-log/lessons như repo_changed_since
+    để việc auto-log không tự kích gate.
+    """
+    out = []
+    for rel in git_changed_file_paths():
+        path = REPO_ROOT / rel
+        if any(part in SCAN_EXCLUDE_DIRS for part in path.parts):
+            continue
+        try:
+            if path.resolve() in SCAN_EXCLUDE_FILES:
+                continue
+            if path.is_file() and path.stat().st_mtime > ts:
+                out.append(rel)
+        except OSError:
+            continue
+    return sorted(out)
+
+
 def stop_check(hook_input):
     """Deliver gate (hook Stop).
 
-    Nếu phiên có thay đổi file, kiểm tra hai phần máy móc:
+    Nếu phiên có thay đổi file CHƯA commit, kiểm tra hai phần máy móc:
     - auto-log gate: review-log/lessons-learned đã được cân nhắc.
     - deliver receipt gate: receipt có changed files/layers/evidence/result.
+
+    Trong git repo, nếu mọi thay đổi của phiên đã được commit (hoặc revert) thì
+    coi như đã Deliver qua git và bỏ qua toàn bộ gate. Ngoài git repo, giữ nguyên
+    hành vi cũ (dựa mtime).
 
     stop_hook_active=true → đã block một lần rồi → luôn cho dừng (không loop).
     """
@@ -2137,9 +2241,13 @@ def stop_check(hook_input):
         ts = float(m.read_text(encoding="utf-8"))
     except ValueError:
         return
-    changed = repo_changed_since(ts)
-    if not changed:
-        return  # phiên chỉ đọc/hỏi đáp → không cần log
+    if not repo_changed_since(ts):
+        return  # phiên chỉ đọc/hỏi đáp → không cần gate
+    if is_git_repo() and not session_uncommitted_changes(ts):
+        # Trong git repo: mọi thay đổi của phiên đã commit (hoặc revert) → đã
+        # Deliver qua git. Miễn toàn bộ deliver gate (không đòi auto-log lẫn
+        # receipt thủ công). Ngoài git repo, giữ nguyên hành vi mtime cũ.
+        return
     reasons = []
     if not logs_touched_since(ts):
         reasons.append(
@@ -4279,6 +4387,13 @@ def task_contract_write(argv):
 
 
 def pre_edit(hook_input):
+    # Claude Code plan mode is read-only planning (harness restricts edits to the
+    # plan file). Piloth's contract-before-edit gate is for execution, not
+    # planning, so do not block during plan mode — governance re-engages the
+    # moment the session leaves plan mode. `permission_mode` is the documented
+    # PreToolUse hook field carrying the current mode ("plan" | "default" | ...).
+    if hook_input.get("permission_mode") == "plan":
+        return
     contract, contract_path = load_task_contract(hook_input)
     if not contract:
         block_decision(
@@ -4432,6 +4547,15 @@ def post_edit(hook_input):
         changed[rel] = {"layer": layer, "added": add, "deleted": delete,
                         "changed_lines": add + delete,
                         "new_file": git_path_is_new(rel)}
+    # Prune entry không còn trong working tree (đã commit hoặc revert) để diff facts
+    # phản ánh delta CHƯA commit hiện tại, không tích luỹ snapshot cũ qua nhiều edit.
+    # Chỉ prune khi thực sự trong git repo — ngoài git, git_changed_file_paths()
+    # trả rỗng một cách mập mờ và sẽ xoá nhầm toàn bộ facts.
+    if is_git_repo():
+        live = set(git_changed_file_paths())
+        for rel in list(changed):
+            if rel not in live:
+                del changed[rel]
     update_diff_fact_derived(facts, contract)
     save_diff_facts(hook_input, facts)
     print(json.dumps({
@@ -5486,6 +5610,51 @@ def choose_adaptive_mode(request, paths, layers, target):
     return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
 
 
+def suggest_phase_plan(request, paths, layers, evidence_profile):
+    """Advisory-only phase recommendation (recipe right-sizing).
+
+    Mirrors aidlc's deterministic heuristicClassify: recommend the front-half
+    phases that would prevent rework, without ever enabling them. This NEVER
+    mutates requires_prototype / requires_discovery — a human opts in on a
+    follow-up os-start. Surfaced in os-status / os-report so the operator sees
+    the suggestion but keeps control (auto-enabling a heavy phase would add
+    cost, the opposite of the intent).
+    """
+    signal = str(request.get("task_signal") or "").strip().lower()
+    intent = json.dumps(sanitize_state_value(request, limit=1000), ensure_ascii=False).lower()
+    paths = paths or []
+    ui = (
+        evidence_profile == "ui"
+        or "ui/component" in signal
+        or any(path_pattern_suggests_ui(p) for p in paths)
+    )
+    trivial = (
+        paths_look_docs_tests_only(paths, layers)
+        or "bugfix" in signal
+        or "bug fix" in intent
+    )
+    high_impact = any(
+        k in intent for k in
+        ("architecture", "acceptance criteria", "out of scope", "unclear", "ambiguous", "not sure", "unknown")
+    )
+    broad = (not paths) or any(path_pattern_is_broad(p) for p in paths) or len(paths) > 6
+    rec_proto = bool(ui and not trivial)
+    rec_disc = bool((high_impact or broad) and not trivial)
+    reasons = []
+    if rec_proto:
+        reasons.append("UI/component scope — a prototype round can de-risk the visual direction before implementation")
+    if rec_disc:
+        reasons.append("ambiguous or broad scope — a discovery gate can confirm open questions up front")
+    if not reasons:
+        reasons.append("scope looks narrow/clear — no extra front-half phase recommended")
+    return {
+        "recommend_discovery": rec_disc,
+        "recommend_prototype": rec_proto,
+        "reasons": reasons,
+        "note": "suggestions only — pass requires_discovery / requires_prototype in a follow-up os-start to enable",
+    }
+
+
 def request_success_metrics(request):
     metrics = request.get("success_metrics") if isinstance(request, dict) else None
     if isinstance(metrics, list):
@@ -5621,9 +5790,20 @@ def build_os_contract(request, route, scheduler, target=None):
             "finding": "task is routed through os-start/os-close",
         }])
     )
-    for optional in ("operational_preset", "allowed_entitlements", "requires_judgment", "benchmark_id"):
+    for optional in (
+        "operational_preset", "allowed_entitlements", "requires_judgment",
+        "benchmark_id", "requires_human_review", "requires_prototype",
+        "requires_discovery", "discovery_decisions", "model_hints",
+        "ui_design_system_evidence",
+    ):
         if optional in request:
             contract[optional] = request[optional]
+    # A prototype's human pick is recorded through the reused human_review
+    # round-trip, so requiring a prototype implies requiring human review.
+    if contract.get("requires_prototype"):
+        contract["requires_human_review"] = True
+    # Advisory recipe: recommend front-half phases without ever enabling them.
+    contract["phase_plan_suggestion"] = suggest_phase_plan(request, paths, layers, evidence_profile)
     if isinstance(target, dict):
         contract["target_repo"] = target.get("target_repo", "")
         contract["target_kind"] = target.get("target_kind", "")
@@ -5683,6 +5863,10 @@ def required_gates_for_task(contract, receipt=None, mode=None):
     }, ensure_ascii=False).lower()
     if "release/deploy" in signal_text or "deploy" in signal_text:
         gates.append("operational_approval")
+    if isinstance(contract, dict) and contract.get("requires_human_review"):
+        gates.append("human_review")
+    if isinstance(contract, dict) and contract.get("requires_prototype"):
+        gates.append("prototype")
     return list(dict.fromkeys(gates))
 
 
@@ -5706,6 +5890,148 @@ def validate_required_quality_gates(receipt, required_gates):
             if not non_empty_string(receipt.get("limitation")):
                 errors.append(f"limitation is required when quality_gates.{gate}.result is FAIL")
     return errors
+
+
+def validate_review_feedback(value):
+    """Validate the structured human-review feedback artifact (schema + enums).
+
+    Faithful to annotron's structured feedback, translated into Piloth's gate
+    vocabulary: findings carry a location (file and/or gate), a note, a severity
+    and a disposition; the round carries a verdict and a finalized flag.
+    """
+    if not isinstance(value, dict):
+        return ["review feedback must be a JSON object"]
+    errors = []
+    if value.get("verdict") not in REVIEW_VERDICTS:
+        errors.append("verdict must be one of: " + ", ".join(sorted(REVIEW_VERDICTS)))
+    if not isinstance(value.get("finalized"), bool):
+        errors.append("finalized must be a boolean")
+    findings = value.get("findings")
+    if not isinstance(findings, list):
+        errors.append("findings must be a list")
+        return errors
+    errors.extend(validate_object_list_enums(
+        findings,
+        "findings",
+        ("id", "note", "severity", "disposition"),
+        {"severity": REVIEW_SEVERITIES, "disposition": REVIEW_DISPOSITIONS},
+    ))
+    for i, finding in enumerate(findings):
+        if not isinstance(finding, dict):
+            continue
+        loc = finding.get("location")
+        if not isinstance(loc, dict) or not (
+            non_empty_string(loc.get("file")) or non_empty_string(loc.get("gate"))
+        ):
+            errors.append(f"findings[{i}].location must include a file or a gate")
+            continue
+        if non_empty_string(loc.get("file")):
+            _, err = repo_relative_path(loc.get("file"))
+            if err:
+                errors.append(f"findings[{i}].location.file {err}")
+    return errors
+
+
+def validate_human_review_gate(state, contract, receipt, os_evidence):
+    """Machine cross-check for the human_review gate (anti-checkbox core).
+
+    The guard never judges whether a finding is correct — only that a real,
+    finalized, approving human artifact exists with no unresolved blocking
+    findings. Returns (errors, summary) where summary.result is
+    PASS / FAIL / NOT_APPLICABLE. Unresolved blocking findings surface in
+    summary.unresolved so os-close can route the task back to Repair.
+    """
+    required = isinstance(contract, dict) and bool(contract.get("requires_human_review"))
+    if not required:
+        return [], {"result": "NOT_APPLICABLE"}
+    task_id = state.get("task_id") if isinstance(state, dict) else None
+    feedback = latest_review_feedback(task_id)
+    if not feedback:
+        return (
+            ["human_review gate requires a review-feedback artifact; run review-request then review-feedback"],
+            {"result": "FAIL", "reason": "no review feedback recorded"},
+        )
+    ferrors = validate_review_feedback(feedback)
+    if ferrors:
+        return (
+            [f"review feedback invalid: {e}" for e in ferrors],
+            {"result": "FAIL", "reason": "invalid review feedback"},
+        )
+    review_round = feedback.get("review_round")
+    if feedback.get("finalized") is not True:
+        return (
+            ["human_review is not finalized (review round still open)"],
+            {"result": "FAIL", "reason": "not finalized", "review_round": review_round},
+        )
+    unresolved = [
+        finding.get("id")
+        for finding in feedback.get("findings", [])
+        if isinstance(finding, dict)
+        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
+        and finding.get("disposition") == "request-changes"
+    ]
+    if unresolved:
+        return (
+            ["human_review has unresolved blocking findings routed to Repair: "
+             + ", ".join(str(x) for x in unresolved)],
+            {"result": "FAIL", "reason": "unresolved blocking findings",
+             "unresolved": unresolved, "review_round": review_round},
+        )
+    if feedback.get("verdict") != "approve":
+        return (
+            ["human_review verdict is not approve"],
+            {"result": "FAIL", "reason": "verdict not approve",
+             "verdict": feedback.get("verdict"), "review_round": review_round},
+        )
+    summary = {
+        "result": "PASS",
+        "review_round": review_round,
+        "verdict": "approve",
+        "reviewer": feedback.get("reviewer", ""),
+    }
+    try:
+        summary["feedback_path"] = review_feedback_path(task_id).relative_to(REPO_ROOT).as_posix()
+    except (ValueError, TypeError):
+        pass
+    return [], summary
+
+
+def latest_evidence_of_kind(os_evidence, kind):
+    """Return the most recently recorded os-evidence record of a given kind."""
+    matches = [
+        item for item in (os_evidence or [])
+        if isinstance(item, dict) and item.get("kind") == kind
+    ]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda item: str(item.get("recorded_at") or ""))[-1]
+
+
+def validate_prototype_gate(state, contract, receipt, os_evidence):
+    """Machine check for the thin prototype gate (evidence completeness only).
+
+    Prototype reuses the human_review round-trip for the human sign-off; this
+    gate only asserts prototype's own invariant — a valid design method, >=2
+    options generated, and one chosen among them — read from the recorded
+    prototype evidence. Anti-checkbox: a receipt that self-declares prototype
+    PASS with no backing evidence record still FAILs. Returns a summary dict
+    with result PASS / FAIL / NOT_APPLICABLE.
+    """
+    required = isinstance(contract, dict) and bool(contract.get("requires_prototype"))
+    if not required:
+        return {"result": "NOT_APPLICABLE"}
+    ev = latest_evidence_of_kind(os_evidence, "prototype")
+    if ev is None:
+        return {"result": "FAIL", "reason": "no prototype evidence recorded"}
+    everrors = validate_prototype_evidence(ev)
+    if everrors:
+        return {"result": "FAIL", "reason": "; ".join(everrors)}
+    return {
+        "result": "PASS",
+        "method": ev.get("method"),
+        "options": len([o for o in ev.get("options", []) if isinstance(o, dict)]),
+        "chosen": ev.get("chosen"),
+    }
 
 
 def evidence_text_blob(receipt, facts, os_evidence):
@@ -6095,7 +6421,69 @@ def evidence_payload_present(sanitized):
         return True
     if evidence_source_refs(sanitized):
         return True
+    if isinstance(sanitized.get("options"), list) and sanitized.get("options"):
+        return True
+    if isinstance(sanitized.get("decisions"), list) and sanitized.get("decisions"):
+        return True
     return False
+
+
+def validate_prototype_evidence(evidence):
+    """Validate a prototype evidence record (kind=prototype).
+
+    Prototype's invariant: at least two design options were generated and one
+    was chosen, via a valid design method. The human sign-off itself flows
+    through the reused human_review round-trip, not here.
+    """
+    if not isinstance(evidence, dict) or evidence.get("kind") != "prototype":
+        return []
+    errors = []
+    if evidence.get("method") not in PROTOTYPE_METHODS:
+        errors.append("prototype evidence requires method one of: " + ", ".join(sorted(PROTOTYPE_METHODS)))
+    options = evidence.get("options")
+    if not isinstance(options, list):
+        errors.append("prototype evidence requires an options list")
+        return errors
+    ids = []
+    for i, opt in enumerate(options):
+        if not isinstance(opt, dict) or not non_empty_string(opt.get("id")):
+            errors.append(f"prototype options[{i}] requires an id")
+            continue
+        ids.append(opt.get("id"))
+    if len(ids) < 2:
+        errors.append("prototype evidence requires >=2 options with ids")
+    chosen = evidence.get("chosen")
+    if not non_empty_string(chosen):
+        errors.append("prototype evidence requires a chosen option id")
+    elif ids and chosen not in ids:
+        errors.append("prototype chosen must be one of the generated option ids")
+    return errors
+
+
+def validate_discovery_evidence(evidence):
+    """Validate a discovery evidence record (kind=discovery).
+
+    Discovery is a judgment gate the phase runs up front; the only mechanical
+    check is that the confirmed decisions are recorded as evidence the
+    Traceability gate can trace to. Each decision names its question, answer and
+    source (user vs a pre-ticked "decide for me" default).
+    """
+    if not isinstance(evidence, dict) or evidence.get("kind") != "discovery":
+        return []
+    errors = []
+    decisions = evidence.get("decisions")
+    if not isinstance(decisions, list) or not decisions:
+        errors.append("discovery evidence requires a non-empty decisions list")
+        return errors
+    for i, dec in enumerate(decisions):
+        if not isinstance(dec, dict):
+            errors.append(f"discovery decisions[{i}] must be an object")
+            continue
+        if not non_empty_string(dec.get("q")):
+            errors.append(f"discovery decisions[{i}] requires a question 'q'")
+        if not non_empty_string(dec.get("answer")):
+            errors.append(f"discovery decisions[{i}] requires an 'answer'")
+    return errors
 
 
 def sanitize_os_evidence_payload(payload):
@@ -6109,6 +6497,9 @@ def sanitize_os_evidence_payload(payload):
         "token_count", "covered_groups", "surface", "artifact_path",
         "target_path", "source_refs", "coverage_scope", "generated_surfaces",
         "verification", "limitations",
+        "method", "options", "chosen", "chosen_rationale",
+        "prototype_doc", "prototype_sha256",
+        "discovery_doc", "decisions", "unresolved",
         "metric_type", "metric_name", "phase", "unit", "value", "count",
         "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
         "total_tokens", "real_token_telemetry", "unavailable_reason",
@@ -6146,6 +6537,12 @@ def sanitize_os_evidence_payload(payload):
     metric_errors = validate_metric_evidence(sanitized)
     if metric_errors:
         return None, metric_errors
+    prototype_errors = validate_prototype_evidence(sanitized)
+    if prototype_errors:
+        return None, prototype_errors
+    discovery_errors = validate_discovery_evidence(sanitized)
+    if discovery_errors:
+        return None, discovery_errors
     evidence_id = (
         safe_evidence_id(sanitized.get("id"))
         or safe_evidence_id(sanitized.get("ref"))
@@ -6448,6 +6845,13 @@ def os_status(argv=None):
         "cost_ledger": cost_ledger_summary(evidence),
         "expected_evidence": state.get("expected_evidence", []),
         "required_gates": state.get("required_gates", []),
+        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
+        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
+        "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
+        "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
+        "prototype": state.get("prototype", {}),
+        "human_review": state.get("human_review", {}),
+        "discovery_recorded": latest_evidence_of_kind(evidence, "discovery") is not None,
         "evidence_count": len(evidence),
         "seal_sha256": state.get("seal_sha256", ""),
     })
@@ -6546,7 +6950,25 @@ def os_close_result(receipt, task_id=None):
     errors.extend(validate_deliver_receipt(receipt, contract, facts))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
     required_gates = state.get("required_gates") or required_gates_for_task(contract, receipt, mode=state.get("mode"))
+    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
+        required_gates = list(required_gates) + ["human_review"]
     errors.extend(validate_required_quality_gates(receipt, required_gates))
+    hr_errors, hr_summary = validate_human_review_gate(state, contract, receipt, os_evidence)
+    errors.extend(hr_errors)
+    state["human_review"] = hr_summary
+    if hr_summary.get("unresolved"):
+        state["repair_required"] = True
+        state["open_review_findings"] = hr_summary["unresolved"]
+        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review", "repair"]))
+    if isinstance(contract, dict) and contract.get("requires_prototype") and "prototype" not in required_gates:
+        required_gates = list(required_gates) + ["prototype"]
+        errors.extend(validate_required_quality_gates(receipt, ["prototype"]))
+    proto_summary = validate_prototype_gate(state, contract, receipt, os_evidence)
+    state["prototype"] = proto_summary
+    if proto_summary.get("result") == "FAIL":
+        errors.append("prototype gate failed: " + str(proto_summary.get("reason", "prototype evidence incomplete")))
+        state["prototype_incomplete"] = proto_summary.get("reason", "")
+        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["prototype", "repair"]))
     missing_evidence = validate_expected_evidence_present(contract, receipt, facts, os_evidence)
     errors.extend(missing_evidence)
     errors.extend(validate_design_token_receipt(receipt, contract, state, os_evidence))
@@ -6662,6 +7084,161 @@ def os_close(argv):
     json_print(os_close_result(receipt))
 
 
+def review_request(argv):
+    """Emit the review-request artifact for the active OS run (Review state).
+
+    Accepts an optional task id, or a JSON payload {task_id, questions}.
+    """
+    payload = {}
+    task_id = None
+    if argv:
+        arg = argv[0].strip()
+        if arg.startswith("{"):
+            try:
+                payload = json.loads(arg)
+            except Exception as e:
+                json_print({"result": "review_request_rejected", "errors": [str(e)]})
+                return
+            task_id = payload.get("task_id")
+        else:
+            task_id = argv[0]
+    state, _ = load_os_state(task_id)
+    if not state:
+        json_print({"result": "review_request_rejected", "errors": ["no active OS run; call os-start first"]})
+        return
+    task_id = state["task_id"]
+    contract = state.get("contract") or {}
+    active_contract, _ = load_task_contract({})
+    if isinstance(active_contract, dict):
+        contract = active_contract
+    required_gates = state.get("required_gates") or required_gates_for_task(contract, None, mode=state.get("mode"))
+    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
+        required_gates = list(required_gates) + ["human_review"]
+    changed = sorted(facts_paths(load_diff_facts({}), None))
+    contract_path = os_state_path(task_id, "contract.json")
+    body = {
+        "schema_version": 1,
+        "kind": "review_request",
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "under_review": {
+            "contract_path": contract_path.relative_to(REPO_ROOT).as_posix() if contract_path.exists() else "",
+            "changed_files": changed,
+        },
+        "gates": required_gates,
+        "questions": payload.get("questions") if isinstance(payload.get("questions"), list) else [],
+        "requested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    body["request_sha256"] = sha256_json({
+        "task_id": task_id, "under_review": body["under_review"],
+        "gates": required_gates, "questions": body["questions"],
+    })
+    path = os_state_path(task_id, "review-request.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review"]))
+    save_os_state(state)
+    json_print({
+        "result": "review_requested",
+        "task_id": task_id,
+        "gates": required_gates,
+        "review_request_path": path.relative_to(REPO_ROOT).as_posix(),
+        "request_sha256": body["request_sha256"],
+    })
+
+
+def review_feedback(argv):
+    """Ingest a structured human-review round, record it as evidence, update state."""
+    try:
+        payload, _ = json_arg_or_stdin(argv, "review-feedback")
+    except Exception as e:
+        json_print({"result": "review_feedback_rejected", "errors": [str(e)]})
+        return
+    if not isinstance(payload, dict):
+        json_print({"result": "review_feedback_rejected", "errors": ["feedback must be a JSON object"]})
+        return
+    state, _ = load_os_state(payload.get("task_id"))
+    if not state:
+        json_print({"result": "review_feedback_rejected", "errors": ["no active OS run; call os-start first"]})
+        return
+    task_id = state["task_id"]
+    errors = validate_review_feedback(payload)
+    if errors:
+        json_print({"result": "review_feedback_rejected", "task_id": task_id, "errors": errors})
+        return
+    existing = review_feedback_records(task_id)
+    try:
+        review_round = int(payload.get("review_round"))
+    except (TypeError, ValueError):
+        review_round = len(existing) + 1
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    record = sanitize_state_value({
+        "schema_version": 1,
+        "kind": "human_review",
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "reviewer": payload.get("reviewer") or "",
+        "review_round": review_round,
+        "verdict": payload.get("verdict"),
+        "finalized": bool(payload.get("finalized")),
+        "message": payload.get("message") or "",
+        "findings": payload.get("findings") or [],
+        "recorded_at": now,
+    }, limit=4000)
+    append_review_feedback(task_id, record)
+    unresolved = [
+        finding.get("id")
+        for finding in record["findings"]
+        if isinstance(finding, dict)
+        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
+        and finding.get("disposition") == "request-changes"
+    ]
+    append_os_evidence(task_id, {
+        "id": f"hr-round-{review_round}",
+        "kind": "human_review",
+        "review_round": review_round,
+        "verdict": record["verdict"],
+        "finalized": record["finalized"],
+        "unresolved": unresolved,
+        "reviewer": record["reviewer"],
+        "recorded_at": now,
+    })
+    lifecycle_add = ["review"] + (["repair"] if unresolved else [])
+    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + lifecycle_add))
+    if unresolved:
+        state["repair_required"] = True
+        state["open_review_findings"] = unresolved
+    save_os_state(state)
+    json_print({
+        "result": "review_feedback_recorded",
+        "task_id": task_id,
+        "review_round": review_round,
+        "verdict": record["verdict"],
+        "finalized": record["finalized"],
+        "unresolved": unresolved,
+    })
+
+
+def review_verify(argv):
+    """Read-only status of the human_review gate for the active OS run."""
+    state, _ = load_os_state(argv[0] if argv else None)
+    if not state:
+        json_print({"result": "review_verify_failed", "errors": ["no active OS run"]})
+        return
+    contract = state.get("contract") or {}
+    active_contract, _ = load_task_contract({})
+    if isinstance(active_contract, dict):
+        contract = active_contract
+    os_evidence = os_evidence_records(state["task_id"])
+    hr_errors, hr_summary = validate_human_review_gate(state, contract, {}, os_evidence)
+    json_print({
+        "result": "review_verified" if not hr_errors else "review_incomplete",
+        "task_id": state["task_id"],
+        "human_review": hr_summary,
+        "errors": hr_errors,
+    })
+
+
 def os_verify(argv):
     task_id = argv[0] if argv else None
     state, _ = load_os_state(task_id)
@@ -6759,6 +7336,8 @@ def os_report(argv):
         "mode": state.get("mode", ""),
         "adaptive_mode": state.get("adaptive_mode", False),
         "mode_decisions": state.get("mode_decisions", []),
+        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
+        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
         "execution_strategy": state.get("execution_strategy", ""),
         "target_footprint_policy": state.get("target_footprint_policy", ""),
         "budget": state.get("budget", {}),
@@ -7678,6 +8257,9 @@ COMMAND_TABLE = {
     "os-close": (os_close, "argv"),
     "os-verify": (os_verify, "argv"),
     "os-report": (os_report, "argv"),
+    "review-request": (review_request, "argv"),
+    "review-feedback": (review_feedback, "argv"),
+    "review-verify": (review_verify, "argv"),
     "asset-scan": (asset_scan, "argv"),
     "asset-health": (asset_health, "argv"),
     "asset-sync": (asset_sync, "argv"),

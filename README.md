@@ -252,6 +252,8 @@ Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution r
 - **Measurable token optimization** — `context-budget` đo footprint context (bytes/token) mỗi task nạp vs full kernel; routing tiết kiệm ~88–91% context. Xem [token-optimization.md](docs/token-optimization.md).
 - **Rules & Hooks** — instruction-level policies và mechanical enforcement khi có thể.
 - **Evidence-first delivery** — verify trước khi claim completion.
+- **Governed Visual Review** — companion tool review trực quan (annotron-faithful, zero-dep) + gate `human_review`: structured feedback thành evidence, `os-close` chặn Seal khi chưa duyệt. Bind `--task`/`--govern` để thêm pipeline/gate stepper + option-picker. Xem `pilothOS/tools/review/`.
+- **Prototype phase & Discovery gate** — skill `piloth-prototype` sinh ≥2 UI options rồi human chọn (tái dùng `human_review`, gate `prototype` kiểm invariant); skill `piloth-discovery` hỏi-xác nhận câu hỏi mở đầu phase, fold vào contract. Recipe `phase_plan_suggestion` khuyến nghị (advisory, không auto-enable).
 - **Rot Management** — cadence, next due, owner, checklist và append-only review log.
 - **Agent Teams** — composition, role contract, handoff và stop condition.
 - **Safe uninstall** — khôi phục dựa trên installation evidence.

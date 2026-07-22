@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+Governed Visual Review — human-in-the-loop review + agent loop + hook bridge.
+
+- **Piloth Review** (`pilothOS/tools/review/`): companion tool tái hiện annotron 1:1
+  (Node built-ins, zero runtime dependency) — point-and-click annotation trên artifact
+  MD/HTML, agent loop poll/reply/finalized, live activity mirror (SSE), remote
+  permission gate (fail-open). Chạy độc lập được, disk sạch (SDK inject lúc serve).
+- **Gate `human_review`** trong guard: 3 mode `review-request`/`review-feedback`/
+  `review-verify`; structured feedback (verdict + findings gắn gate/severity/
+  disposition) thành evidence `kind=human_review`; `os-close` enforce — task cần human
+  review không Seal khi thiếu artifact `approve`+`finalized` hoặc còn blocker/major chưa
+  xử lý; blocker/major route về Repair. Receipt tự khai `PASS` mà thiếu artifact backing
+  bị reject (chống honor-system).
+- **Governance bridge** (opt-in, fail-soft): companion tool khi bind `--task`/`--govern`
+  forward feedback → `review-feedback` và quyết định permission → `os-evidence`; không
+  bind → core chạy 1:1 standalone.
+- Tests: `tests/lifecycle/cases/lc10-human-review-roundtrip.sh` (full os-close
+  enforcement) + `tests/unit/test_guard_human_review.py`.
+- Docs: quality-gates, task-lifecycle, os-control-plane, operational-controls.
+- **Review hooks default-on**: bản cài bật sẵn activity mirror + permission gate
+  của review tool (fail-open); tắt bằng `PILOTH_REVIEW=off` trong `.claude/settings.json`.
+- **Plan-mode exemption**: `pre-edit` bỏ qua enforcement khi `permission_mode=plan`
+  (fix Piloth chặn Claude ghi plan trong plan mode); governance enforce lại khi thực thi.
+  Test: `tests/unit/test_guard_plan_mode.py`.
+
+Prototype phase + Discovery gate + pipeline stepper + recipe suggestions
+(reimplement 1:1 DNA của aidlc, build native cho Piloth trên hạ tầng review).
+
+- **Prototype phase** (skill `piloth-prototype` + persona `agents/team-roles/designer.md`):
+  sinh ≥2 UI options (Claude Artifacts/Figma/design-system/shadcn/lo-fi), human chọn
+  **tái dùng** `human_review` round-trip. `requires_prototype` tự bật
+  `requires_human_review`; gate `prototype` (mỏng) kiểm invariant qua
+  `os-evidence kind=prototype` (method hợp lệ, ≥2 options, `chosen` ∈ options);
+  thiếu → route Repair; receipt tự khai `PASS` mà thiếu evidence bị reject.
+- **Discovery gate** (skill `piloth-discovery`): hỏi-xác nhận câu hỏi mở đầu phase qua
+  Governed Visual Review (`## Q<n>` + `[x] Decide for me` default), ghi
+  `os-evidence kind=discovery` + fold vào contract `discovery_decisions` (Traceability
+  trace tới). Là gate judgment, không hook tự trigger; `DISCOVERY.md` là working doc.
+- **Pipeline stepper + option-picker** trong review chrome (Piloth-layer, fail-soft):
+  route `/pipeline` đọc `os-status` qua `govern.js`; stepper hiện phase/gate + hint
+  `phase_plan_suggestion`; option-picker cho `PROTOTYPE-option*.html`. Ungoverned →
+  ẩn, core 1:1 annotron không đổi.
+- **Recipe suggest-only + model-hints** (advisory): `suggest_phase_plan` khuyến nghị
+  discovery/prototype theo signal/scope (**không auto-enable**); `model_hints` gợi ý
+  model per-phase; cả hai surface ở `os-status`/`os-report`. Budget ceiling hoãn tới
+  khi có `real_token_telemetry`.
+- Tests: `tests/unit/test_guard_{prototype_gate,discovery,recipe}.py` +
+  `tests/lifecycle/cases/lc11-prototype-roundtrip.sh`.
+- Docs: quality-gates, task-lifecycle, os-control-plane, energy-token-policy, skills/index.
+
 ## 1.9.0
 
 Reproducibility, safety net và token optimization.

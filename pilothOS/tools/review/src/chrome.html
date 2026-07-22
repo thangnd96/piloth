@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piloth Review</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --muted:#6b7280; --line:#e5e7eb; --panel:#f9fafb; --accent:#2741f1; --ok:#16a34a; --warn:#d97706; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; color:var(--fg); background:var(--bg); }
+  #topbar { height:52px; display:flex; align-items:center; gap:12px; padding:0 14px; border-bottom:1px solid var(--line); }
+  #topbar .brand { font-weight:700; }
+  #topbar .grow { flex:1; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:#fff; border-radius:7px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  .pill { font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .pill.live { color:var(--ok); border-color:var(--ok); }
+  #main { display:flex; height:calc(100% - 52px); }
+  #outline-sidebar { width:250px; border-right:1px solid var(--line); overflow:auto; padding:12px; background:var(--panel); }
+  #outline-sidebar.collapsed { width:40px; padding:12px 6px; }
+  .outline-item { display:block; padding:3px 6px; color:var(--fg); text-decoration:none; border-radius:6px; cursor:pointer; font-size:13px; }
+  .outline-item:hover { background:#eef; }
+  .level-2 { padding-left:16px; } .level-3 { padding-left:28px; } .level-4 { padding-left:40px; color:var(--muted); }
+  #iframe-wrap { flex:1; position:relative; }
+  #artifact-frame { width:100%; height:100%; border:0; }
+  #sidebar { width:380px; border-left:1px solid var(--line); display:flex; flex-direction:column; }
+  #agent-status { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line); font-size:13px; }
+  #agent-status .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
+  #agent-status.working .dot { background:var(--accent); animation:pulse 1s infinite; }
+  #agent-status.idle .dot { background:var(--ok); }
+  #agent-status.needs-perm .dot { background:var(--warn); }
+  @keyframes pulse { 50% { opacity:.3; } }
+  #conversation-wrap { flex:1; overflow:auto; padding:12px 14px; }
+  .msg { margin-bottom:12px; }
+  .msg .who { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .work-step { font:12px ui-monospace,Menlo,monospace; color:var(--muted); padding:1px 0; }
+  .work-step.done { color:var(--ok); }
+  .work-step::before { content:"› "; }
+  .work-step.done::before { content:"✓ "; }
+  #perm-requests { padding:0 14px; }
+  .perm-card { border:1px solid var(--warn); border-radius:8px; padding:10px; margin-bottom:8px; background:#fffbeb; }
+  .perm-card .tool { font:12px ui-monospace,Menlo,monospace; margin:6px 0; }
+  .perm-card .row { display:flex; gap:6px; }
+  #composer { border-top:1px solid var(--line); padding:12px 14px; }
+  #free-text { width:100%; min-height:64px; resize:vertical; padding:8px; border:1px solid var(--line); border-radius:7px; font:inherit; }
+  .pending-item { font-size:12px; border:1px solid var(--line); border-radius:6px; padding:6px 8px; margin:6px 0; background:var(--panel); }
+  .pending-item .sel { font-family:ui-monospace,Menlo,monospace; color:var(--accent); word-break:break-all; }
+  .composer-actions { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .composer-actions .grow { flex:1; }
+  .done-overlay { position:fixed; inset:0; background:rgba(255,255,255,.92); display:none; align-items:center; justify-content:center; }
+  .done-overlay.show { display:flex; }
+  .done-card { text-align:center; padding:32px; border:1px solid var(--line); border-radius:12px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --fg:#e5e7eb; --muted:#9ca3af; --line:#2a2f3a; --panel:#161a22; }
+    button { background:#1b1f27; color:var(--fg); }
+    .perm-card { background:#2a2410; }
+  }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="brand">Piloth Review</span>
+  <button id="btn-annotate">Annotate: off</button>
+  <span class="grow"></span>
+  <label style="font-size:12px"><input type="checkbox" id="remote-approve"> Approve tools here</label>
+  <button id="btn-finalize">Finalize</button>
+  <button id="btn-done" class="primary">Done</button>
+  <span id="live-pill" class="pill">connecting…</span>
+</div>
+<div id="pipeline-bar" style="display:none"></div>
+<style>
+#pipeline-bar { padding:6px 12px; border-bottom:1px solid var(--line); background:var(--panel); font-size:12px; display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+#pipeline-bar .pp-head { font-weight:600; margin-right:4px; }
+#pipeline-bar .pp-phase { padding:2px 8px; border-radius:10px; border:1px solid var(--line); opacity:.5; }
+#pipeline-bar .pp-phase.done { opacity:1; border-color:#3a7; }
+#pipeline-bar .pp-phase.active { opacity:1; border-color:#39f; font-weight:600; }
+#pipeline-bar .pp-arrow { opacity:.4; }
+#pipeline-bar .pp-gate { padding:1px 6px; border-radius:6px; border:1px solid var(--line); }
+#pipeline-bar .pp-gate.pass { border-color:#3a7; color:#3a7; }
+#pipeline-bar .pp-gate.fail { border-color:var(--warn); color:var(--warn); }
+#pipeline-bar .pp-hint { color:#39f; }
+#pipeline-bar button.pp-pick { margin-left:auto; padding:3px 10px; }
+</style>
+<div id="main">
+  <aside id="outline-sidebar"><div id="outline"></div></aside>
+  <div id="iframe-wrap"><iframe id="artifact-frame"></iframe></div>
+  <aside id="sidebar">
+    <div id="agent-status"><span class="dot"></span><span id="agent-status-text">Idle</span>
+      <span class="grow" style="flex:1"></span>
+      <button id="btn-cancel-agent" style="display:none">Cancel</button></div>
+    <div id="conversation-wrap"></div>
+    <div id="perm-requests"></div>
+    <div id="composer">
+      <div id="pending-list"></div>
+      <textarea id="free-text" placeholder="Overall message to the agent…"></textarea>
+      <div class="composer-actions">
+        <select id="verdict" title="Overall verdict">
+          <option value="request-changes">Request changes</option>
+          <option value="approve">Approve</option>
+          <option value="reject">Reject</option>
+        </select>
+        <label style="font-size:12px"><input type="checkbox" id="finalize-round"> Finalize</label>
+        <span class="grow"></span>
+        <button id="btn-send" class="primary">Send feedback</button>
+      </div>
+    </div>
+  </aside>
+</div>
+<div class="done-overlay" id="done-overlay"><div class="done-card"><h2>Review complete</h2><p>The review server has been stopped.</p></div></div>
+<script>
+const TAG = 'piloth-review-sdk';
+const file = new URLSearchParams(location.search).get('file') || '';
+const frame = document.getElementById('artifact-frame');
+const livePill = document.getElementById('live-pill');
+const statusEl = document.getElementById('agent-status');
+const statusText = document.getElementById('agent-status-text');
+const convo = document.getElementById('conversation-wrap');
+const permRequests = document.getElementById('perm-requests');
+const pendingList = document.getElementById('pending-list');
+const freeText = document.getElementById('free-text');
+const btnCancel = document.getElementById('btn-cancel-agent');
+let annotating = false, sessionDone = false, sdkReady = false, workBox = null;
+let pendingNew = [];
+
+function api(method, path, body) {
+  return fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+}
+function toFrame(msg) { msg[TAG] = true; frame.contentWindow.postMessage(msg, '*'); }
+
+function loadArtifact() { frame.src = '/artifact?file=' + encodeURIComponent(file) + '&t=' + Date.now(); }
+async function loadAnnotations() {
+  try { const r = await api('GET', '/annotations?file=' + encodeURIComponent(file)); const j = await r.json();
+    toFrame({ type: 'set-annotations', annotations: j.annotations || [] }); } catch (e) {}
+}
+
+// ---- outline ----
+function renderOutline(headings) {
+  const o = document.getElementById('outline'); o.innerHTML = '';
+  (headings || []).forEach(h => {
+    const a = document.createElement('a');
+    a.className = 'outline-item level-' + h.level; a.textContent = h.text;
+    a.onclick = () => toFrame({ type: 'jump-to-element', selector: '#' + h.id });
+    o.appendChild(a);
+  });
+}
+
+// ---- activity mirror ----
+function setWorking(on) {
+  statusEl.className = on ? 'working' : 'idle';
+  statusText.textContent = on ? 'Agent working…' : 'Idle';
+  btnCancel.style.display = on ? '' : 'none';
+}
+function ensureWorkBox() {
+  if (!workBox || !workBox.isConnected) {
+    workBox = document.createElement('div'); workBox.className = 'msg';
+    workBox.innerHTML = '<div class="who">Agent</div><div class="work-steps"></div>';
+    convo.appendChild(workBox); convo.scrollTop = convo.scrollHeight;
+  }
+  return workBox.querySelector('.work-steps');
+}
+function addWorkStep(step, done) {
+  const box = ensureWorkBox();
+  const prev = box.querySelector('.work-step:not(.done)'); if (prev) prev.classList.add('done');
+  const el = document.createElement('div'); el.className = 'work-step' + (done ? ' done' : ''); el.textContent = step;
+  box.appendChild(el); convo.scrollTop = convo.scrollHeight;
+}
+function markLastStepDone() { const steps = convo.querySelectorAll('.work-step:not(.done)'); if (steps.length) steps[steps.length - 1].classList.add('done'); }
+function addConvo(who, text) {
+  const el = document.createElement('div'); el.className = 'msg';
+  el.innerHTML = '<div class="who">' + who + '</div><div></div>'; el.lastChild.textContent = text;
+  convo.appendChild(el); convo.scrollTop = convo.scrollHeight; workBox = null;
+}
+
+// ---- permission cards ----
+function renderPermCard(d) {
+  const card = document.createElement('div'); card.className = 'perm-card'; card.dataset.req = d.requestId;
+  card.innerHTML = '<strong>⚠ Permission needed</strong><div class="tool">' + (d.summary || d.tool) + '</div><div class="row"></div>';
+  const row = card.querySelector('.row');
+  [['Allow', 'allow', false], ['Allow always', 'allow', true], ['Deny', 'deny', false]].forEach(([label, dec, always]) => {
+    const b = document.createElement('button'); b.textContent = label; if (dec === 'deny') b.style.borderColor = 'var(--warn)';
+    b.onclick = () => decide(d.requestId, dec, always); row.appendChild(b);
+  });
+  permRequests.appendChild(card);
+  statusEl.className = 'needs-perm'; statusText.textContent = 'Needs your permission';
+}
+function removePermCard(id) { const c = permRequests.querySelector('[data-req="' + id + '"]'); if (c) c.remove(); }
+function decide(requestId, decision, always) {
+  const c = permRequests.querySelector('[data-req="' + requestId + '"]'); if (c) c.querySelectorAll('button').forEach(b => b.disabled = true);
+  api('POST', '/permission/decision', { file, requestId, decision, always }); removePermCard(requestId);
+}
+
+// ---- SSE ----
+function connectSSE() {
+  const es = new EventSource('/events?file=' + encodeURIComponent(file));
+  es.onopen = () => { livePill.textContent = 'live'; livePill.className = 'pill live'; };
+  es.addEventListener('reload', () => { loadArtifact(); refreshPipeline(); });
+  es.addEventListener('agent-thinking', () => { setWorking(true); });
+  es.addEventListener('agent-progress', (e) => { const d = JSON.parse(e.data || '{}'); setWorking(true); addWorkStep(d.step || '', !!d.done); });
+  es.addEventListener('agent-progress-done', () => markLastStepDone());
+  es.addEventListener('agent-status', (e) => { const d = JSON.parse(e.data || '{}'); if (d.status === 'working') setWorking(true); else if (d.status === 'idle') setWorking(false); else if (d.status === 'permission_prompt') { statusEl.className = 'needs-perm'; statusText.textContent = 'Needs your permission'; } });
+  es.addEventListener('agent-reply', (e) => { const d = JSON.parse(e.data || '{}'); setWorking(false); if (d.message) addConvo('Agent', d.message); loadAnnotations(); refreshPipeline(); });
+  es.addEventListener('agent-cancelled', () => { addConvo('System', 'Cancellation requested.'); });
+  es.addEventListener('permission-request', (e) => renderPermCard(JSON.parse(e.data || '{}')));
+  es.addEventListener('permission-resolved', (e) => removePermCard(JSON.parse(e.data || '{}').requestId));
+  es.addEventListener('permission-mode', (e) => { document.getElementById('remote-approve').checked = !!JSON.parse(e.data || '{}').enabled; });
+  es.addEventListener('session-done', () => { es.close(); finishSession(); });
+  es.onerror = () => { if (sessionDone) { es.close(); return; } livePill.textContent = 'reconnecting…'; livePill.className = 'pill'; es.close(); setTimeout(() => { if (!sessionDone) connectSSE(); }, 3000); };
+}
+
+// ---- iframe messages ----
+window.addEventListener('message', (e) => {
+  const d = e.data; if (!d || !d[TAG]) return;
+  if (d.type === 'sdk-ready') { sdkReady = true; renderOutline(d.headings); loadAnnotations(); }
+  else if (d.type === 'element-selected' || d.type === 'text-selected') addPending(d);
+  else if (d.type === 'serialized' && d._serializeResolve) { /* handled via promise map below */ }
+});
+
+// serialize round-trip
+let serializeSeq = 0; const serializeWaiters = {};
+window.addEventListener('message', (e) => { const d = e.data; if (d && d[TAG] && d.type === 'serialized' && serializeWaiters[d.reqId]) { serializeWaiters[d.reqId](d.html); delete serializeWaiters[d.reqId]; } });
+function requestSerialize() { return new Promise((resolve) => { const id = ++serializeSeq; serializeWaiters[id] = resolve; toFrame({ type: 'serialize', reqId: id }); setTimeout(() => resolve(''), 3000); }); }
+
+// ---- pending annotations ----
+const GATES = ['', 'scope', 'correctness', 'architecture', 'reuse_non_duplication', 'regression', 'traceability', 'disclosure', 'design_system', 'ui_quality'];
+const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
+const DISPOSITIONS = ['request-changes', 'approve'];
+function addPending(d) {
+  const id = 'pending_' + Date.now() + Math.random().toString(36).slice(2, 6);
+  pendingNew.push({ id, kind: d.kind, selector: d.selector, label: d.label, text: d.text, textStart: d.textStart, textEnd: d.textEnd, textPrefix: d.textPrefix, textSuffix: d.textSuffix, note: '', gate: '', severity: 'minor', disposition: 'request-changes' });
+  renderPending();
+}
+function mkSelect(options, value, onChange, title) {
+  const s = document.createElement('select'); s.title = title || '';
+  options.forEach((o) => { const opt = document.createElement('option'); opt.value = o; opt.textContent = o || 'gate…'; if (o === value) opt.selected = true; s.appendChild(opt); });
+  s.onchange = () => onChange(s.value); s.style.fontSize = '12px'; s.style.marginRight = '4px';
+  return s;
+}
+function renderPending() {
+  pendingList.innerHTML = '';
+  pendingNew.forEach((c) => {
+    const div = document.createElement('div'); div.className = 'pending-item';
+    const sel = document.createElement('div'); sel.className = 'sel'; sel.textContent = c.label || c.selector || c.text || '(selection)';
+    const row = document.createElement('div'); row.style.margin = '4px 0';
+    row.appendChild(mkSelect(GATES, c.gate, (v) => { c.gate = v; }, 'quality gate'));
+    row.appendChild(mkSelect(SEVERITIES, c.severity, (v) => { c.severity = v; }, 'severity'));
+    row.appendChild(mkSelect(DISPOSITIONS, c.disposition, (v) => { c.disposition = v; }, 'disposition'));
+    const ta = document.createElement('textarea'); ta.rows = 2; ta.style.width = '100%'; ta.placeholder = 'note…'; ta.value = c.note; ta.oninput = () => { c.note = ta.value; };
+    div.appendChild(sel); div.appendChild(row); div.appendChild(ta);
+    pendingList.appendChild(div);
+  });
+}
+
+async function sendFeedback() {
+  const message = freeText.value.trim();
+  if (!pendingNew.length && !message) return;
+  const verdict = document.getElementById('verdict').value;
+  const finalized = document.getElementById('finalize-round').checked;
+  const res = await api('POST', '/feedback', { file, items: pendingNew, message, verdict, finalized, images: [] });
+  if (res.ok) {
+    addConvo('You', (message || (pendingNew.length + ' finding(s)')) + ' — ' + verdict + (finalized ? ' (finalized)' : ''));
+    pendingNew = []; renderPending(); freeText.value = ''; document.getElementById('finalize-round').checked = false; setWorking(true);
+  }
+}
+
+function finishSession() { sessionDone = true; document.getElementById('done-overlay').classList.add('show'); livePill.textContent = 'stopped'; livePill.className = 'pill'; }
+
+// ---- wire controls ----
+document.getElementById('btn-annotate').onclick = (e) => { annotating = !annotating; e.target.textContent = 'Annotate: ' + (annotating ? 'on' : 'off'); toFrame({ type: 'set-annotate', value: annotating }); };
+document.getElementById('remote-approve').onchange = (e) => api('POST', '/permission/mode', { file, enabled: e.target.checked });
+btnCancel.onclick = () => { addWorkStep('Cancelling…', false); api('POST', '/cancel', { file }); };
+document.getElementById('btn-send').onclick = sendFeedback;
+document.getElementById('btn-finalize').onclick = async () => {
+  if (!sdkReady) return; if (!confirm('Write the current rendered artifact to disk?')) return;
+  const html = await requestSerialize();
+  const r = await api('POST', '/finalize', { file, html }); if (r.ok) addConvo('You', 'Finalized to disk.'); else addConvo('System', 'Finalize failed (markdown uses Save).');
+};
+document.getElementById('btn-done').onclick = async () => {
+  if (!confirm('End the review and shut down the server?')) return;
+  await api('POST', '/done', { file }); await new Promise(r => setTimeout(r, 400)); try { await api('POST', '/stop', {}); } catch (e) {} finishSession();
+};
+
+// ---- Piloth pipeline stepper (governed mode only; hidden when standalone) ----
+const pipelineBar = document.getElementById('pipeline-bar');
+const PP_PHASES = [
+  { key: 'intake', label: 'Intake', match: ['intake'] },
+  { key: 'contract', label: 'Contract', match: ['contract', 'route'] },
+  { key: 'discovery', label: 'Discovery', optional: true },
+  { key: 'prototype', label: 'Prototype', optional: true },
+  { key: 'execute', label: 'Execute', match: ['execute', 'tool/evidence'] },
+  { key: 'review', label: 'Review', match: ['review'] },
+  { key: 'repair', label: 'Repair', match: ['repair'] },
+  { key: 'deliver', label: 'Deliver', match: ['quality gates', 'receipt', 'seal'] }
+];
+function ppGateClass(name, p) {
+  const r = (name === 'prototype' ? p.prototype : name === 'human_review' ? p.human_review : {}) || {};
+  if (r.result === 'PASS') return 'pass';
+  if (r.result === 'FAIL') return 'fail';
+  return '';
+}
+function chosenOptionId() {
+  const base = file.split('/').pop() || '';
+  const m = base.match(/PROTOTYPE-(option[0-9A-Za-z_-]+)\./i);
+  return m ? m[1] : null;
+}
+function pickButtonHtml() {
+  const opt = chosenOptionId();
+  return opt ? '<button class="pp-pick" id="pp-pick-btn" title="Mark this variant as the chosen prototype option">✓ Choose ' + opt + '</button>' : '';
+}
+function wirePickButton() {
+  const btn = document.getElementById('pp-pick-btn'); if (!btn) return;
+  btn.onclick = async () => {
+    const opt = chosenOptionId(); if (!opt) return;
+    const item = { gate: 'human_review', severity: 'minor', disposition: 'approve', note: 'chosen prototype option: ' + opt, label: opt };
+    const res = await api('POST', '/feedback', { file, items: [item], message: 'Chosen prototype option: ' + opt, verdict: 'approve', finalized: false, images: [] });
+    if (res.ok) { addConvo('You', 'Chose prototype option: ' + opt); btn.disabled = true; setWorking(true); }
+  };
+}
+function renderPipeline(p) {
+  if (!p || !p.governed) { pipelineBar.style.display = 'none'; return; }
+  const life = p.lifecycle || [];
+  const sealed = p.status === 'sealed' || p.status === 'closed';
+  const rows = [];
+  for (const ph of PP_PHASES) {
+    let show = true, done = false;
+    if (ph.key === 'discovery') { show = p.requires_discovery || p.discovery_recorded; done = p.discovery_recorded; }
+    else if (ph.key === 'prototype') { show = p.requires_prototype; done = !!(p.prototype && p.prototype.result === 'PASS'); }
+    else { done = (ph.match || []).some(t => life.includes(t)); }
+    if (show) rows.push({ ph, done });
+  }
+  const activeIdx = sealed ? -1 : rows.findIndex(r => !r.done);
+  const phaseHtml = rows.map((r, i) => {
+    const cls = sealed || r.done ? 'done' : (i === activeIdx ? 'active' : '');
+    return '<span class="pp-phase ' + cls + '">' + r.ph.label + '</span>';
+  }).join('<span class="pp-arrow">›</span>');
+  const gates = (p.required_gates || []).map(g => '<span class="pp-gate ' + ppGateClass(g, p) + '">' + g + '</span>').join(' ');
+  const sug = p.phase_plan_suggestion || {};
+  const hints = [];
+  if (sug.recommend_prototype && !p.requires_prototype) hints.push('prototype');
+  if (sug.recommend_discovery && !p.requires_discovery) hints.push('discovery');
+  const hintHtml = hints.length ? '<span class="pp-hint">💡 recommended: ' + hints.join(', ') + '</span>' : '';
+  pipelineBar.innerHTML =
+    '<span class="pp-head">' + (p.task_id || 'task') + ' · ' + (p.status || '') + (p.mode ? ' · ' + p.mode : '') + '</span>' +
+    phaseHtml +
+    (gates ? '<span class="pp-arrow">|</span> gates: ' + gates : '') +
+    hintHtml +
+    pickButtonHtml();
+  wirePickButton();
+  pipelineBar.style.display = 'flex';
+}
+async function refreshPipeline() {
+  try { const r = await api('GET', '/pipeline?file=' + encodeURIComponent(file)); renderPipeline(await r.json()); }
+  catch (e) { pipelineBar.style.display = 'none'; }
+}
+
+loadArtifact();
+connectSSE();
+refreshPipeline();
+setInterval(refreshPipeline, 6000);
+</script>
+</body>
+</html>

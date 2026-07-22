@@ -22,6 +22,8 @@ Mô tả CAPABILITY có thể tái sử dụng.
 | `workflow/` | Quy trình reasoning nhiều bước |
 | `workflow/piloth-team-setup/` | Skill scaffold/update Agent Team theo chuẩn PilothOS |
 | `workflow/pilothos-init/` | Installer assets (payloads, manifest-spec) + /pilothos-uninstall. Docs init tự dọn sau khi cài (self-prune) |
+| `workflow/piloth-discovery/` | Front-of-phase discovery gate: hỏi-xác nhận câu hỏi mở qua Governed Visual Review, fold quyết định vào contract/evidence |
+| `workflow/piloth-prototype/` | Prototype phase: sinh ≥2 biến thể UI, human chọn qua human_review round-trip, ghi `PROTOTYPE.md` + evidence `kind=prototype` |
 | `integration/` | Wrapper deterministic cho API/CLI/MCP |
 
 ## Convention

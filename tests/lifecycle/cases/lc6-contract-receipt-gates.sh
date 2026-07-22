@@ -207,3 +207,25 @@ printf '\n# lc6 temp change\n' >> pilothOS/VALIDATION.md
 out=$(printf '%s' '{"session_id":"lc6"}' | env PILOTHOS_DELIVER_RECEIPT="$bad_receipt" python3 "$G" stop-check)
 grep -q '"decision": "block"' <<< "$out"
 grep -q "Deliver receipt invalid" <<< "$out"
+
+# The staged workspace is NOT a git repo, so the two checks above exercise the
+# mtime fallback (deliver gate still fires when git is unavailable). The next two
+# cases turn it into a git repo to exercise the commit-as-delivery waiver.
+echo "== committed session passes deliver gate (commit = delivery) =="
+git init -q .
+git config user.email "lc6@test.local"
+git config user.name "lc6"
+git add -A
+git commit -q -m "lc6 baseline"
+printf '%s' '{"session_id":"lc6commit"}' | python3 "$G" session-start >/dev/null
+printf '\n# lc6 committed change\n' >> pilothOS/VALIDATION.md
+git add -A
+git commit -q -m "lc6 session change delivered via commit"
+out=$(printf '%s' '{"session_id":"lc6commit"}' | python3 "$G" stop-check)
+[ -z "$out" ] || { echo "FAIL: expected no block after commit, got: $out"; exit 1; }
+
+echo "== uncommitted change still triggers gate under git =="
+printf '%s' '{"session_id":"lc6dirty"}' | python3 "$G" session-start >/dev/null
+printf '\n# lc6 uncommitted change\n' >> pilothOS/VALIDATION.md
+out=$(printf '%s' '{"session_id":"lc6dirty"}' | env PILOTHOS_DELIVER_RECEIPT="$bad_receipt" python3 "$G" stop-check)
+grep -q '"decision": "block"' <<< "$out"
