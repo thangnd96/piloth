@@ -45,11 +45,24 @@ def test_every_mode_dispatches_via_cli(guard):
     assert not failures, "modes failed to dispatch:\n" + "\n".join(failures)
 
 
-# Pure, input-determined modes (no timestamps / hashes / repo scan) -> exact snapshot.
+# Pure, input-determined modes only (no timestamps / hashes / repo or git scan)
+# -> exact snapshot. NB: receipt-template is intentionally NOT here — it embeds
+# the current working-tree changed_files, so it is state-dependent; the smoke
+# test covers that it dispatches.
 GOLDEN_CASES = [
     ("os-start-explain", ["os-start", "--explain"], ""),
-    ("receipt-template", ["receipt-template"], ""),
 ]
+
+
+def test_bundle_matches_src_guard():
+    """The shipped pilothos_guard.py must equal a fresh amalgamation of
+    src/guard/*.py. Hand-edits to the bundle (instead of the fragments) are
+    drift and are rejected here."""
+    r = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "build_guard.py"), "--check"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
 
 
 @pytest.mark.parametrize("name,args,stdin", GOLDEN_CASES)

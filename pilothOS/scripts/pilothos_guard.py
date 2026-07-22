@@ -68,6 +68,9 @@ Ghi chú thiết kế:
   Ladder: điều kiện "có thay đổi mà log chưa động" là máy móc nên hook được;
   chất lượng nội dung log vẫn cần judgment của model.
 """
+# GENERATED FILE — assembled from src/guard/*.py by scripts/build_guard.py.
+# Edit the fragments and rebuild; hand-edits here are overwritten and caught by
+# the bundle-up-to-date gate in tests/unit.
 import sys
 import re
 import json
