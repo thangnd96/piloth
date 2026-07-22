@@ -23,3 +23,23 @@ def test_pre_edit_blocks_without_contract_when_mode_absent(guard, monkeypatch, c
     monkeypatch.setattr(guard, "load_task_contract", lambda hi: ({}, None))
     guard.pre_edit({"tool_input": {"file_path": "pilothOS/x.py"}})
     assert '"decision": "block"' in capsys.readouterr().out
+
+
+def test_pre_edit_allows_harness_plan_path_without_plan_mode(guard, monkeypatch, tmp_path, capsys):
+    # Writing the harness plan file (~/.claude/plans/*.md) must not be blocked even
+    # when permission_mode != "plan" — it is a Claude Code artifact, not repo code.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(guard, "load_task_contract", lambda hi: ({}, None))
+    plan_file = str(tmp_path / "plans" / "my-plan.md")
+    guard.pre_edit({"permission_mode": "default", "tool_input": {"file_path": plan_file}})
+    assert capsys.readouterr().out == ""
+
+
+def test_pre_edit_blocks_when_repo_path_mixed_with_plan_path(guard, monkeypatch, tmp_path, capsys):
+    # A repo target alongside a plan target must NOT slip through the plan-path allow.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(guard, "load_task_contract", lambda hi: ({}, None))
+    plan_file = str(tmp_path / "plans" / "my-plan.md")
+    guard.pre_edit({"permission_mode": "default",
+                    "tool_input": {"paths": [plan_file, "pilothOS/x.py"]}})
+    assert '"decision": "block"' in capsys.readouterr().out

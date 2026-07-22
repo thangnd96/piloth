@@ -26,6 +26,11 @@ Hooks là cơ chế biến Rule dạng văn bản thành enforcement thật. Cá
 - `pre-edit` bỏ qua enforcement khi hook input có `permission_mode == "plan"`.
   Plan mode của harness là planning read-only; contract-before-edit chỉ dành cho
   thực thi. Không exempt thì Piloth chặn cả việc harness ghi plan file.
+- Safety-net bổ trợ (độc lập với `permission_mode`): `pre-edit` cho ghi khi MỌI
+  target nằm trong thư mục plan của harness — `~/.claude/plans/` hoặc
+  `$CLAUDE_CONFIG_DIR/plans/`. Plan file là artifact của Claude Code (ngoài repo),
+  không phải code repo nên gate không quản. Trước đây thiếu net này, plan file bị
+  rule "path outside repo" chặn khi harness không truyền `permission_mode`.
 - Governance (contract, gates, receipt) enforce lại ngay khi session rời plan mode
   (`default`/`acceptEdits`/…).
 

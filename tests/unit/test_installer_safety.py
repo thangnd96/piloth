@@ -91,3 +91,101 @@ def test_hooks_merge_consumer_first_and_dedup(installer):
     payload = {"hooks": {"PreToolUse": [entry]}}
     out = installer.merge_settings_content(consumer, payload, {}, [])
     assert out["hooks"]["PreToolUse"].count(entry) == 1
+
+
+# --------------------------------------------------------------- adapter_set
+
+def test_adapter_set_from_list_and_csv(installer):
+    assert installer.adapter_set(["claude", "codex"]) == {"claude", "codex"}
+    assert installer.adapter_set("claude,codex") == {"claude", "codex"}
+
+
+def test_adapter_set_none_or_empty_is_all(installer):
+    allf = {"claude", "cursor", "codex", "antigravity"}
+    assert installer.adapter_set(None) == allf
+    assert installer.adapter_set("") == allf
+    assert installer.adapter_set([]) == allf
+
+
+def test_adapter_set_rejects_unknown(installer):
+    with pytest.raises(installer.PlanError):
+        installer.adapter_set(["claude", "codez"])
+
+
+# ------------------------------------- normalize_plan: adapters + gitignore
+
+@pytest.fixture()
+def staged_repo(installer, monkeypatch, tmp_path):
+    """A tmp REPO_ROOT with all optional adapter dirs + a bare .gitignore staged,
+    mimicking the post-staging state of a real install."""
+    for d in (".cursor", ".codex", ".antigravity"):
+        (tmp_path / d).mkdir()
+    (tmp_path / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+def test_normalize_injects_removals_for_unselected(installer, staged_repo):
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["claude", "codex"], "steps": [{"op": "write_marker"}]}
+    assert installer.normalize_plan(plan) is True
+    removed = {s["target"] for s in plan["steps"] if s["op"] == "remove_path"}
+    assert removed == {".cursor", ".antigravity"}   # codex kept, claude never optional
+    assert plan["steps"][-1]["op"] == "write_marker"  # marker stays last
+
+
+def test_normalize_gitignore_runtime_appends_missing(installer, staged_repo):
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    gi = [s for s in plan["steps"]
+          if s["op"] == "append_lines" and s["target"] == ".gitignore"]
+    assert len(gi) == 1
+    assert set(installer.PILOTHOS_GITIGNORE_LINES) <= set(gi[0]["lines"])
+    assert "pilothOS/" not in gi[0]["lines"]
+
+
+def test_normalize_gitignore_all_scope(installer, staged_repo):
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "options": {"gitignore_scope": "all"}, "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    gi = [s for s in plan["steps"]
+          if s["op"] == "append_lines" and s["target"] == ".gitignore"][0]
+    assert "pilothOS/" in gi["lines"]
+
+
+def test_normalize_is_idempotent(installer, staged_repo):
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["claude", "codex"], "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    n = len(plan["steps"])
+    assert installer.normalize_plan(plan) is False
+    assert len(plan["steps"]) == n
+
+
+def test_normalize_gitignore_skips_when_all_present(installer, monkeypatch, tmp_path):
+    for d in (".cursor", ".codex", ".antigravity"):
+        (tmp_path / d).mkdir()
+    (tmp_path / ".gitignore").write_text(
+        "\n".join(installer.PILOTHOS_GITIGNORE_LINES) + "\n", encoding="utf-8")
+    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    assert [s for s in plan["steps"] if s.get("target") == ".gitignore"] == []
+
+
+def test_validate_requires_adapters_when_optional_staged(installer, staged_repo):
+    plan = {"plan_version": 1, "mode": "greenfield", "steps": [{"op": "write_marker"}]}
+    with pytest.raises(installer.PlanError):
+        installer.validate_and_simulate(plan)
+
+
+def test_validate_adapters_must_include_claude(installer, staged_repo):
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["codex"], "steps": [{"op": "write_marker"}]}
+    with pytest.raises(installer.PlanError):
+        installer.validate_and_simulate(plan)

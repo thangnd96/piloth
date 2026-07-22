@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.9.0",
- "generated_at": "2026-07-21T23:32:00.489765+00:00",
+ "generated_at": "2026-07-22T08:37:14.970263+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -25,6 +25,10 @@
   },
   {
    "path": ".claude/commands/piloth-team.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/commands/pilothos-adapter.md",
    "class": "verbatim"
   },
   {
@@ -351,6 +355,10 @@
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/team-workflow.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-adapter/SKILL.md",
    "class": "verbatim"
   },
   {

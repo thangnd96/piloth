@@ -1793,7 +1793,8 @@ def target_footprint_report(state, target_diff):
     }
 
 
-def edit_paths_from_hook_input(hook_input):
+def raw_edit_targets(hook_input):
+    """Các path thô (chưa resolve) mà tool Edit/Write/MultiEdit sẽ ghi."""
     tool_input = (
         hook_input.get("tool_input")
         or hook_input.get("toolInput")
@@ -1810,8 +1811,34 @@ def edit_paths_from_hook_input(hook_input):
             value = tool_input.get(key)
             if isinstance(value, list):
                 raw_paths.extend(v for v in value if isinstance(v, str))
+    return raw_paths
+
+
+def claude_config_dir():
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env and env.strip():
+        return pathlib.Path(env.strip()).expanduser()
+    return pathlib.Path.home() / ".claude"
+
+
+def is_harness_plan_path(raw):
+    """True nếu raw trỏ vào thư mục plan của harness (~/.claude/plans hoặc
+    $CLAUDE_CONFIG_DIR/plans). Plan file là artifact của Claude Code, không phải
+    code repo — contract-before-edit gate không quản, cho ghi kể cả khi harness
+    không truyền permission_mode=="plan"."""
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        target = pathlib.Path(raw.strip()).expanduser().resolve()
+        plans = (claude_config_dir() / "plans").resolve()
+    except (OSError, ValueError, RuntimeError):
+        return False
+    return target == plans or plans in target.parents
+
+
+def edit_paths_from_hook_input(hook_input):
     paths, errors = [], []
-    for raw in raw_paths:
+    for raw in raw_edit_targets(hook_input):
         rel, err = repo_relative_path(raw)
         if err:
             errors.append(err)
@@ -4429,6 +4456,13 @@ def pre_edit(hook_input):
     # moment the session leaves plan mode. `permission_mode` is the documented
     # PreToolUse hook field carrying the current mode ("plan" | "default" | ...).
     if hook_input.get("permission_mode") == "plan":
+        return
+    # Harness ghi plan file vào ~/.claude/plans (ngoài repo). Đó là artifact của
+    # Claude Code, không phải code repo — cho phép kể cả khi harness không truyền
+    # permission_mode=="plan" (safety-net bổ trợ). Chỉ allow khi MỌI target là
+    # plan-path để không tạo khe hở ghi lẫn file repo.
+    raw_targets = raw_edit_targets(hook_input)
+    if raw_targets and all(is_harness_plan_path(t) for t in raw_targets):
         return
     contract, contract_path = load_task_contract(hook_input)
     if not contract:

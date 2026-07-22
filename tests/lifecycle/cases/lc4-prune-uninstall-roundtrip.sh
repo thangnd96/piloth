@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$1"
 cat > plan.json << 'EOP'
 {"plan_version":1,"mode":"greenfield","fill":{"PERSONA":"P","GOALS":"G","OWNER":"O"},
+ "adapters":["claude","cursor","antigravity"],
  "steps":[{"op":"fill_placeholders","target":"CLAUDE.md"},{"op":"remove_path","target":".codex"},
   {"op":"remove_path","target":".claude/commands/pilothos-init.md"},
   {"op":"remove_path","target":".claude/skills/pilothos-init"},

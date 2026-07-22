@@ -73,6 +73,18 @@ grep -qx "pilothOS/memory/state/receipt-seals.jsonl" templates/gitignore
 grep -qx "pilothOS/memory/state/\*.jsonl" templates/gitignore
 grep -qx "pilothOS/memory/state/team-runs/" templates/gitignore
 grep -qx "pilothOS/memory/state/os-runs/" templates/gitignore
+# Engine SSOT (PILOTHOS_GITIGNORE_LINES) phai khop template — chong drift giua
+# nhanh greenfield-chua-co-gitignore (template) va normalize (engine append).
+python3 - <<'PY'
+import importlib.util, pathlib
+spec = importlib.util.spec_from_file_location("installer", "pilothOS/scripts/pilothos_installer.py")
+inst = importlib.util.module_from_spec(spec); spec.loader.exec_module(inst)
+tpl = [l for l in pathlib.Path("templates/gitignore").read_text(encoding="utf-8").splitlines() if l.strip()]
+assert inst.PILOTHOS_GITIGNORE_LINES == tpl, (
+    f"drift: PILOTHOS_GITIGNORE_LINES != templates/gitignore\n"
+    f"engine={inst.PILOTHOS_GITIGNORE_LINES}\ntemplate={tpl}")
+print("  engine SSOT khop templates/gitignore")
+PY
 echo "D4 PASS"
 
 echo "== D5 structure docs match shipped roots =="

@@ -336,6 +336,18 @@ Trước khi nâng cấp installation hiện tại:
 
 Không ghi đè installation hiện tại bằng cách copy file thủ công.
 
+## Quản lý tool adapters (sau init)
+
+Chọn thiếu adapter khi init, hoặc muốn bật thêm sau này? Dùng lệnh (không cần re-init):
+
+```text
+/piloth:adapter
+```
+
+ADD copy targeted đúng adapter thiếu (`cursor`/`codex`/`antigravity`) từ nguồn Piloth,
+không đụng kernel; REMOVE qua engine (`remove_path`, có backup, uninstall khôi phục được).
+`claude` là adapter nền, luôn giữ. Chi tiết: `pilothOS/skills/workflow/pilothos-adapter/SKILL.md`.
+
 ## Uninstall
 
 Trong Claude Code:

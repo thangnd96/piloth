@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Init ergonomics từ consumer feedback (adapter selection, add-adapter, plan-write, gitignore).
+
+- **Adapter selection giờ được enforce (fix "chọn claude+codex vẫn cài đủ 4")**:
+  plan interactive khai báo field `adapters` (list adapter giữ lại, gồm `claude`);
+  engine `normalize_plan` tự sinh `remove_path` cho adapter KHÔNG chọn ở dry-run
+  (không còn phụ thuộc Claude gõ tay). Greenfield/brownfield BẮT BUỘC khai báo
+  `adapters` khi có optional adapter đã staging.
+- **`/piloth:adapter` (skill `pilothos-adapter`)**: thêm/bớt adapter SAU init mà
+  không cần re-init. ADD dùng `stage.sh --add-adapters <names>` (targeted — chỉ
+  copy adapter thiếu, không đụng kernel); REMOVE qua engine `remove_path` (có backup).
+- **Guard không còn chặn Claude ghi plan file khi harness không truyền
+  `permission_mode`**: `pre-edit` cho ghi khi mọi target nằm trong `~/.claude/plans/`
+  (hoặc `$CLAUDE_CONFIG_DIR/plans/`) — plan file là artifact harness, không phải
+  code repo. Safety-net bổ trợ cho exemption plan-mode.
+- **`.gitignore` runtime rules nhất quán + opt-in `all`**: SSOT `PILOTHOS_GITIGNORE_LINES`;
+  `normalize_plan` chèn `append_lines` cho `.gitignore` (idempotent) ở MỌI nhánh —
+  vá gap greenfield-có-sẵn-.gitignore và brownfield-append-thiếu-dòng. `pilothOS/`
+  vẫn commit theo thiết kế; `options.gitignore_scope="all"` (elicit/`--gitignore-scope all`)
+  cho consumer chọn ignore toàn bộ `pilothOS/`.
+- Tests: `test_installer_safety.py` (adapter_set, normalize_plan, gitignore, adapters
+  required); `test_guard_plan_mode.py` (harness plan-path allow); install C10f/C10g/C10h;
+  lifecycle/install fixtures khai báo `adapters`.
+
 Lifecycle ergonomics + taxonomy hardening (từ dogfood build landing page).
 
 - **`os-close --dry-run`**: chạy TOÀN BỘ validator của os-close (quality gates,

@@ -63,9 +63,10 @@ def fail(msg: str, code: int = 1) -> None:
     raise SystemExit(code)
 
 
-def parse_args(argv: list[str]) -> tuple[Path, bool, bool, list[str]]:
+def parse_args(argv: list[str]) -> tuple[Path, bool, bool, Optional[set[str]], list[str]]:
     upgrade = False
     unattended = False
+    add_adapters: Optional[set[str]] = None
     installer_args: list[str] = []
     targets: list[str] = []
     i = 0
@@ -75,6 +76,13 @@ def parse_args(argv: list[str]) -> tuple[Path, bool, bool, list[str]]:
             upgrade = True
         elif arg == "--unattended":
             unattended = True
+        elif arg == "--add-adapters":
+            if i + 1 < len(argv):
+                i += 1
+                add_adapters = {x.strip().lower() for x in argv[i].split(",") if x.strip()}
+        elif arg.startswith("--add-adapters="):
+            add_adapters = {x.strip().lower()
+                            for x in arg.split("=", 1)[1].split(",") if x.strip()}
         elif arg == "--":
             installer_args.extend(argv[i + 1:])
             break
@@ -93,7 +101,7 @@ def parse_args(argv: list[str]) -> tuple[Path, bool, bool, list[str]]:
     if len(targets) > 1:
         fail(f"qua nhieu target: {targets}")
     target = Path(targets[0] if targets else os.getcwd()).resolve()
-    return target, upgrade, unattended, installer_args
+    return target, upgrade, unattended, add_adapters, installer_args
 
 
 def requested_adapter_roots(installer_args: list[str]) -> Optional[set[str]]:
@@ -160,10 +168,45 @@ def copy_one(src: Path, rel_dest: str, counts: dict[str, int],
     counts["copied"] += 1
 
 
+def add_adapters_targeted(target: Path, names: set[str]) -> int:
+    """Targeted add: CHỈ copy các optional adapter được nêu vào project đã init;
+    KHÔNG tái stage kernel hay adapter khác. File đã tồn tại được giữ nguyên
+    (không clobber). Dùng cho lệnh add-adapter sau init."""
+    if not (target / "pilothOS" / ".initialized").exists():
+        fail("project chua init PilothOS — chay init truoc khi add adapter.")
+    if not names:
+        fail("--add-adapters can it nhat mot adapter.")
+    valid = sorted(OPTIONAL_ADAPTER_ROOTS)
+    unknown = sorted(n for n in names if n not in OPTIONAL_ADAPTER_ROOTS)
+    if unknown:
+        fail(f"chi add duoc optional adapter {valid} (claude luon co san): {unknown}")
+    counts = {"copied": 0, "updated": 0, "backed_up": 0, "skipped": 0}
+    for name in sorted(names):
+        root = OPTIONAL_ADAPTER_ROOTS[name]
+        src = REPO / "adapters" / name
+        if not src.is_dir():
+            fail(f"khong tim thay nguon adapter: adapters/{name}")
+        for child in sorted(p for p in src.rglob("*") if p.is_file()):
+            if ignored_distribution_artifact(child.relative_to(src)):
+                continue
+            rel = child.relative_to(src).as_posix()
+            copy_one(child, f"{root}/{rel}", counts, target,
+                     upgrade=False, backup_root=None, requested_adapters=None)
+    print(
+        f"OK: add adapters {sorted(names)} — copied={counts['copied']}, "
+        f"skipped-vi-da-co={counts['skipped']}"
+    )
+    print("Tiep theo: ghi nhan qua engine (plan mode=upgrade, op write_marker) "
+          "theo skill pilothos-adapter.")
+    return 0
+
+
 def main() -> int:
-    target, upgrade, unattended, installer_args = parse_args(sys.argv[1:])
+    target, upgrade, unattended, add_adapters, installer_args = parse_args(sys.argv[1:])
     if not (REPO / "pilothOS").is_dir():
         fail(f"khong tim thay nguon PilothOS tai {REPO}")
+    if add_adapters is not None:
+        return add_adapters_targeted(target, add_adapters)
     initialized = (target / "pilothOS" / ".initialized").exists()
     if initialized and not upgrade:
         fail("project da init PilothOS — dung --upgrade de re-stage/upgrade.")
