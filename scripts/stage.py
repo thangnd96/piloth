@@ -19,28 +19,11 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from _distribution import CONSUMER_OWNED, MAP, ignored_distribution_artifact
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO = Path(os.environ.get("CLAUDE_PLUGIN_ROOT", SCRIPT_DIR.parent)).resolve()
 
-MAP = [
-    ("pilothOS", "pilothOS"),
-    ("adapters/claude", ".claude"),
-    ("adapters/cursor", ".cursor"),
-    ("adapters/codex", ".codex"),
-    ("adapters/antigravity", ".antigravity"),
-    ("templates/CLAUDE.md", "CLAUDE.md"),
-    ("templates/AGENTS.md", "AGENTS.md"),
-    ("templates/gitignore", ".gitignore"),
-    ("pilothOS/skills/workflow/pilothos-init/payloads/settings.json", ".claude/settings.json"),
-    ("LICENSE", "pilothOS/LICENSE"),
-    ("CHANGELOG.md", "pilothOS/CHANGELOG.md"),
-]
-
-IGNORE_NAMES = {".DS_Store", "Thumbs.db"}
-IGNORE_DIRS = {"__pycache__"}
-LOCAL_STATE_FILES = {"memory/state/scheduler-history.jsonl", "memory/state/receipt-seals.jsonl"}
-LOCAL_STATE_DIRS = {"memory/state/team-runs", "memory/state/os-runs"}
-CONSUMER_OWNED = {"CLAUDE.md", "AGENTS.md", ".gitignore", ".claude/settings.json"}
 UPGRADE_PRESERVE = CONSUMER_OWNED | {
     "pilothOS/.initialized",
     "pilothOS/rot/registry.md",
@@ -122,17 +105,6 @@ def optional_adapter_root(rel_dest: str) -> Optional[str]:
     if first in OPTIONAL_ADAPTER_ROOTS.values():
         return first
     return None
-
-
-def ignored_distribution_artifact(path: Path) -> bool:
-    rel = path.as_posix()
-    return (
-        path.name in IGNORE_NAMES
-        or any(part in IGNORE_DIRS for part in path.parts)
-        or rel in LOCAL_STATE_FILES
-        or (rel.startswith("memory/state/") and path.suffix == ".jsonl")
-        or any(rel == item or rel.startswith(item + "/") for item in LOCAL_STATE_DIRS)
-    )
 
 
 def backup_existing(dest: Path, rel_dest: str, backup_root: Path) -> None:

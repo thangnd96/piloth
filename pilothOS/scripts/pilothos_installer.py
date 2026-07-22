@@ -154,18 +154,23 @@ def check_target_writable_zone(path_str, op):
             "(core khong duoc plan sua; marker dung write_marker)")
 
 
+def _fill_persona_goals(text, fill):
+    """PERSONA + GOALS placeholder substitution shared by payload baking
+    (load_payload) and generic placeholder filling (fill_text)."""
+    if fill.get("PERSONA"):
+        text = re.sub(r"<PERSONA[^>]*>", fill["PERSONA"], text)
+    if fill.get("GOALS"):
+        text = re.sub(r"<MỤC TIÊU[^>]*>", fill["GOALS"], text)
+    return text
+
+
 def load_payload(name, fill):
     p = (PAYLOAD_DIR / name)
     if not p.resolve().parent == PAYLOAD_DIR.resolve():
         raise PlanError(f"payload phai nam truc tiep trong payloads/: {name}")
     if not p.exists():
         raise PlanError(f"payload khong ton tai: {name}")
-    text = p.read_text(encoding="utf-8")
-    if fill.get("PERSONA"):
-        text = re.sub(r"<PERSONA[^>]*>", fill["PERSONA"], text)
-    if fill.get("GOALS"):
-        text = re.sub(r"<MỤC TIÊU[^>]*>", fill["GOALS"], text)
-    return text
+    return _fill_persona_goals(p.read_text(encoding="utf-8"), fill)
 
 
 # ------------------------------------------------------------ placeholders
@@ -175,10 +180,7 @@ CADENCE_RE = re.compile(r"(\d+)\s*[–-]\s*(\d+)?\s*(tuần|tháng)")
 
 def fill_text(text, fill, is_registry):
     today = datetime.date.today()
-    if fill.get("PERSONA"):
-        text = re.sub(r"<PERSONA[^>]*>", fill["PERSONA"], text)
-    if fill.get("GOALS"):
-        text = re.sub(r"<MỤC TIÊU[^>]*>", fill["GOALS"], text)
+    text = _fill_persona_goals(text, fill)
     if fill.get("OWNER"):
         text = text.replace("<owner>", fill["OWNER"])
     if is_registry:
