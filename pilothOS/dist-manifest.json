@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
- "piloth_version": "1.10.0",
- "generated_at": "2026-07-23T00:44:05.136088+00:00",
+ "piloth_version": "1.11.0",
+ "generated_at": "2026-07-23T01:57:31.618161+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -37,6 +37,10 @@
   },
   {
    "path": ".claude/commands/pilothos-uninstall.md",
+   "class": "verbatim"
+  },
+  {
+   "path": ".claude/commands/pilothos-update.md",
    "class": "verbatim"
   },
   {
@@ -387,6 +391,10 @@
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/payloads/startup-contract-block.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/pilothos-update/SKILL.md",
    "class": "verbatim"
   },
   {

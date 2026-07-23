@@ -438,7 +438,7 @@ def do_apply(plan, plan_path):
     else:
         created.append(marker_rel)
     manifest = {
-        "pilothos_version": "1.10.0", "timestamp": ts, "mode": plan["mode"],
+        "pilothos_version": "1.11.0", "timestamp": ts, "mode": plan["mode"],
         "created": created, "modified": modified, "removed": removed,
         "notes": notes,
     }
@@ -458,7 +458,7 @@ def do_apply(plan, plan_path):
                     raise IOError(f"postcondition fail: {a['target']}")
             applied.append(a)
         MARKER.write_text(json.dumps({
-            "initialized_at": ts, "pilothos_version": "1.10.0",
+            "initialized_at": ts, "pilothos_version": "1.11.0",
             "mode": plan["mode"],
             "manifest": str((bdir / 'manifest.json').relative_to(REPO_ROOT)),
         }, indent=2) + "\n", encoding="utf-8")

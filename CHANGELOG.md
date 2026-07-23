@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## v1.11.0 — 2026-07-23
+
+Update path first-class + drift-warning (vá thiếu sót "update plugin rồi thì bản đã init nâng cấp thế nào").
+
+- **`/piloth:update` (skill `pilothos-update`)**: command first-class nâng bản PilothOS
+  đã init lên version plugin hiện tại — re-stage kernel/adapter (`stage.sh --upgrade`,
+  có backup) rồi đóng dấu version qua engine (`mode=upgrade` + `write_marker`). GIỮ nguyên
+  `CLAUDE.md`/`AGENTS.md`/`.gitignore`/`.claude/settings.json` + state (rot registry,
+  review-log, lessons-learned). SSOT của upgrade flow — section "Re-init/Upgrade" của
+  `pilothos-init` rút thành pointer. Bridge `/pilothos-update` cho project đã cài. Đổi
+  adapter vẫn dùng `/piloth:adapter`.
+- **Drift-warning ở session-start** (fail-soft, advisory): guard so `pilothos_version`
+  trong `pilothOS/.initialized` với version plugin ở `${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json`;
+  plugin mới hơn → nhắc chạy `/piloth:update` (không chặn task). Thiếu marker / thiếu
+  `CLAUDE_PLUGIN_ROOT` / parse lỗi → im lặng. **Forward-looking**: chỉ kích hoạt cho
+  consumer đã ở version CÓ nó (v1.11.0+) — lần nhảy từ v1.10.0 chưa thấy vì guard cũ chưa có.
+- **Fix release tooling**: `bump-version.sh` audit thêm exclude `pilothOS/memory/state/`
+  (runtime state gitignored) — trước đây os-run state của release trước (chứa version cũ)
+  làm audit false-positive mỗi lần bump.
+- Tests: `tests/unit/test_guard_version_drift.py` (advisory fail-soft: newer→warn,
+  equal/older/missing→silent). Docs: README `## Updating`, structure, workflow, skills/index.
+
 ## v1.10.0 — 2026-07-23
 
 Init ergonomics từ consumer feedback (adapter selection, add-adapter, plan-write, gitignore).

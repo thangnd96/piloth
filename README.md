@@ -324,17 +324,17 @@ Chi tiết: [structure.md](docs/structure.md)
 
 ## Updating
 
-Với Claude Code, cập nhật plugin qua Plugin UI và mở session mới.
+Với Claude Code, cập nhật plugin qua Plugin UI (hoặc `/plugin update piloth`) và mở session mới.
 
-Trước khi nâng cấp installation hiện tại:
+Sau đó nâng bản PilothOS đã init trong project lên version mới — không cần re-init:
 
-1. đọc `CHANGELOG.md`;
-2. kiểm tra migration notes;
-3. bảo đảm working tree sạch;
-4. chạy update theo workflow được release chỉ định;
-5. chạy `self-check` sau update.
+```text
+/piloth:update
+```
 
-Không ghi đè installation hiện tại bằng cách copy file thủ công.
+`update` re-stage kernel + adapter từ nguồn plugin (`stage.sh --upgrade`) rồi đóng dấu version mới qua engine (`mode=upgrade`); GIỮ nguyên `CLAUDE.md`/`AGENTS.md`/`.gitignore`/`.claude/settings.json` + state. Chi tiết: `pilothOS/skills/workflow/pilothos-update/SKILL.md`.
+
+Trước khi nâng cấp: đọc `CHANGELOG.md` + migration notes, bảo đảm working tree sạch; sau update chạy `self-check`. Không ghi đè installation hiện tại bằng cách copy file thủ công.
 
 ## Quản lý tool adapters (sau init)
 
