@@ -1,6 +1,6 @@
 # Piloth Workflow
 
-Tài liệu này mô tả cách **Piloth v1.10.0** hoạt động từ lúc được cài vào project đến khi AI agent nhận, thực hiện, kiểm chứng và bàn giao một task.
+Tài liệu này mô tả cách **Piloth v1.11.0** hoạt động từ lúc được cài vào project đến khi AI agent nhận, thực hiện, kiểm chứng và bàn giao một task.
 
 ## Tổng quan
 
@@ -111,8 +111,8 @@ Phân loại project:
 - `dirty` hoặc cần xử lý thủ công.
 
 Agent phải trình verdict và Evidence để consumer xác nhận; không tự rẽ nhánh im lặng.
-Với `re-init`, không chạy lại greenfield/brownfield plan; dùng upgrade flow
-(`stage.sh --upgrade` + plan `mode=upgrade`) nếu user muốn nâng cấp.
+Với `re-init`, không chạy lại greenfield/brownfield plan; nâng cấp qua `/piloth:update`
+(skill `pilothos-update`: `stage.sh --upgrade` + plan `mode=upgrade`, giữ customization + state).
 
 ### Audit + Elicit
 

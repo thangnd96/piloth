@@ -1,6 +1,6 @@
 # Piloth Structure
 
-Tài liệu này mô tả cấu trúc của **Piloth v1.10.0** và trách nhiệm của từng khu vực trong repository cũng như trong project sau khi cài đặt.
+Tài liệu này mô tả cấu trúc của **Piloth v1.11.0** và trách nhiệm của từng khu vực trong repository cũng như trong project sau khi cài đặt.
 
 ## Tổng quan
 
@@ -25,7 +25,7 @@ AI Coding Agent
 piloth/
 ├── .claude-plugin/           # Manifest cho Claude Code plugin/marketplace
 ├── adapters/                 # Native adapters cho từng AI coding tool
-├── commands/                 # Plugin commands: init và uninstall
+├── commands/                 # Plugin commands: init, update, adapter, uninstall
 ├── docs/                     # Tài liệu workflow và cấu trúc phân phối
 ├── pilothOS/                 # Kernel, runtime, rules và installer SSOT
 ├── scripts/                  # Staging, manifest và version tooling
@@ -55,6 +55,8 @@ Các command được expose bởi plugin:
 ```text
 commands/
 ├── init.md                   # /piloth:init
+├── update.md                 # /piloth:update
+├── adapter.md                # /piloth:adapter
 └── uninstall.md              # /piloth:uninstall
 ```
 

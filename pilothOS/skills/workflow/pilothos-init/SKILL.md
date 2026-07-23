@@ -46,12 +46,9 @@ Plan PHẢI kèm các step dọn mặt tiền install (đặt ngay trước `wri
 
 ## Re-init / Upgrade
 
-1. Stage lại bản phân phối mới:
-   `bash scripts/stage.sh --upgrade /path/to/project`
-2. Nếu chỉ cần ghi nhận upgrade marker/manifest, dùng plan tối thiểu:
-   `{"plan_version":1,"mode":"upgrade","steps":[{"op":"write_marker"}]}`
-3. Nếu muốn đổi adapter selection, truyền `--adapters` cho staging/unattended;
-   mặc định upgrade giữ nguyên adapter đã bị remove, không tự resurrect.
+Nâng bản đã init lên version mới → `/piloth:update` (skill `pilothos-update`) — SSOT
+của upgrade flow (`stage.sh --upgrade` + engine plan `mode=upgrade`, giữ customization +
+state). KHÔNG chạy lại greenfield/brownfield plan trên project đã có `.initialized`.
 
 **Thêm/bớt adapter sau init (không phải full upgrade):** dùng `/piloth:adapter`
 (skill `pilothos-adapter`) — ADD copy targeted qua `stage.sh --add-adapters`,

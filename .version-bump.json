@@ -33,7 +33,8 @@
     "exclude": [
       ".git/",
       ".backup/",
-      "CHANGELOG.md"
+      "CHANGELOG.md",
+      "pilothOS/memory/state/"
     ]
   }
 }
