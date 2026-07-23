@@ -1,0 +1,152 @@
+{
+  "fields": {
+    "affected_layers": {
+      "default": "derived from paths",
+      "note": "contract requires a non-empty list",
+      "required": false
+    },
+    "budget": {
+      "note": "object; budget.max_usd is an advisory cost ceiling",
+      "required": false
+    },
+    "energy_budget_reason": {
+      "note": "justify the blast radius of an expensive run",
+      "required": "when expected_evidence names a full-suite/broad run"
+    },
+    "evidence_profile": {
+      "allowed": [
+        "code",
+        "design_tokens",
+        "docs",
+        "generic",
+        "release",
+        "ui"
+      ],
+      "default": "generic",
+      "required": false
+    },
+    "execution_strategy": {
+      "default": "controlled_target if explicit target else repo_local",
+      "required": false
+    },
+    "expected_evidence": {
+      "default": [
+        "manual verification receipt"
+      ],
+      "required": false
+    },
+    "intent": {
+      "aliases": [
+        "task_scope",
+        "summary",
+        "title"
+      ],
+      "default": "repo-local OS task",
+      "note": "becomes contract.task_scope",
+      "required": false
+    },
+    "mode": {
+      "aliases": [
+        "os_mode",
+        "piloth_mode"
+      ],
+      "allowed": [
+        "adaptive",
+        "auto",
+        "lean",
+        "standard",
+        "strict"
+      ],
+      "default": "adaptive",
+      "note": "adaptive/auto resolve to lean|standard|strict",
+      "required": false
+    },
+    "operational_preset": {
+      "allowed": [
+        "light",
+        "standard",
+        "strict"
+      ],
+      "required": false
+    },
+    "out_of_scope_paths": {
+      "default": [],
+      "required": false
+    },
+    "requires_discovery": {
+      "default": false,
+      "required": false
+    },
+    "requires_human_review": {
+      "default": false,
+      "required": false
+    },
+    "requires_prototype": {
+      "default": false,
+      "note": "true also forces requires_human_review",
+      "required": false
+    },
+    "success_metrics": {
+      "required": false
+    },
+    "target_footprint_policy": {
+      "aliases": [
+        "footprint_policy"
+      ],
+      "allowed": [
+        "no_control_plane_files",
+        "repo_local_state_allowed"
+      ],
+      "default": "no_control_plane_files if explicit target else repo_local_state_allowed",
+      "required": false
+    },
+    "target_kind": {
+      "allowed": [
+        "external",
+        "git",
+        "non_git"
+      ],
+      "note": "cross-checked vs actual git detection",
+      "required": false
+    },
+    "target_paths": {
+      "aliases": [
+        "allowed_paths",
+        "affected_paths",
+        "paths"
+      ],
+      "default": [
+        "**/*"
+      ],
+      "note": "each must be a safe glob",
+      "required": false
+    },
+    "target_repo": {
+      "default": "<control-plane repo>",
+      "note": "absolute path; must exist and not be inside pilothOS/memory/state",
+      "required": false
+    },
+    "task_id": {
+      "aliases": [
+        "id",
+        "request_id"
+      ],
+      "default": "task-<sha256[:12]> from intent",
+      "required": false
+    },
+    "task_signal": {
+      "allowed": [
+        "API/backend",
+        "UI/component",
+        "bug fix",
+        "not_applicable",
+        "release/deploy",
+        "tool/MCP"
+      ],
+      "default": "not_applicable",
+      "required": false
+    }
+  },
+  "note": "All fields optional; a bare {} opens a repo-local run. See runtime/os-control-plane.md.",
+  "result": "os_start_schema"
+}

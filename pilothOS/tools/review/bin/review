@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+'use strict';
+/*
+ * Piloth Review CLI — faithful to annotron's bin. Subcommands:
+ *   review open <file> [--agent]   open the review editor (optionally start agent loop)
+ *   review agent <file>            run the poll -> apply(claude -p) -> reply loop
+ *   review poll <file> [--reply <msg>] [--annotation-id <id>]
+ *   review progress <file> "<step>"
+ *   review check <file>            print {cancelled}
+ *   review stop                    shut the server down
+ *   review help
+ */
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const { spawn, spawnSync } = require('child_process');
+
+const HOST = process.env.REVIEW_HOST || '127.0.0.1';
+const PORT = parseInt(process.env.REVIEW_PORT || '7321', 10);
+const SERVER = path.join(__dirname, '..', 'src', 'server.js');
+
+function req(method, pathname, body) {
+  return new Promise((resolve, reject) => {
+    const data = body == null ? null : JSON.stringify(body);
+    const r = http.request({ host: HOST, port: PORT, method, path: pathname,
+      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {} },
+      (res) => {
+        let buf = '';
+        res.on('data', (c) => (buf += c));
+        res.on('end', () => { try { resolve(JSON.parse(buf || '{}')); } catch (e) { resolve(buf); } });
+      });
+    r.on('error', reject);
+    if (data) r.write(data);
+    r.end();
+  });
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function health() { try { const j = await req('GET', '/health'); return !!(j && j.ok); } catch (e) { return false; } }
+
+async function ensureServer() {
+  if (await health()) return;
+  const out = fs.openSync(path.join(require('os').tmpdir(), 'piloth-review.log'), 'a');
+  const child = spawn(process.execPath, [SERVER], {
+    detached: true,
+    stdio: ['ignore', out, out],
+    env: Object.assign({}, process.env, { REVIEW_HOST: HOST, REVIEW_PORT: String(PORT) })
+  });
+  child.unref();
+  for (let i = 0; i < 60; i++) { if (await health()) return; await sleep(250); }
+  throw new Error('review server failed to start (see ' + path.join(require('os').tmpdir(), 'piloth-review.log') + ')');
+}
+
+function openBrowser(url) {
+  const p = process.platform;
+  const cmd = p === 'darwin' ? 'open' : p === 'win32' ? 'cmd' : 'xdg-open';
+  const args = p === 'win32' ? ['/c', 'start', '', url] : [url];
+  try { spawn(cmd, args, { stdio: 'ignore', detached: true }).unref(); } catch (e) {}
+}
+
+function buildPrompt(feedback) {
+  const items = (feedback.items || []).map((it, i) => {
+    const loc = it.source && it.source.file ? ` [source: ${it.source.file}${it.source.line ? ':' + it.source.line : ''}]` : '';
+    const tag = [it.gate, it.severity].filter(Boolean).join('/');
+    return `${i + 1}. ${tag ? '(' + tag + ') ' : ''}${it.label || it.selector || it.text || ''}${loc}\n   → ${it.note || ''}`;
+  }).join('\n');
+  return [
+    'You are applying human review feedback to an artifact under review.',
+    feedback.message ? 'Overall: ' + feedback.message : '',
+    items ? 'Findings:\n' + items : '',
+    'Apply the requested changes precisely and minimally. Do not change anything not mentioned.'
+  ].filter(Boolean).join('\n\n');
+}
+
+async function runAgent(file) {
+  process.stdout.write(`agent loop watching ${file}\n`);
+  for (;;) {
+    let poll;
+    try { poll = await req('GET', '/poll?file=' + encodeURIComponent(file)); } catch (e) { await sleep(1000); continue; }
+    if (poll && poll.feedback) {
+      const prompt = buildPrompt(poll.feedback);
+      await req('POST', '/agent-progress', { file, step: 'Applying feedback…', done: false });
+      const r = spawnSync('claude', ['-p', prompt], { stdio: 'inherit' });
+      const failed = r.status !== 0;
+      await req('POST', '/agent-reply', { file, message: failed ? 'Could not apply automatically.' : 'Applied the requested changes.', failed });
+    }
+    if (poll && poll.finalized && !(poll && poll.feedback)) { process.stdout.write('finalized — agent loop done\n'); return; }
+    const chk = await req('GET', '/cancelled?file=' + encodeURIComponent(file)).catch(() => ({}));
+    if (chk && chk.cancelled) process.stdout.write('cancel requested\n');
+  }
+}
+
+function argFlag(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; }
+
+// Read the current Piloth OS task id (pilothOS/memory/state/os-runs/current.json).
+function autoCurrentTask() {
+  try {
+    const cur = path.join(__dirname, '..', '..', '..', 'memory', 'state', 'os-runs', 'current.json');
+    const j = JSON.parse(fs.readFileSync(cur, 'utf8'));
+    return j && j.task_id ? String(j.task_id) : null;
+  } catch (e) { return null; }
+}
+
+// Governance is off unless explicitly bound: --task <id>, or --govern (auto-detect).
+function resolveTask(args) {
+  return argFlag(args, '--task') || (args.includes('--govern') ? autoCurrentTask() : null);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const cmd = args[0];
+
+  if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+    process.stdout.write(fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8').split('## CLI')[0]);
+    process.stdout.write('\nCommands: open <file> [--agent] | agent <file> | poll <file> [--reply msg] | progress <file> "step" | check <file> | stop\n');
+    return;
+  }
+
+  if (cmd === 'stop') { try { await req('POST', '/stop', {}); } catch (e) {} process.stdout.write('stopped\n'); return; }
+
+  // remaining commands take a file (except where noted)
+  const fileArg = args[1] && !args[1].startsWith('--') ? path.resolve(args[1]) : null;
+
+  if (cmd === 'open') {
+    if (!fileArg) throw new Error('usage: review open <file> [--agent] [--task <id> | --govern]');
+    await ensureServer();
+    const pilothTask = resolveTask(args);
+    const s = await req('POST', '/session', { file: fileArg, pilothTask });
+    if (s.error) throw new Error(s.error);
+    const link = `http://${HOST}:${PORT}/?file=${encodeURIComponent(fileArg)}`;
+    process.stdout.write('review editor: ' + link + (pilothTask ? ` (governed: ${pilothTask})` : '') + '\n');
+    openBrowser(link);
+    if (args.includes('--agent')) await runAgent(fileArg);
+    return;
+  }
+
+  if (cmd === 'agent') {
+    if (!fileArg) throw new Error('usage: review agent <file> [--task <id> | --govern]');
+    await ensureServer();
+    await req('POST', '/session', { file: fileArg, pilothTask: resolveTask(args) });
+    await runAgent(fileArg);
+    return;
+  }
+
+  if (cmd === 'poll') {
+    if (!fileArg) throw new Error('usage: review poll <file> [--reply msg]');
+    await ensureServer();
+    const reply = argFlag(args, '--reply');
+    const annId = argFlag(args, '--annotation-id');
+    if (reply != null) await req('POST', '/agent-reply', { file: fileArg, message: reply, annotationId: annId });
+    const poll = await req('GET', '/poll?file=' + encodeURIComponent(fileArg));
+    process.stdout.write(JSON.stringify(poll) + '\n');
+    return;
+  }
+
+  if (cmd === 'progress') {
+    if (!fileArg) throw new Error('usage: review progress <file> "step"');
+    await ensureServer();
+    await req('POST', '/agent-progress', { file: fileArg, step: args.slice(2).join(' '), done: false });
+    return;
+  }
+
+  if (cmd === 'check') {
+    if (!fileArg) throw new Error('usage: review check <file>');
+    const j = await req('GET', '/cancelled?file=' + encodeURIComponent(fileArg)).catch(() => ({ cancelled: false }));
+    process.stdout.write(JSON.stringify(j) + '\n');
+    return;
+  }
+
+  throw new Error('unknown command: ' + cmd);
+}
+
+main().catch((e) => { process.stderr.write('error: ' + (e && e.message || e) + '\n'); process.exit(1); });

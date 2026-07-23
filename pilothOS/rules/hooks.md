@@ -21,6 +21,25 @@ Hooks là cơ chế biến Rule dạng văn bản thành enforcement thật. Cá
   một cách im lặng — không lỗi, không cảnh báo.
 - Hook mới hoặc hook bị sửa cần được approve lại trong Claude Code (`/hooks`).
 
+## Plan Mode (Claude Code)
+
+- `pre-edit` bỏ qua enforcement khi hook input có `permission_mode == "plan"`.
+  Plan mode của harness là planning read-only; contract-before-edit chỉ dành cho
+  thực thi. Không exempt thì Piloth chặn cả việc harness ghi plan file.
+- Safety-net bổ trợ (độc lập với `permission_mode`): `pre-edit` cho ghi khi MỌI
+  target nằm trong thư mục plan của harness — `~/.claude/plans/` hoặc
+  `$CLAUDE_CONFIG_DIR/plans/`. Plan file là artifact của Claude Code (ngoài repo),
+  không phải code repo nên gate không quản. Trước đây thiếu net này, plan file bị
+  rule "path outside repo" chặn khi harness không truyền `permission_mode`.
+- Governance (contract, gates, receipt) enforce lại ngay khi session rời plan mode
+  (`default`/`acceptEdits`/…).
+
+## Review Hooks (companion tool)
+
+- Bản cài bật sẵn hook của `pilothOS/tools/review/` (activity mirror + permission
+  gate), fail-open. Tắt bằng `PILOTH_REVIEW=off` trong `.claude/settings.json` env.
+- Review hooks độc lập với hook governance; không thay thế contract/receipt gate.
+
 ## Consumer Hook Preservation
 
 - Consumer hooks are preserved.

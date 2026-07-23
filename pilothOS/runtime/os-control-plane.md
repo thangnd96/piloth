@@ -29,6 +29,8 @@ The project-local OS controls are deterministic, local and auditable:
   hashes against the OS run seal;
 - `os-report` summarizes mode decisions, target footprint, cost ledger, target
   seal and consumer superiority status;
+- `review-request`, `review-feedback` and `review-verify` run the structured
+  human-review round-trip that backs the `human_review` gate;
 - `control-plane-check` verifies the installed control-plane surface and, by
   default, requires active delivery evidence when the checkout has changes;
 - contracts act like scoped policy profiles;
@@ -69,6 +71,55 @@ internally, then writes `target-seal.json` with target file hashes for receipt
 `changed_files`. The older guard modes remain kernel primitives for adapters and
 tests, but agents should use the OS lifecycle as the default path.
 
+## Authoring a receipt (dry-run + gate-aware template)
+
+Build the receipt without guessing which fields this run needs:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py receipt-template        # scaffold
+python3 pilothOS/scripts/pilothos_guard.py os-close --dry-run receipt.json
+```
+
+- `receipt-template` is **gate-aware**: it reads the active contract + diff facts
+  and emits only the fields the run's `required_gates` actually require (a
+  docs-only run omits the UI fields; a UI run includes `design_system_checked`
+  etc.), with **valid default enum values** — not `<placeholder>`. Allowed enum
+  values for each field are listed under the `_allowed_values` block; delete that
+  block before the real close for a clean seal.
+- `os-close --dry-run` runs the **full** close validation set (every quality gate,
+  truth-in-seal, expected-evidence, footprint and janitor check — not just the
+  core receipt validator) and returns `{would_pass, errors}` **without mutating
+  state, sealing, or writing `target-diff.json`**. Iterate until `would_pass:true`,
+  then run `os-close` for real.
+
+## os-start request schema
+
+Every field is optional; a bare `{}` opens a repo-local run. For the full,
+machine-readable schema (fields, required flags, defaults, allowed values,
+aliases) run:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py os-start --explain
+```
+
+Key fields: `task_id`, `intent` (→ `task_scope`), `task_signal`, `target_repo`
+(absolute; omit for repo-local), `target_paths`, `affected_layers`,
+`expected_evidence`, `out_of_scope_paths`, `evidence_profile`
+(`code|ui|design_tokens|docs|release|generic`), `mode`
+(`lean|standard|strict|adaptive|auto`), `requires_prototype`/`requires_human_review`,
+`budget`. `requires_prototype:true` also forces `requires_human_review:true`.
+
+## Driving a target from another session (enforcement caveat)
+
+The guard's git helpers are scoped to the control-plane repo. When you drive a
+self-hosted or controlled target **from a different repo's Claude Code session**,
+the target's own `PreToolUse`/`PostToolUse`/`Stop` hooks do not fire, so
+`diff-facts` stays empty and the Stop-time deliver gate never runs. `os-close`
+still seals using the git/manifest **target-diff**, but it emits a non-blocking
+`enforcement_advisory` when diff-facts is empty while the target-diff shows
+changes. For full hook coverage, run the lifecycle **inside the target's own
+session**.
+
 ## Adaptive Mode And Cost Ledger
 
 PilothOS defaults to adaptive control:
@@ -87,12 +138,22 @@ traceability, architecture, reuse and regression gates.
 
 Cost is recorded through `os-evidence` records with `kind=metric`. Supported
 metric types include `llm_usage`, `tool_output`, `context_load`, `command`,
-`ui_quality`, `retry`, `verification`, `repair` and `benchmark`. Exact token
+`ui_quality`, `browser_smoke`, `retry`, `verification`, `repair` and
+`benchmark`. Exact token
 cost may only be reported when a metric has `real_token_telemetry=true`. If the
 adapter does not provide prompt/completion usage, the ledger must say
 `real_tokens=unavailable`; artifact token estimates are only a proxy and cannot
 support a “cheaper” claim. Cost or token-saving claims require `llm_usage`
 evidence with `real_token_telemetry=true`.
+
+The `token-telemetry` mode produces exactly that `llm_usage` metric from the
+Claude Code session transcript (real `message.usage`), windowed to the run's
+`created_at` and priced via `runtime/model-pricing.json`; it records
+`cost_usd` + `subagent_scope=main_session_only`, and fails soft to
+`real_token_telemetry=false` when no transcript is available. An optional
+contract `budget.max_usd` yields an **advisory** `budget_status`
+(`spent_usd`/`remaining_usd`/`over_budget`) in `os-status`/`os-report` — it never
+blocks `os-close`. See `runtime/energy-token-policy.md`.
 
 ## Consumer Superiority Benchmark
 
@@ -256,6 +317,57 @@ evidence contains a limitation, skipped/blocked verification, failed pixel diff,
 missing font, failed quality gate or non-zero blockers. Qualified disclosure is
 allowed; the seal should state what was verified and what remains limited.
 
+## Human Review Round-Trip
+
+Khi `os-start` request khai `requires_human_review: true`, contract thêm gate
+`human_review` và task không thể Seal nếu chưa có human review được ghi bằng chứng.
+Vòng round-trip là Piloth-native (Python/MD/JSON), phỏng theo annotron:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py review-request <task-id>
+# reviewer tạo feedback.json (hoặc UI companion sinh ra), rồi:
+python3 pilothOS/scripts/pilothos_guard.py review-feedback feedback.json
+python3 pilothOS/scripts/pilothos_guard.py review-verify <task-id>
+```
+
+- `review-request` ghi `os-runs/<task>/review-request.json` (artifact under review,
+  gates, questions, `request_sha256`).
+- `review-feedback` validate + append một round vào
+  `os-runs/<task>/review-feedback.jsonl`, đồng thời ghi evidence `kind=human_review`.
+- Feedback schema: `{verdict: approve|request-changes|reject, finalized: bool,
+  findings: [{id, location:{file?,gate?,line?}, note, severity:
+  blocker|major|minor|nit, disposition: approve|request-changes}]}`.
+- `os-close` PASS gate `human_review` ⇔ round mới nhất có `verdict=approve`,
+  `finalized=true` và không còn finding `blocker`/`major` mang `request-changes`;
+  ngược lại reject và set task về Repair. Guard không tự khai PASS được — receipt
+  tự khai `human_review: PASS` mà thiếu artifact backing vẫn bị reject.
+- Companion tool `pilothOS/tools/review/` (annotron-faithful) cung cấp UI
+  point-and-click sinh ra chính feedback này — userland driver, không bắt buộc.
+  Khi bind `--task <id>`/`--govern`, UI thêm **pipeline/gate stepper** (đọc qua
+  `os-status`) và **option-picker** cho prototype; ungoverned thì stepper ẩn,
+  core chạy 1:1 standalone với annotron.
+
+## Prototype Phase & Discovery Gate
+
+- `requires_prototype: true` ⇒ contract tự bật `requires_human_review: true` và
+  thêm gate `prototype`. Skill `piloth-prototype` sinh ≥2 UI options
+  (`PROTOTYPE-option{N}.*` + `PROTOTYPE.md`) trong `os-runs/<task>/artifacts/`,
+  ghi `os-evidence kind=prototype` `{method, options:[{id,artifact,intent}],
+  chosen}`. Human pick **tái dùng** vòng `review-request`/`review-feedback` (gate
+  `human_review`) — không có cơ chế review riêng. Gate `prototype` (mỏng) chỉ
+  kiểm invariant: method hợp lệ, ≥2 options, `chosen` ∈ options.
+- Discovery gate (skill `piloth-discovery`) chạy đầu phase khi có ≥3 câu hỏi mở
+  hoặc 1 câu high-impact: hỏi-xác nhận qua Governed Visual Review, ghi
+  `os-evidence kind=discovery` `{decisions:[{q,answer,source}]}` và fold vào
+  contract `discovery_decisions`. `DISCOVERY.md` là working doc (không
+  produces/depends). Là gate judgment, không phải hook tự trigger.
+- `phase_plan_suggestion` (recipe right-sizing, advisory): `os-start` khuyến nghị
+  `recommend_discovery`/`recommend_prototype` dựa trên signal/scope, hiển thị ở
+  `os-status`/`os-report`, **không tự bật phase** (auto-enable = thêm chi phí).
+- `model_hints` (advisory): map phase → tier model (strong cho discovery/
+  prototype/plan; cost cho execute/test). Chỉ harness pin được per-phase model
+  (Claude Code frontmatter `model:`) mới enforce.
+
 ## Entitlement Profile
 
 Contracts may include:
@@ -325,6 +437,41 @@ python3 pilothOS/scripts/pilothos_guard.py artifact-janitor --fix
 
 `production-review` runs the janitor in detect mode by default and fails when
 artifacts remain.
+
+## State janitor (retention / GC)
+
+`artifact-janitor` targets build cruft. `state-janitor` targets the task
+lifecycle state that accumulates under `pilothOS/memory/state/` over time:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py state-janitor          # detect only
+python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix    # apply
+python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix --kernel-logs
+```
+
+- **os-run artifacts** — the heavy `os-runs/<task-id>/artifacts/` (prototype
+  HTML, screenshots) of **sealed** runs outside retention are removed; the
+  lightweight `state.json`/`target-seal.json` audit records are kept. Retention
+  keeps the active run + the last `N` runs + any run within `X` days
+  (defaults `N=10`, `X=14`; override with `--runs`/`--days` or
+  `PILOTHOS_RETENTION_RUNS`/`PILOTHOS_RETENTION_DAYS`). Unsealed/in-flight runs
+  are never touched.
+- **scheduler-history.jsonl** — tail-truncated to the last
+  `PILOTHOS_SCHEDULER_KEEP` lines (default 200). Not chained, so dropping the
+  oldest lines is safe.
+- **receipt-seals.jsonl** — **warn only**. It is a hash-chained ledger
+  (`previous_seal_sha256`); `state-janitor` never rewrites it. Archive it
+  manually if it grows large.
+- **kernel logs** (`--kernel-logs`, opt-in) — `lessons-learned.md` and
+  `review-log.md` grow with every session and are re-loaded into context. Rows
+  beyond `PILOTHOS_KERNEL_LOG_KEEP` (default 200) are moved **losslessly** to
+  `*-archive.md` siblings that are not part of any context load set.
+
+`state-janitor` is read-only by default, exactly like `artifact-janitor`.
+`os-close` runs the **safe subset** (os-run artifacts + scheduler history, never
+kernel logs) automatically after a successful seal. It is fail-soft: a cleanup
+error is recorded in the close payload but never rejects the close. `state-doctor`
+surfaces an advisory `state retention advisory` check so you know when to run it.
 
 ## Limits
 

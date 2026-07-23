@@ -33,3 +33,15 @@ Valid values: `light`, `standard`, `strict`.
 ## Evidence
 
 Mỗi approval hoặc escalation phải ghi reason, scope, decision và người/phần tử phê duyệt.
+
+Human approval trên output không còn là checkbox danh dự: nó được ghi thành artifact
+có cấu trúc, mang verdict, qua vòng `review-request` → `review-feedback` và được gate
+`human_review` enforce ở `os-close` (xem `runtime/os-control-plane.md`). Quyết định
+Allow/Deny của reviewer trên từng tool (khi dùng companion review UI) cũng được ghi
+thành evidence `human_review` để truy vết.
+
+Task khai `requires_prototype` tự bật `requires_human_review` — human chọn UI option
+đi qua chính vòng review đó, kèm gate `prototype` (mỏng) kiểm ≥2 options + chosen.
+Discovery gate (skill `piloth-discovery`) ghi quyết định thành evidence
+`kind=discovery` fold vào contract; recipe `phase_plan_suggestion` chỉ khuyến nghị,
+không tự bật phase (tránh thêm chi phí ngoài ý muốn).

@@ -21,3 +21,18 @@ Generated state files are local runtime artifacts and are ignored by git and
 distribution. The policy source of truth remains in runtime docs, evaluation
 docs and agent-team definitions, not copied scheduler, OS-run or team-run
 history.
+
+## Retention / cleanup
+
+These runtime files accumulate; `state-janitor` keeps them bounded (see
+`runtime/os-control-plane.md`). `os-close` runs the safe subset automatically
+after sealing (fail-soft): it removes the heavy `os-runs/<task-id>/artifacts/`
+of **sealed** runs outside retention — keeping `state.json`/`target-seal.json`
+for audit — and tail-truncates `scheduler-history.jsonl`. Retention defaults:
+keep the active run + last 10 runs + anything within 14 days
+(`PILOTHOS_RETENTION_RUNS` / `PILOTHOS_RETENTION_DAYS`).
+
+`receipt-seals.jsonl` is a hash-chained ledger and is **never** auto-pruned.
+Growing kernel logs (`lessons-learned.md`, `review-log.md`) are rotated
+losslessly to `*-archive.md` only via the explicit
+`state-janitor --kernel-logs --fix`.

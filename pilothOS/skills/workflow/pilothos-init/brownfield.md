@@ -57,10 +57,16 @@
 - `merge_settings settings.json → .claude/settings.json` — consumer có settings:
   env/statusLine conflict sẽ trả NEEDS-JUDGMENT; hỏi user rồi khai
   `options.statusline` hoặc thống nhất env, sửa plan, dry-run lại.
-- `append_lines → .gitignore`
-- `remove_path → .cursor|.codex|.antigravity` cho adapter user không chọn
 - 5 step self-prune (xem SKILL.md — mặc định, bắt buộc)
 - `write_marker` (cuối, bắt buộc)
+
+Deterministic — Claude KHÔNG gõ tay, engine tự chèn ở dry-run:
+- Field `adapters` (BẮT BUỘC, list adapter giữ lại gồm `claude`, từ multi-select) →
+  engine sinh `remove_path` cho adapter optional KHÔNG chọn.
+- `append_lines → .gitignore` từ SSOT theo `options.gitignore_scope`
+  (`runtime` mặc định — chỉ ignore state, `pilothOS/` vẫn commit; `all` = ignore
+  toàn bộ `pilothOS/`, opt-in). Elicit thêm câu này như greenfield.
+- Thêm/bớt adapter SAU init: `/piloth:adapter` (skill `pilothos-adapter`).
 
 ## Heuristics tích lũy từ vận hành
 

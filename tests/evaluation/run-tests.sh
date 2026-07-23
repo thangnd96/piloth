@@ -1343,17 +1343,21 @@ after=$(wc -l < pilothOS/memory/lessons-learned.md)
 python3 "$G" log-append lesson "Wrong tool" "Route tool behavior through tools index" "tools/index.md, upstream" | grep -q "da append"
 grep -q "| Wrong tool | Route tool behavior through tools index | tools/index.md, upstream |" pilothOS/memory/lessons-learned.md
 
-echo "== E18 receipt template vocabulary stays in sync =="
+echo "== E18 receipt template is gate-aware and vocabulary stays in sync =="
 W="$(fresh_case e18)"
 cd "$W"
 G="pilothOS/scripts/pilothos_guard.py"
+mkdir -p src/components
+printf 'export const Widget = () => null;\n' > src/components/Widget.tsx
+printf '%s' '{"tool_input":{"file_path":"src/components/Widget.tsx"}}' | python3 "$G" post-edit >/dev/null
+# A UI run emits the reuse + UI fields, with allowed vocab derived from the
+# constants (in _allowed_values) so template and enums cannot drift.
 out=$(python3 "$G" receipt-template)
-grep -q "skill|hook|tool|mcp|command|design-system|doc|convention|test-runner|build-runner|not_applicable" <<< "$out"
-grep -q "ignored_consumer_asset" <<< "$out"
-grep -q "duplicated_component" <<< "$out"
-grep -q "bypassed_design_system" <<< "$out"
-grep -q "tools/index.md" <<< "$out"
-grep -q "target, upstream" <<< "$out"
+for needle in '"design_system_checked"' '"consumer_asset_routing"' \
+  design-system build-runner ignored_consumer_asset duplicated_component \
+  bypassed_design_system tools/index.md upstream; do
+  grep -q "$needle" <<< "$out" || { echo "E18 missing: $needle"; exit 1; }
+done
 
 echo "== E19 route-task suggests scheduler routing from consumer assets =="
 W="$(fresh_case e19)"

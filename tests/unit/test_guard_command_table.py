@@ -42,3 +42,10 @@ def test_core_lifecycle_modes_present(guard):
     for mode in ("os-start", "os-evidence", "os-close", "os-verify", "os-report",
                  "control-plane-check", "context-budget", "receipt-seal"):
         assert mode in guard.COMMAND_TABLE
+
+
+def test_human_review_modes_present(guard):
+    for mode in ("review-request", "review-feedback", "review-verify"):
+        assert mode in guard.COMMAND_TABLE
+    # review-verify is read-only and must be registered as such.
+    assert "review-verify" in guard.READ_ONLY_GUARD_MODES

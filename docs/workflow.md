@@ -1,6 +1,6 @@
 # Piloth Workflow
 
-Tài liệu này mô tả cách **Piloth v1.9.0** hoạt động từ lúc được cài vào project đến khi AI agent nhận, thực hiện, kiểm chứng và bàn giao một task.
+Tài liệu này mô tả cách **Piloth v1.10.0** hoạt động từ lúc được cài vào project đến khi AI agent nhận, thực hiện, kiểm chứng và bàn giao một task.
 
 ## Tổng quan
 
@@ -369,7 +369,9 @@ Evaluation kiểm tra quality gates:
 - layer responsibility;
 - test/verification result.
 
-Không Deliver khi gate chưa đạt.
+Không Deliver khi gate chưa đạt. Task khai `requires_prototype` thêm gate
+`prototype` (≥2 UI options + chosen) và tự bật `human_review`; discovery gate ghi
+`os-evidence kind=discovery` cho Traceability. Xem `pilothOS/evaluation/quality-gates.md`.
 
 ## Repair
 
@@ -419,8 +421,22 @@ Healthy thì im lặng.
 - file runtime/tool nhạy cảm phải khai `Tools/Runtime`;
 - adapter change phải khai layer adapter/tool phù hợp.
 
+`pre-edit` **bỏ qua khi Claude ở plan mode** (`permission_mode=plan` trong hook
+input): plan mode là planning read-only, contract-before-edit chỉ áp dụng khi thực
+thi. Governance enforce lại ngay khi rời plan mode.
+
 `post-edit` chỉ ghi diff facts: file đổi, layer bị đụng, số dòng đổi, có docs/test
 liên quan không, evidence command đã ghi chưa. Hook không judge đúng/sai.
+
+## Review Hooks (Governed Visual Review)
+
+Bản cài bật sẵn hook của companion tool `pilothOS/tools/review/` (activity mirror +
+remote permission gate). Chúng **fail-open**: khi không chạy review server, curl fail
+nhanh và agent không bị chặn (~0 chi phí).
+
+Tắt review hooks: đặt `PILOTH_REVIEW=off` trong `env` của `.claude/settings.json`
+(hook thành no-op hoàn toàn), hoặc xóa 4 entry `review-hook.sh` trong `settings.json`.
+Chúng độc lập với các hook governance của guard.
 
 ## Deliver Gate
 

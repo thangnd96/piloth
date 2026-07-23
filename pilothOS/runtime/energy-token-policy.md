@@ -41,6 +41,82 @@ The mode is part of the OS contract and must be visible in `os-status` and
 fidelity, correctness or defect detection over `none-piloth`, Piloth must report
 `consumer_value_failed` instead of claiming value.
 
+## Phase-Plan Suggestion (recipe right-sizing — advisory only)
+
+Beyond governance intensity (mode), `os-start` records a deterministic
+`phase_plan_suggestion` in the contract (`suggest_phase_plan`), surfaced in
+`os-status` / `os-report`:
+
+- `recommend_prototype` — UI/component scope that is not a trivial bugfix/docs
+  change; a prototype round de-risks the visual direction before implementation.
+- `recommend_discovery` — ambiguous or broad scope (architecture / acceptance /
+  scope unknowns); a discovery gate confirms open questions up front.
+
+This is **advisory and never auto-enables a phase.** The recommendation exists so
+an operator can *choose* to run `requires_discovery` / `requires_prototype` on a
+follow-up `os-start`. Auto-enabling a heavy front-half phase would add cost — the
+opposite of right-sizing. Skipping an unneeded phase (bugfix → straight to
+Execute) is where the real time/token saving comes from; running one the task did
+not need is the waste the Pass-Through Rule warns against.
+
+## Model Hints (advisory per-phase model)
+
+The contract may carry `model_hints` mapping phase → tier, e.g.
+`{"discovery": "strong", "prototype": "strong", "execute": "cost", "test": "cost"}`
+— a strong model for reasoning-heavy phases (discovery, prototype, plan) and a
+cheaper one for mechanical phases (execute, test). This mirrors per-phase model
+selection but is **advisory**: only harnesses that can pin a per-phase model
+(e.g. Claude Code skill frontmatter `model:`) enforce it; others read it as a
+hint. Model hints are surfaced in `os-status` / `os-report`.
+
+## Real token telemetry (`token-telemetry`)
+
+Real per-turn LLM token usage is available on harnesses that expose it. For
+Claude Code, `token-telemetry` reads the session transcript
+(`~/.claude/projects/<slug>/<session>.jsonl`) where each assistant turn carries
+`message.usage` (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`,
+`cache_read_input_tokens`) + `message.model` + `timestamp` — genuine API usage,
+not an estimate. It sums usage windowed to the OS run's `created_at`, prices it
+via `runtime/model-pricing.json` (per-tier: input, output, cache-write ~1.25×,
+cache-read ~0.1×), and records
+`os-evidence kind=metric metric_type=llm_usage real_token_telemetry=true`
+(`cost_usd`, `model`, `window_start`, `subagent_scope=main_session_only`).
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--transcript <path>]
+```
+
+- **Attribution:** main-session transcript only; background subagent transcripts
+  are separate files and are not summed (disclosed via `subagent_scope`). The
+  per-turn numbers are real; the per-task figure is a sum over the run window.
+- **Fail-soft:** no transcript / harness without per-turn telemetry → records
+  `real_token_telemetry=false` + `unavailable_reason`.
+- **Unlocks cost claims:** with a real `llm_usage` metric present, `os-close` no
+  longer blocks a lower-cost/token claim. A **"cheaper than none-piloth" claim
+  still requires the benchmark** (`had-piloth` vs `none-piloth`) — real tokens
+  alone don't prove consumer savings.
+- **Cache pricing dominates accuracy:** a long 1M-context session is mostly
+  `cache_read`, so the price map must keep the cache tiers + `as_of` current.
+
+## Budget (advisory)
+
+An optional contract `budget.max_usd` produces a `budget_status` in
+`os-status` / `os-report`: `{max_usd, spent_usd, remaining_usd, over_budget}`
+computed from the real token cost. It is **advisory only — it never blocks
+`os-close`** (`advisory_unavailable` when no ceiling is set or no real cost is
+recorded yet). Promoting it to a hard ceiling is a deliberate future step.
+
+## State retention (advisory hygiene)
+
+Task-lifecycle state accumulates on disk (`os-runs/`, `scheduler-history.jsonl`,
+`receipt-seals.jsonl`) and two kernel logs (`lessons-learned.md`,
+`review-log.md`) grow and re-load into context each session. `state-janitor`
+keeps them bounded (see `os-control-plane.md`). Like `budget`, it is **advisory
+hygiene, not enforcement**: `os-close` runs the safe subset automatically but
+**fail-soft** — a cleanup error is recorded, never blocks the close — and the
+kernel-log rotation is opt-in and lossless (rows move to `*-archive.md`, nothing
+is deleted). `receipt-seals.jsonl` is hash-chained and never auto-pruned.
+
 ## Contract / Receipt Signals
 
 For non-trivial work, the task contract should make resource use visible through:

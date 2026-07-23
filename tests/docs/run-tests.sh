@@ -56,7 +56,7 @@ shutil.copytree(
     ignore=shutil.ignore_patterns(".git", ".DS_Store", "__pycache__", "pilothOS/.backup"),
 )
 PY
-(cd "$TMP/repo" && bash scripts/bump-version.sh 1.9.0 > "$TMP/bump.log")
+(cd "$TMP/repo" && bash scripts/bump-version.sh 1.10.0 > "$TMP/bump.log")
 grep -Fq "verified .claude-plugin/plugin.json" "$TMP/bump.log"
 echo "D2 PASS"
 
@@ -73,6 +73,18 @@ grep -qx "pilothOS/memory/state/receipt-seals.jsonl" templates/gitignore
 grep -qx "pilothOS/memory/state/\*.jsonl" templates/gitignore
 grep -qx "pilothOS/memory/state/team-runs/" templates/gitignore
 grep -qx "pilothOS/memory/state/os-runs/" templates/gitignore
+# Engine SSOT (PILOTHOS_GITIGNORE_LINES) phai khop template — chong drift giua
+# nhanh greenfield-chua-co-gitignore (template) va normalize (engine append).
+python3 - <<'PY'
+import importlib.util, pathlib
+spec = importlib.util.spec_from_file_location("installer", "pilothOS/scripts/pilothos_installer.py")
+inst = importlib.util.module_from_spec(spec); spec.loader.exec_module(inst)
+tpl = [l for l in pathlib.Path("templates/gitignore").read_text(encoding="utf-8").splitlines() if l.strip()]
+assert inst.PILOTHOS_GITIGNORE_LINES == tpl, (
+    f"drift: PILOTHOS_GITIGNORE_LINES != templates/gitignore\n"
+    f"engine={inst.PILOTHOS_GITIGNORE_LINES}\ntemplate={tpl}")
+print("  engine SSOT khop templates/gitignore")
+PY
 echo "D4 PASS"
 
 echo "== D5 structure docs match shipped roots =="
@@ -198,5 +210,31 @@ for needle in ("role-<role>.md", "qa-verdict.md", "final-lead-decision.md", "edi
     assert needle in team_runtime, f"team-orchestration.md missing {needle}"
 print("D9 PASS")
 PY
+
+echo "== D10 generated doc blocks in sync with SSOT =="
+python3 scripts/sync_docs.py --check
+echo "D10 PASS"
+
+echo "== D11 startup-contract copy still covers bootstrap's targets =="
+# The baked copy (payloads/startup-contract-block.md, "for tools that don't read
+# bootstrap") is a context-adapted paraphrase, not a byte copy — it uses full
+# pilothOS/ paths and its own wording — so it cannot be generated verbatim. This
+# guards the drift it warns about: every doc target bootstrap's Startup Contract
+# names must still be referenced by the copy. Fuzzy on purpose (targets, not prose).
+python3 - <<'PY'
+import pathlib, re
+boot = pathlib.Path("pilothOS/bootstrap.md").read_text(encoding="utf-8")
+m = re.search(r"## Startup Contract\n(.*?)\n## ", boot, re.S)
+assert m, "bootstrap.md: Startup Contract section not found"
+targets = sorted(set(re.findall(r"`([^`]+\.md)`", m.group(1))))
+assert targets, "bootstrap.md Startup Contract: no doc targets parsed"
+copy = pathlib.Path("pilothOS/skills/workflow/pilothos-init/payloads/startup-contract-block.md").read_text(encoding="utf-8")
+missing = [t for t in targets if t not in copy and f"pilothOS/{t}" not in copy]
+assert not missing, (
+    f"startup-contract-block.md missing bootstrap targets: {missing}\n"
+    "  nguon chuan: pilothOS/bootstrap.md — cap nhat ban sao (bootstrap wins)")
+print(f"  copy mirrors {len(targets)} bootstrap startup targets")
+PY
+echo "D11 PASS"
 
 echo "DOCS SUITE: ALL PASS"

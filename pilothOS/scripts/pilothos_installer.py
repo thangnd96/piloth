@@ -61,9 +61,25 @@ OPTIONAL_ADAPTER_PATHS = {
     "codex": ".codex",
     "antigravity": ".antigravity",
 }
-PLAN_TOP_FIELDS = {"plan_version", "mode", "fill", "options", "steps"}
+ALLOWED_ADAPTERS = {"claude", "cursor", "codex", "antigravity"}
+# SSOT các dòng .gitignore của PilothOS. `runtime` = chỉ ignore runtime state
+# (kernel pilothOS/ vẫn commit để team share); `all` = ignore toàn bộ pilothOS/
+# (opt-in cho consumer coi PilothOS là tooling cục bộ). Đồng bộ với
+# templates/gitignore (tests/docs D4 canh).
+PILOTHOS_GITIGNORE_LINES = [
+    "pilothOS/.backup/",
+    "pilothOS/.pending-plan.json",
+    "pilothOS/memory/state/scheduler-history.jsonl",
+    "pilothOS/memory/state/receipt-seals.jsonl",
+    "pilothOS/memory/state/*.jsonl",
+    "pilothOS/memory/state/team-runs/",
+    "pilothOS/memory/state/os-runs/",
+]
+PILOTHOS_GITIGNORE_ALL = ["pilothOS/"]
+GITIGNORE_SCOPES = ("runtime", "all")
+PLAN_TOP_FIELDS = {"plan_version", "mode", "fill", "options", "steps", "adapters"}
 STEP_FIELDS = {"op", "payload", "target", "lines"}
-OPTION_FIELDS = {"statusline"}
+OPTION_FIELDS = {"statusline", "gitignore_scope"}
 
 MERGE_SEMANTICS = """MERGE SEMANTICS (SSOT — tài liệu chỉ trỏ về đây):
 - hooks: với mỗi event, entries của consumer đứng TRƯỚC, của PilothOS đứng SAU;
@@ -138,18 +154,23 @@ def check_target_writable_zone(path_str, op):
             "(core khong duoc plan sua; marker dung write_marker)")
 
 
+def _fill_persona_goals(text, fill):
+    """PERSONA + GOALS placeholder substitution shared by payload baking
+    (load_payload) and generic placeholder filling (fill_text)."""
+    if fill.get("PERSONA"):
+        text = re.sub(r"<PERSONA[^>]*>", fill["PERSONA"], text)
+    if fill.get("GOALS"):
+        text = re.sub(r"<MỤC TIÊU[^>]*>", fill["GOALS"], text)
+    return text
+
+
 def load_payload(name, fill):
     p = (PAYLOAD_DIR / name)
     if not p.resolve().parent == PAYLOAD_DIR.resolve():
         raise PlanError(f"payload phai nam truc tiep trong payloads/: {name}")
     if not p.exists():
         raise PlanError(f"payload khong ton tai: {name}")
-    text = p.read_text(encoding="utf-8")
-    if fill.get("PERSONA"):
-        text = re.sub(r"<PERSONA[^>]*>", fill["PERSONA"], text)
-    if fill.get("GOALS"):
-        text = re.sub(r"<MỤC TIÊU[^>]*>", fill["GOALS"], text)
-    return text
+    return _fill_persona_goals(p.read_text(encoding="utf-8"), fill)
 
 
 # ------------------------------------------------------------ placeholders
@@ -159,10 +180,7 @@ CADENCE_RE = re.compile(r"(\d+)\s*[–-]\s*(\d+)?\s*(tuần|tháng)")
 
 def fill_text(text, fill, is_registry):
     today = datetime.date.today()
-    if fill.get("PERSONA"):
-        text = re.sub(r"<PERSONA[^>]*>", fill["PERSONA"], text)
-    if fill.get("GOALS"):
-        text = re.sub(r"<MỤC TIÊU[^>]*>", fill["GOALS"], text)
+    text = _fill_persona_goals(text, fill)
     if fill.get("OWNER"):
         text = text.replace("<owner>", fill["OWNER"])
     if is_registry:
@@ -276,6 +294,22 @@ def validate_and_simulate(plan):
     options = plan.get("options") or {}
     if set(options) - OPTION_FIELDS:
         raise PlanError(f"option la: {sorted(set(options) - OPTION_FIELDS)}")
+    if "gitignore_scope" in options and options["gitignore_scope"] not in GITIGNORE_SCOPES:
+        raise PlanError(f"options.gitignore_scope phai la {GITIGNORE_SCOPES}")
+    if "adapters" in plan:
+        if "claude" not in adapter_set(plan.get("adapters")):
+            raise PlanError("'adapters' phai gom 'claude' (khong the go adapter claude)")
+    elif plan.get("mode") in ("greenfield", "brownfield"):
+        # Bắt buộc khai báo selection KHI có optional adapter đã staging — đúng
+        # bối cảnh init thật (staging luôn copy đủ .cursor/.codex/.antigravity).
+        # Plan engine tối giản (không staging adapter) không bị ràng buộc.
+        staged = sorted(t for t in OPTIONAL_ADAPTER_PATHS.values()
+                        if (REPO_ROOT / t).exists())
+        if staged:
+            raise PlanError(
+                "co optional adapter da staging (%s) nhung plan khong khai bao "
+                "'adapters' — khai bao list adapter giu lai (gom 'claude') de engine "
+                "sinh remove_path cho adapter khong chon" % ", ".join(staged))
     fill = plan.get("fill") or {}
     if MARKER.exists() and plan.get("mode") != "upgrade":
         raise PlanError("pilothOS/.initialized da ton tai — re-init/upgrade can mode=upgrade")
@@ -404,7 +438,7 @@ def do_apply(plan, plan_path):
     else:
         created.append(marker_rel)
     manifest = {
-        "pilothos_version": "1.9.0", "timestamp": ts, "mode": plan["mode"],
+        "pilothos_version": "1.10.0", "timestamp": ts, "mode": plan["mode"],
         "created": created, "modified": modified, "removed": removed,
         "notes": notes,
     }
@@ -424,7 +458,7 @@ def do_apply(plan, plan_path):
                     raise IOError(f"postcondition fail: {a['target']}")
             applied.append(a)
         MARKER.write_text(json.dumps({
-            "initialized_at": ts, "pilothos_version": "1.9.0",
+            "initialized_at": ts, "pilothos_version": "1.10.0",
             "mode": plan["mode"],
             "manifest": str((bdir / 'manifest.json').relative_to(REPO_ROOT)),
         }, indent=2) + "\n", encoding="utf-8")
@@ -478,21 +512,104 @@ def do_apply(plan, plan_path):
 
 # --------------------------------------------------------------- unattended
 
-def selected_adapters(raw):
-    if not raw:
-        return {"claude", "cursor", "codex", "antigravity"}
-    adapters = {x.strip().lower() for x in raw.split(",") if x.strip()}
-    allowed = {"claude", "cursor", "codex", "antigravity"}
-    unknown = sorted(adapters - allowed)
+def adapter_set(value):
+    """Chuẩn hoá adapter selection từ list (plan.adapters) hoặc chuỗi CSV
+    (--adapters). None/rỗng → cả bốn. Reject adapter lạ."""
+    if value is None:
+        return set(ALLOWED_ADAPTERS)
+    if isinstance(value, str):
+        items = [x.strip().lower() for x in value.split(",") if x.strip()]
+    elif isinstance(value, list):
+        items = [x.strip().lower() for x in value
+                 if isinstance(x, str) and x.strip()]
+    else:
+        raise PlanError(f"adapters phai la list hoac chuoi CSV: {value!r}")
+    if not items:
+        return set(ALLOWED_ADAPTERS)
+    sel = set(items)
+    unknown = sorted(sel - ALLOWED_ADAPTERS)
     if unknown:
         raise PlanError(f"unknown adapter(s): {', '.join(unknown)}")
-    return adapters
+    return sel
+
+
+def selected_adapters(raw):
+    return adapter_set(raw)
+
+
+def optional_adapter_removal_steps(adapters, skip_targets=()):
+    """remove_path steps cho các optional adapter KHÔNG chọn mà còn trên đĩa.
+    Bỏ qua target đã có step (idempotent)."""
+    skip = set(skip_targets)
+    out = []
+    for name, target in OPTIONAL_ADAPTER_PATHS.items():
+        if (name not in adapters and target not in skip
+                and (REPO_ROOT / target).exists()):
+            out.append({"op": "remove_path", "target": target})
+    return out
 
 
 def add_optional_adapter_removals(steps, adapters):
-    for name, target in OPTIONAL_ADAPTER_PATHS.items():
-        if name not in adapters and (REPO_ROOT / target).exists():
-            steps.append({"op": "remove_path", "target": target})
+    existing = {s.get("target") for s in steps
+                if isinstance(s, dict) and s.get("op") == "remove_path"}
+    steps.extend(optional_adapter_removal_steps(adapters, existing))
+
+
+def _insert_before_marker(steps, new_steps):
+    """Chèn new_steps ngay trước write_marker (hoặc cuối nếu chưa có marker),
+    giữ write_marker luôn ở cuối."""
+    if not new_steps:
+        return
+    idx = len(steps)
+    for i, s in enumerate(steps):
+        if isinstance(s, dict) and s.get("op") == "write_marker":
+            idx = i
+            break
+    steps[idx:idx] = new_steps
+
+
+def gitignore_append_step(plan, steps):
+    """append_lines step cho .gitignore suy ra từ options.gitignore_scope, hoặc
+    None nếu không cần. Idempotent: bỏ qua nếu đã có step .gitignore hoặc mọi dòng
+    đã nằm trong file."""
+    gi = REPO_ROOT / ".gitignore"
+    if not gi.exists():
+        return None
+    if any(isinstance(s, dict) and s.get("op") == "append_lines"
+           and s.get("target") == ".gitignore" for s in steps):
+        return None
+    scope = (plan.get("options") or {}).get("gitignore_scope", "runtime")
+    want = PILOTHOS_GITIGNORE_ALL if scope == "all" else PILOTHOS_GITIGNORE_LINES
+    current = set(gi.read_text(encoding="utf-8").splitlines())
+    missing = [l for l in want if l not in current]
+    if not missing:
+        return None
+    return {"op": "append_lines", "target": ".gitignore", "lines": ["", *missing]}
+
+
+def normalize_plan(plan):
+    """Suy ra các step deterministic từ ý định khai báo (`adapters`,
+    `options.gitignore_scope`) — SSOT ở engine, Claude không gõ tay từng step.
+    Chạy ở dry-run TRƯỚC khi user approve nên vẫn giữ byte-identical.
+    Idempotent. Mutate plan tại chỗ; trả True nếu có thay đổi."""
+    if not isinstance(plan, dict):
+        return False
+    steps = plan.get("steps")
+    if not isinstance(steps, list):
+        return False
+    new_steps = []
+    if "adapters" in plan:
+        existing = {s.get("target") for s in steps
+                    if isinstance(s, dict) and s.get("op") == "remove_path"}
+        new_steps += optional_adapter_removal_steps(
+            adapter_set(plan.get("adapters")), existing)
+    gi_step = gitignore_append_step(plan, steps)
+    if gi_step:
+        new_steps.append(gi_step)
+    if not new_steps:
+        return False
+    _insert_before_marker(steps, new_steps)
+    return True
 
 
 def add_self_prune(steps):
@@ -510,6 +627,8 @@ def build_unattended_plan(argv):
     parser.add_argument("--owner", default="")
     parser.add_argument("--adapters", default="claude,cursor,codex,antigravity")
     parser.add_argument("--statusline", choices=("consumer", "pilothos", "chain"))
+    parser.add_argument("--gitignore-scope", choices=GITIGNORE_SCOPES,
+                        default="runtime")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--print-plan", action="store_true")
     args = parser.parse_args(argv)
@@ -518,10 +637,16 @@ def build_unattended_plan(argv):
         "plan_version": 1,
         "mode": args.mode,
         "fill": {"PERSONA": args.persona, "GOALS": args.goals, "OWNER": args.owner},
+        "adapters": sorted(adapter_set(args.adapters)),
         "steps": [],
     }
+    options = {}
     if args.statusline:
-        plan["options"] = {"statusline": args.statusline}
+        options["statusline"] = args.statusline
+    if args.gitignore_scope != "runtime":
+        options["gitignore_scope"] = args.gitignore_scope
+    if options:
+        plan["options"] = options
     steps = plan["steps"]
 
     if args.mode == "greenfield":
@@ -549,14 +674,12 @@ def build_unattended_plan(argv):
         if (REPO_ROOT / ".claude/settings.json").exists():
             steps.append({"op": "merge_settings", "payload": "settings.json",
                           "target": ".claude/settings.json"})
-        if (REPO_ROOT / ".gitignore").exists():
-            steps.append({"op": "append_lines", "target": ".gitignore",
-                          "lines": ["", "pilothOS/.backup/",
-                                    "pilothOS/.pending-plan.json"]})
 
-    add_optional_adapter_removals(steps, selected_adapters(args.adapters))
     add_self_prune(steps)
     steps.append({"op": "write_marker"})
+    # Adapter removals + .gitignore suy ra deterministic từ `adapters` /
+    # `options.gitignore_scope` (SSOT — cùng đường với luồng interactive).
+    normalize_plan(plan)
     return plan, args
 
 
@@ -654,6 +777,18 @@ def main():
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             fail(2, {"error": f"plan khong phai JSON hop le: {e}"})
+        # Normalize: sinh remove_path (adapter khong chon) + append_lines
+        # (.gitignore) deterministic từ ý định khai báo. Chạy ở dry-run/apply
+        # và ghi lại file để "thứ approve = thứ thực thi". `validate` giữ
+        # non-mutating (chỉ kiểm plan như đã cho).
+        try:
+            changed = normalize_plan(plan)
+        except PlanError as pe:
+            fail(2, {"result": "plan_rejected", "error": str(pe)})
+        if changed and cmd in ("dry-run", "apply"):
+            plan_path.write_text(
+                json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
         try:
             actions, notes = validate_and_simulate(plan)
         except NeedsJudgment as nj:

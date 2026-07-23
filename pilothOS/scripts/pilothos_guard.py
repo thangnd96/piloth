@@ -28,14 +28,20 @@ Các mode:
   scheduler-record  Append sanitized local scheduler history.
   state-doctor   Read-only health check for repo-local OS state.
   os-start       Open an adaptive OS task run and write the scoped contract.
+                 `os-start --explain` prints the request schema (no run opened).
   os-status      Show active OS task status, mode and cost ledger.
   os-evidence    Append sanitized command/tool/metric evidence to an OS run.
   os-close       Validate receipt, gates, truth claims and target seal.
+                 `os-close --dry-run` runs the full validation without sealing.
   os-verify      Verify active receipt/control-plane/target seals.
   os-report      Summarize mode decisions, cost ledger and consumer value status.
   receipt-seal   Emit deterministic receipt/contract/file hash seal evidence.
   receipt-verify Verify current receipt/files against a prior seal.
   artifact-janitor Detect or explicitly clean deterministic local artifacts.
+  state-janitor  Retention/GC rác vòng đời task: dọn artifacts/ của os-run cũ đã
+                 seal (giữ state/seal JSON), tail-truncate scheduler-history;
+                 --kernel-logs rotate lossless lessons/review-log. Detect mặc
+                 định, chỉ đổi đĩa khi --fix. Tự chạy (safe subset) ở os-close.
   control-plane-check Verify project-local OS control-plane readiness.
   production-review Mechanical release readiness review.
   team-contract-write Record a multi-agent team contract.
@@ -62,6 +68,9 @@ Ghi chú thiết kế:
   Ladder: điều kiện "có thay đổi mà log chưa động" là máy móc nên hook được;
   chất lượng nội dung log vẫn cần judgment của model.
 """
+# GENERATED FILE — assembled from src/guard/*.py by scripts/build_guard.py.
+# Edit the fragments and rebuild; hand-edits here are overwritten and caught by
+# the bundle-up-to-date gate in tests/unit.
 import sys
 import re
 import json
@@ -178,7 +187,19 @@ UI_RECEIPT_FIELDS = {
     "component_reuse_decision",
     "token_reuse_decision",
 }
-SEMANTIC_REVIEW_DECISIONS = {"reuse", "extend", "new", "not_applicable"}
+# Design-decision vocab (reuse/extend/new) is shared by every "what did you do
+# with this candidate" review field. Alias one constant so the two names cannot
+# drift apart. (Distinct from ASSET_ROUTING_DECISIONS, which is load-state, not
+# a design decision.)
+SEMANTIC_REVIEW_DECISIONS = UI_DESIGN_SYSTEM_DECISIONS
+# Structured human-review vocabulary (Governed Visual Review round-trip).
+REVIEW_SEVERITIES = {"blocker", "major", "minor", "nit"}
+REVIEW_DISPOSITIONS = {"approve", "request-changes"}
+REVIEW_VERDICTS = {"approve", "request-changes", "reject"}
+REVIEW_BLOCKING_SEVERITIES = {"blocker", "major"}
+# Prototype phase (visual UI proposal before implementation): the design method
+# used to generate the >=2 UI variants a human then picks via human_review.
+PROTOTYPE_METHODS = {"artifacts", "figma", "design_system", "shadcn", "lofi"}
 TEAM_PERMISSION_ACTIONS = {"plan", "review", "edit", "qa", "advise"}
 HIGH_CONFIDENCE_THRESHOLD = 0.80
 TOOL_USE_REQUIRED_FIELDS = {
@@ -212,12 +233,14 @@ READ_ONLY_GUARD_MODES = {
     "asset-health",
     "asset-scan",
     "artifact-janitor",
+    "state-janitor",
     "context-budget",
     "control-plane-check",
     "ds-scan",
     "rot-status",
     "production-review",
     "receipt-verify",
+    "review-verify",
     "reuse-scan",
     "route-task",
     "scheduler-suggest",
@@ -281,6 +304,7 @@ METRIC_TYPES = {
     "context_load",
     "command",
     "ui_quality",
+    "browser_smoke",
     "retry",
     "verification",
     "repair",
@@ -348,6 +372,28 @@ ARTIFACT_JANITOR_SKIP_DIRS = {
     "env",
 }
 ARTIFACT_JANITOR_MAX_FINDINGS = 200
+
+# State janitor / retention (Nhóm A rác đĩa + Nhóm B token). Xem docs/token-optimization.md.
+# Tất cả có thể override qua env, mirror pattern PILOTHOS_OPERATIONAL_PRESET.
+
+
+def _env_int(name, default):
+    try:
+        value = int(os.environ.get(name, "").strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+STATE_RETENTION_KEEP_RUNS = _env_int("PILOTHOS_RETENTION_RUNS", 10)
+STATE_RETENTION_KEEP_DAYS = _env_int("PILOTHOS_RETENTION_DAYS", 14)
+SCHEDULER_HISTORY_KEEP = _env_int("PILOTHOS_SCHEDULER_KEEP", 200)
+KERNEL_LOG_KEEP_ROWS = _env_int("PILOTHOS_KERNEL_LOG_KEEP", 200)
+RECEIPT_SEALS_WARN_LINES = _env_int("PILOTHOS_RECEIPT_SEALS_WARN", 500)
+STATE_JANITOR_MAX_FINDINGS = 500
+LESSONS_ARCHIVE = PILOTHOS_DIR / "memory" / "lessons-learned-archive.md"
+REVIEW_LOG_ARCHIVE = PILOTHOS_DIR / "rot" / "review-log-archive.md"
+
 SECRET_KEY_RE = re.compile(
     r"(secret|token|password|passwd|api[_-]?key|credential|authorization|bearer)",
     re.IGNORECASE,
@@ -383,6 +429,9 @@ QUALIFIED_CLAIM_TERMS = (
 EVIDENCE_PROFILES = {"code", "ui", "design_tokens", "docs", "release", "generic"}
 OS_EVIDENCE_KINDS = {
     "command",
+    "discovery",
+    "human_review",
+    "prototype",
     "figma_node",
     "design_token_coverage",
     "quality_gate",
@@ -403,6 +452,8 @@ SAFE_OS_EVIDENCE_METADATA_KEYS = {
     "metric_type", "metric_name", "phase", "unit", "value", "count",
     "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
     "total_tokens", "real_token_telemetry", "unavailable_reason",
+    "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+    "model", "pricing_source", "window_start", "subagent_scope",
     "consumer_value_result", "all_mandatory_not_worse",
     "consumer_visible_win", "mandatory_regressions", "wins",
     "viewport_width", "viewport_height", "browser", "browser_tool", "url",
@@ -549,8 +600,35 @@ def git_changed_file_paths():
     return sorted(set(p for p in expanded if p))
 
 
+def is_git_repo():
+    """REPO_ROOT có nằm trong một git working tree hoạt động được không?
+
+    Dùng để phân biệt 'working tree sạch' với 'git không khả dụng': khi không
+    phải git repo, git_changed_file_paths() trả rỗng một cách mập mờ, nên gate
+    phải fallback về hành vi mtime cũ thay vì tưởng nhầm mọi thứ đã deliver.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--is-inside-work-tree"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5,
+        )
+    except Exception:
+        return False
+    return out.returncode == 0 and out.stdout.strip() == "true"
+
+
 def json_print(payload):
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def write_json(path, obj):
+    """Write obj as the canonical PilothOS state-file JSON: UTF-8, sorted keys,
+    2-space indent, trailing newline. Single writer for every persisted
+    state/contract/receipt/seal file so their on-disk format cannot drift."""
+    path.write_text(
+        json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def canonical_json(value):
@@ -615,14 +693,11 @@ def read_os_current_task_id():
 
 def write_os_current_task_id(task_id):
     OS_CURRENT.parent.mkdir(parents=True, exist_ok=True)
-    OS_CURRENT.write_text(
-        json.dumps({
-            "task_id": task_id,
-            "repo_key": REPO_KEY,
-            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        }, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(OS_CURRENT, {
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    })
 
 
 def load_os_state(task_id=None):
@@ -674,10 +749,7 @@ def save_os_state(state):
     state["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     path = os_state_path(task_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(path, state)
     write_os_current_task_id(task_id)
     return path
 
@@ -706,6 +778,55 @@ def append_os_evidence(task_id, evidence):
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(evidence, ensure_ascii=False, sort_keys=True) + "\n")
     return path
+
+
+def review_feedback_path(task_id):
+    return os_state_path(task_id, "review-feedback.jsonl")
+
+
+def append_review_feedback(task_id, record):
+    """Append one human-review round to the append-only review-feedback ledger.
+
+    Mirrors append_os_evidence: one JSON record per line, one line per review
+    round. os-close reads the highest-round record for the human_review gate.
+    """
+    path = review_feedback_path(task_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    return path
+
+
+def review_feedback_records(task_id):
+    path = review_feedback_path(task_id)
+    if not path.exists():
+        return []
+    records = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    records.append(item)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return records
+
+
+def latest_review_feedback(task_id):
+    records = review_feedback_records(task_id)
+    if not records:
+        return None
+
+    def _round(r):
+        try:
+            return int(r.get("review_round", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    return sorted(records, key=_round)[-1]
 
 
 # ---------------------------------------------------------------- stdin/session
@@ -1679,7 +1800,8 @@ def target_footprint_report(state, target_diff):
     }
 
 
-def edit_paths_from_hook_input(hook_input):
+def raw_edit_targets(hook_input):
+    """Các path thô (chưa resolve) mà tool Edit/Write/MultiEdit sẽ ghi."""
     tool_input = (
         hook_input.get("tool_input")
         or hook_input.get("toolInput")
@@ -1696,8 +1818,34 @@ def edit_paths_from_hook_input(hook_input):
             value = tool_input.get(key)
             if isinstance(value, list):
                 raw_paths.extend(v for v in value if isinstance(v, str))
+    return raw_paths
+
+
+def claude_config_dir():
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env and env.strip():
+        return pathlib.Path(env.strip()).expanduser()
+    return pathlib.Path.home() / ".claude"
+
+
+def is_harness_plan_path(raw):
+    """True nếu raw trỏ vào thư mục plan của harness (~/.claude/plans hoặc
+    $CLAUDE_CONFIG_DIR/plans). Plan file là artifact của Claude Code, không phải
+    code repo — contract-before-edit gate không quản, cho ghi kể cả khi harness
+    không truyền permission_mode=="plan"."""
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        target = pathlib.Path(raw.strip()).expanduser().resolve()
+        plans = (claude_config_dir() / "plans").resolve()
+    except (OSError, ValueError, RuntimeError):
+        return False
+    return target == plans or plans in target.parents
+
+
+def edit_paths_from_hook_input(hook_input):
     paths, errors = [], []
-    for raw in raw_paths:
+    for raw in raw_edit_targets(hook_input):
         rel, err = repo_relative_path(raw)
         if err:
             errors.append(err)
@@ -2116,12 +2264,38 @@ def logs_touched_since(ts):
     return False
 
 
+def session_uncommitted_changes(ts):
+    """File còn CHƯA commit (working tree/staged/untracked) và bị sửa sau mốc ts.
+
+    Rỗng nghĩa là mọi thay đổi trong phiên đã được commit (hoặc revert) → coi như
+    đã Deliver qua git. Giữ nguyên ngoại lệ review-log/lessons như repo_changed_since
+    để việc auto-log không tự kích gate.
+    """
+    out = []
+    for rel in git_changed_file_paths():
+        path = REPO_ROOT / rel
+        if any(part in SCAN_EXCLUDE_DIRS for part in path.parts):
+            continue
+        try:
+            if path.resolve() in SCAN_EXCLUDE_FILES:
+                continue
+            if path.is_file() and path.stat().st_mtime > ts:
+                out.append(rel)
+        except OSError:
+            continue
+    return sorted(out)
+
+
 def stop_check(hook_input):
     """Deliver gate (hook Stop).
 
-    Nếu phiên có thay đổi file, kiểm tra hai phần máy móc:
+    Nếu phiên có thay đổi file CHƯA commit, kiểm tra hai phần máy móc:
     - auto-log gate: review-log/lessons-learned đã được cân nhắc.
     - deliver receipt gate: receipt có changed files/layers/evidence/result.
+
+    Trong git repo, nếu mọi thay đổi của phiên đã được commit (hoặc revert) thì
+    coi như đã Deliver qua git và bỏ qua toàn bộ gate. Ngoài git repo, giữ nguyên
+    hành vi cũ (dựa mtime).
 
     stop_hook_active=true → đã block một lần rồi → luôn cho dừng (không loop).
     """
@@ -2137,9 +2311,13 @@ def stop_check(hook_input):
         ts = float(m.read_text(encoding="utf-8"))
     except ValueError:
         return
-    changed = repo_changed_since(ts)
-    if not changed:
-        return  # phiên chỉ đọc/hỏi đáp → không cần log
+    if not repo_changed_since(ts):
+        return  # phiên chỉ đọc/hỏi đáp → không cần gate
+    if is_git_repo() and not session_uncommitted_changes(ts):
+        # Trong git repo: mọi thay đổi của phiên đã commit (hoặc revert) → đã
+        # Deliver qua git. Miễn toàn bộ deliver gate (không đòi auto-log lẫn
+        # receipt thủ công). Ngoài git repo, giữ nguyên hành vi mtime cũ.
+        return
     reasons = []
     if not logs_touched_since(ts):
         reasons.append(
@@ -3935,12 +4113,9 @@ def team_contract_write(argv):
     contract["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     path = team_contract_state_path(contract["task_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, contract)
     MARKER_DIR.mkdir(exist_ok=True)
-    repo_state_file("team-contract.json").write_text(
-        json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("team-contract.json"), contract)
     json_print({"result": "team_contract_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
 
 
@@ -4089,7 +4264,7 @@ def team_receipt_write(argv):
     receipt["generated_artifacts"] = materialize_team_artifacts(receipt, contract)
     path = team_receipt_state_path(receipt["task_id"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json(path, receipt)
     json_print({"result": "team_receipt_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
 
 
@@ -4279,6 +4454,20 @@ def task_contract_write(argv):
 
 
 def pre_edit(hook_input):
+    # Claude Code plan mode is read-only planning (harness restricts edits to the
+    # plan file). Piloth's contract-before-edit gate is for execution, not
+    # planning, so do not block during plan mode — governance re-engages the
+    # moment the session leaves plan mode. `permission_mode` is the documented
+    # PreToolUse hook field carrying the current mode ("plan" | "default" | ...).
+    if hook_input.get("permission_mode") == "plan":
+        return
+    # Harness ghi plan file vào ~/.claude/plans (ngoài repo). Đó là artifact của
+    # Claude Code, không phải code repo — cho phép kể cả khi harness không truyền
+    # permission_mode=="plan" (safety-net bổ trợ). Chỉ allow khi MỌI target là
+    # plan-path để không tạo khe hở ghi lẫn file repo.
+    raw_targets = raw_edit_targets(hook_input)
+    if raw_targets and all(is_harness_plan_path(t) for t in raw_targets):
+        return
     contract, contract_path = load_task_contract(hook_input)
     if not contract:
         block_decision(
@@ -4432,6 +4621,15 @@ def post_edit(hook_input):
         changed[rel] = {"layer": layer, "added": add, "deleted": delete,
                         "changed_lines": add + delete,
                         "new_file": git_path_is_new(rel)}
+    # Prune entry không còn trong working tree (đã commit hoặc revert) để diff facts
+    # phản ánh delta CHƯA commit hiện tại, không tích luỹ snapshot cũ qua nhiều edit.
+    # Chỉ prune khi thực sự trong git repo — ngoài git, git_changed_file_paths()
+    # trả rỗng một cách mập mờ và sẽ xoá nhầm toàn bộ facts.
+    if is_git_repo():
+        live = set(git_changed_file_paths())
+        for rel in list(changed):
+            if rel not in live:
+                del changed[rel]
     update_diff_fact_derived(facts, contract)
     save_diff_facts(hook_input, facts)
     print(json.dumps({
@@ -4562,7 +4760,8 @@ def validate_learning_review(value):
         )
     if decision not in LEARNING_DECISIONS:
         errors.append(
-            "learning_review.lesson_decision must be recorded, none, deferred, or promoted"
+            "learning_review.lesson_decision must be one of: "
+            + ", ".join(sorted(LEARNING_DECISIONS))
         )
     if mistake == "none" and decision in LEARNING_DECISIONS and decision != "none":
         errors.append(
@@ -4574,7 +4773,9 @@ def validate_learning_review(value):
         )
     if not learning_promotion_target_valid(promoted_to):
         errors.append(
-            "learning_review.promoted_to must be a known target or not_applicable"
+            "learning_review.promoted_to must be one of: "
+            + ", ".join(sorted(LEARNING_PROMOTION_TARGETS))
+            + " (or '<target>, upstream' for cross-project lessons)"
         )
     if decision == "promoted" and promoted_to == "not_applicable":
         errors.append(
@@ -5213,110 +5414,96 @@ def receipt_verify(argv):
 
 
 def receipt_template():
+    """Emit a gate-aware receipt skeleton.
+
+    Instead of a static superset of every field os-close *might* demand, this
+    reads the active contract + diff facts and emits ONLY the fields the current
+    run actually needs, with valid default enum values (not `<placeholder>`) so
+    the skeleton passes `os-close --dry-run` structurally — the human only fills
+    real evidence. Allowed enum values are shown in a trailing `_allowed` hint.
+    """
     facts = load_diff_facts({})
     contract, _ = load_task_contract({})
     update_diff_fact_derived(facts, contract)
-    print(json.dumps({
+    probe = {}  # proxy receipt so gate predicates can read paths from facts
+    mode = contract.get("mode") if isinstance(contract, dict) else None
+    required_gates = required_gates_for_task(contract, mode=mode)
+    std_evidence = preset_requires_standard_evidence(contract)
+    needs_reuse = receipt_requires_reuse_discipline(facts, probe, contract)
+    touches_ui = receipt_touches_ui(facts, probe)
+    needs_judgment = std_evidence and receipt_needs_judgment(contract, facts, probe)
+
+    template = {
         "operational_preset": operational_preset(contract),
         "changed_files": sorted(facts.get("changed_files", {})),
         "affected_layers": facts.get("affected_layers", []),
-        "scope_evidence": "<why these changes were in scope>",
-        "context_used": [
-            {
-                "source": "<path-or-command>",
-                "reason": "<why loaded>",
-                "finding": "<what it proved>"
-            }
-        ],
-        "consumer_asset_routing": [
-            {
-                "task_signal": "<UI/component|API/backend|bug fix|release/deploy|tool/MCP|not_applicable>",
-                "asset_type": "<skill|hook|tool|mcp|command|design-system|doc|convention|test-runner|build-runner|not_applicable>",
-                "decision": "<loaded|skipped|approval_required|not_applicable>",
-                "reason": "<why exact asset was loaded or why not applicable>"
-            }
-        ],
         "verification_command": "<command or 'not run'>",
-        "result": "<pass|failed|not run>",
-        "limitation": "<required if not run/failed/skipped>",
-        "judgment_checklist": {
-            key: question for key, question in JUDGMENT_CHECKLIST_KEYS.items()
+        "result": "passed",
+        "limitation": "<required only if result is not run/failed/skipped>",
+        "quality_gates": {
+            gate: {"result": "PASS", "evidence": f"<evidence proving {gate}>"}
+            for gate in required_gates
         },
-        "reuse_discipline": {
+        "claims": [
+            {"claim": "<what you did, no absolute 1:1/complete/fully claims unless evidence backs it>",
+             "evidence_refs": ["<os-evidence id>", "quality_gates.correctness"]}
+        ],
+    }
+
+    if needs_judgment:
+        template["judgment_checklist"] = dict(JUDGMENT_CHECKLIST_KEYS)
+
+    # Enum hints live in one top-level block (validators ignore unknown keys);
+    # delete `_allowed_values` before the real close if you want a clean seal.
+    allowed = {}
+
+    if needs_reuse:
+        template["scope_evidence"] = "<why these changes were in scope>"
+        template["context_used"] = [
+            {"source": "<path-or-command>", "reason": "<why loaded>", "finding": "<what it proved>"}
+        ]
+        template["consumer_asset_routing"] = [
+            {
+                "task_signal": "not_applicable",
+                "asset_type": "not_applicable",
+                "decision": "not_applicable",
+                "reason": "<why the exact asset was loaded, or why not applicable>",
+            }
+        ]
+        template["reuse_discipline"] = {
             "existing_code_checked": "<paths/searches checked>",
             "existing_component_checked": "<component/design-system check or not_applicable>",
             "existing_pattern_followed": "<pattern reused>",
             "new_code_reason": "<why new code was needed>",
             "duplicate_risk": "<duplicate risk assessment>",
             "kiss_dry_rationale": "<why this stayed simple/non-duplicative>",
-        },
-        "semantic_reuse_candidates": [
-            {
-                "id": "<candidate id from reuse-scan>",
-                "path": "<candidate path>",
-                "confidence": 0.0,
-                "reason": "<scan reason>"
-            }
-        ],
-        "semantic_reuse_review": [
-            {
-                "candidate": "<candidate id|path|all>",
-                "decision": "<reuse|extend|new|not_applicable>",
-                "reason": "<decision reason>"
-            }
-        ],
-        "design_system_candidates": [
-            {
-                "id": "<candidate id from ds-scan>",
-                "path": "<candidate path>",
-                "confidence": 0.0,
-                "reason": "<scan reason>"
-            }
-        ],
-        "design_system_candidate_review": [
-            {
-                "candidate": "<candidate id|path|all>",
-                "decision": "<reuse|extend|new|not_applicable>",
-                "reason": "<decision reason>"
-            }
-        ],
-        "learning_review": {
-            "mistake_checked": "<guessed_without_context|ignored_asset|ignored_consumer_asset|duplicated_helper|duplicated_component|bypassed_ds|bypassed_design_system|wrong_tool|exceeded_scope|unneeded_abstraction|context_bloat|skipped_verification|none>",
-            "lesson_decision": "<recorded|none|deferred|promoted>",
-            "promoted_to": "<rules|knowledge|skills|tools|tools/index.md|runtime|evaluation|not_applicable|target, upstream>",
+        }
+        template["learning_review"] = {
+            "mistake_checked": "none",
+            "lesson_decision": "none",
+            "promoted_to": "not_applicable",
             "reason": "<why no lesson was needed, or where it was recorded/promoted>",
-        },
-        "quality_gates": {
-            "reuse_non_duplication": {
-                "result": "PASS|FAIL|NOT_APPLICABLE",
-                "evidence": "<context/reuse evidence, diff facts, verification result>"
-            }
-        },
-        "design_system_checked": "<required for UI changes>",
-        "component_reuse_decision": "<required for UI changes>",
-        "token_reuse_decision": "<required for UI changes>",
-        "warning_checklist": {
-            "dependency_change_reason": "<required when dependency files changed>",
-            "new_component_reason": "<required when new component-like files were added>",
-            "ui_design_system_gap_reason": "<required when UI changed without DS evidence>",
-            "code_without_test_reason": "<required when code changed without test/evidence facts>",
-            "large_delta_reason": "<required when a large delta warning is present>",
-            "approval_evidence": "<required when high-risk tool/command was used>"
-        },
-        "tool_uses": [
-            {
-                "tool": "<tool name>",
-                "command": "<command if applicable>",
-                "risk": "low|medium|high",
-                "timeout": "<timeout used, e.g. 500ms, 30s, 5m, or 1h>",
-                "result": "<result/output summary>",
-                "evidence_output": "<stdout/stderr/artifact summary or path>",
-                "approval_evidence": "<required for high risk>",
-                "limitation": "<required when skipped/failed/not run>"
-            }
-        ],
-        "diff_facts": facts,
-    }, ensure_ascii=False, indent=2))
+        }
+        allowed["consumer_asset_routing[].task_signal"] = sorted(ASSET_ROUTING_SIGNALS)
+        allowed["consumer_asset_routing[].asset_type"] = sorted(ASSET_ROUTING_TYPES)
+        allowed["consumer_asset_routing[].decision"] = sorted(ASSET_ROUTING_DECISIONS)
+        allowed["learning_review.mistake_checked"] = sorted(LEARNING_MISTAKE_CLASSES)
+        allowed["learning_review.lesson_decision"] = sorted(LEARNING_DECISIONS)
+        allowed["learning_review.promoted_to"] = sorted(LEARNING_PROMOTION_TARGETS) + ["<target>, upstream"]
+
+    if touches_ui and std_evidence:
+        template["design_system_checked"] = "<existing DS/tokens checked; result>"
+        template["component_reuse_decision"] = "not_applicable"
+        template["token_reuse_decision"] = "not_applicable"
+        template["design_system_candidate_review"] = [
+            {"candidate": "all", "decision": "not_applicable", "reason": "<decision reason>"}
+        ]
+        allowed["component_reuse_decision / token_reuse_decision / design_system_candidate_review[].decision"] = sorted(UI_DESIGN_SYSTEM_DECISIONS)
+
+    if allowed:
+        template["_allowed_values"] = allowed
+
+    print(json.dumps(template, ensure_ascii=False, indent=2))
 
 
 # --------------------------------------------------------- OS lifecycle modes
@@ -5486,6 +5673,51 @@ def choose_adaptive_mode(request, paths, layers, target):
     return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
 
 
+def suggest_phase_plan(request, paths, layers, evidence_profile):
+    """Advisory-only phase recommendation (recipe right-sizing).
+
+    Mirrors aidlc's deterministic heuristicClassify: recommend the front-half
+    phases that would prevent rework, without ever enabling them. This NEVER
+    mutates requires_prototype / requires_discovery — a human opts in on a
+    follow-up os-start. Surfaced in os-status / os-report so the operator sees
+    the suggestion but keeps control (auto-enabling a heavy phase would add
+    cost, the opposite of the intent).
+    """
+    signal = str(request.get("task_signal") or "").strip().lower()
+    intent = json.dumps(sanitize_state_value(request, limit=1000), ensure_ascii=False).lower()
+    paths = paths or []
+    ui = (
+        evidence_profile == "ui"
+        or "ui/component" in signal
+        or any(path_pattern_suggests_ui(p) for p in paths)
+    )
+    trivial = (
+        paths_look_docs_tests_only(paths, layers)
+        or "bugfix" in signal
+        or "bug fix" in intent
+    )
+    high_impact = any(
+        k in intent for k in
+        ("architecture", "acceptance criteria", "out of scope", "unclear", "ambiguous", "not sure", "unknown")
+    )
+    broad = (not paths) or any(path_pattern_is_broad(p) for p in paths) or len(paths) > 6
+    rec_proto = bool(ui and not trivial)
+    rec_disc = bool((high_impact or broad) and not trivial)
+    reasons = []
+    if rec_proto:
+        reasons.append("UI/component scope — a prototype round can de-risk the visual direction before implementation")
+    if rec_disc:
+        reasons.append("ambiguous or broad scope — a discovery gate can confirm open questions up front")
+    if not reasons:
+        reasons.append("scope looks narrow/clear — no extra front-half phase recommended")
+    return {
+        "recommend_discovery": rec_disc,
+        "recommend_prototype": rec_proto,
+        "reasons": reasons,
+        "note": "suggestions only — pass requires_discovery / requires_prototype in a follow-up os-start to enable",
+    }
+
+
 def request_success_metrics(request):
     metrics = request.get("success_metrics") if isinstance(request, dict) else None
     if isinstance(metrics, list):
@@ -5621,9 +5853,20 @@ def build_os_contract(request, route, scheduler, target=None):
             "finding": "task is routed through os-start/os-close",
         }])
     )
-    for optional in ("operational_preset", "allowed_entitlements", "requires_judgment", "benchmark_id"):
+    for optional in (
+        "operational_preset", "allowed_entitlements", "requires_judgment",
+        "benchmark_id", "requires_human_review", "requires_prototype",
+        "requires_discovery", "discovery_decisions", "model_hints",
+        "ui_design_system_evidence", "energy_budget_reason",
+    ):
         if optional in request:
             contract[optional] = request[optional]
+    # A prototype's human pick is recorded through the reused human_review
+    # round-trip, so requiring a prototype implies requiring human review.
+    if contract.get("requires_prototype"):
+        contract["requires_human_review"] = True
+    # Advisory recipe: recommend front-half phases without ever enabling them.
+    contract["phase_plan_suggestion"] = suggest_phase_plan(request, paths, layers, evidence_profile)
     if isinstance(target, dict):
         contract["target_repo"] = target.get("target_repo", "")
         contract["target_kind"] = target.get("target_kind", "")
@@ -5683,6 +5926,10 @@ def required_gates_for_task(contract, receipt=None, mode=None):
     }, ensure_ascii=False).lower()
     if "release/deploy" in signal_text or "deploy" in signal_text:
         gates.append("operational_approval")
+    if isinstance(contract, dict) and contract.get("requires_human_review"):
+        gates.append("human_review")
+    if isinstance(contract, dict) and contract.get("requires_prototype"):
+        gates.append("prototype")
     return list(dict.fromkeys(gates))
 
 
@@ -5706,6 +5953,148 @@ def validate_required_quality_gates(receipt, required_gates):
             if not non_empty_string(receipt.get("limitation")):
                 errors.append(f"limitation is required when quality_gates.{gate}.result is FAIL")
     return errors
+
+
+def validate_review_feedback(value):
+    """Validate the structured human-review feedback artifact (schema + enums).
+
+    Faithful to annotron's structured feedback, translated into Piloth's gate
+    vocabulary: findings carry a location (file and/or gate), a note, a severity
+    and a disposition; the round carries a verdict and a finalized flag.
+    """
+    if not isinstance(value, dict):
+        return ["review feedback must be a JSON object"]
+    errors = []
+    if value.get("verdict") not in REVIEW_VERDICTS:
+        errors.append("verdict must be one of: " + ", ".join(sorted(REVIEW_VERDICTS)))
+    if not isinstance(value.get("finalized"), bool):
+        errors.append("finalized must be a boolean")
+    findings = value.get("findings")
+    if not isinstance(findings, list):
+        errors.append("findings must be a list")
+        return errors
+    errors.extend(validate_object_list_enums(
+        findings,
+        "findings",
+        ("id", "note", "severity", "disposition"),
+        {"severity": REVIEW_SEVERITIES, "disposition": REVIEW_DISPOSITIONS},
+    ))
+    for i, finding in enumerate(findings):
+        if not isinstance(finding, dict):
+            continue
+        loc = finding.get("location")
+        if not isinstance(loc, dict) or not (
+            non_empty_string(loc.get("file")) or non_empty_string(loc.get("gate"))
+        ):
+            errors.append(f"findings[{i}].location must include a file or a gate")
+            continue
+        if non_empty_string(loc.get("file")):
+            _, err = repo_relative_path(loc.get("file"))
+            if err:
+                errors.append(f"findings[{i}].location.file {err}")
+    return errors
+
+
+def validate_human_review_gate(state, contract, receipt, os_evidence):
+    """Machine cross-check for the human_review gate (anti-checkbox core).
+
+    The guard never judges whether a finding is correct — only that a real,
+    finalized, approving human artifact exists with no unresolved blocking
+    findings. Returns (errors, summary) where summary.result is
+    PASS / FAIL / NOT_APPLICABLE. Unresolved blocking findings surface in
+    summary.unresolved so os-close can route the task back to Repair.
+    """
+    required = isinstance(contract, dict) and bool(contract.get("requires_human_review"))
+    if not required:
+        return [], {"result": "NOT_APPLICABLE"}
+    task_id = state.get("task_id") if isinstance(state, dict) else None
+    feedback = latest_review_feedback(task_id)
+    if not feedback:
+        return (
+            ["human_review gate requires a review-feedback artifact; run review-request then review-feedback"],
+            {"result": "FAIL", "reason": "no review feedback recorded"},
+        )
+    ferrors = validate_review_feedback(feedback)
+    if ferrors:
+        return (
+            [f"review feedback invalid: {e}" for e in ferrors],
+            {"result": "FAIL", "reason": "invalid review feedback"},
+        )
+    review_round = feedback.get("review_round")
+    if feedback.get("finalized") is not True:
+        return (
+            ["human_review is not finalized (review round still open)"],
+            {"result": "FAIL", "reason": "not finalized", "review_round": review_round},
+        )
+    unresolved = [
+        finding.get("id")
+        for finding in feedback.get("findings", [])
+        if isinstance(finding, dict)
+        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
+        and finding.get("disposition") == "request-changes"
+    ]
+    if unresolved:
+        return (
+            ["human_review has unresolved blocking findings routed to Repair: "
+             + ", ".join(str(x) for x in unresolved)],
+            {"result": "FAIL", "reason": "unresolved blocking findings",
+             "unresolved": unresolved, "review_round": review_round},
+        )
+    if feedback.get("verdict") != "approve":
+        return (
+            ["human_review verdict is not approve"],
+            {"result": "FAIL", "reason": "verdict not approve",
+             "verdict": feedback.get("verdict"), "review_round": review_round},
+        )
+    summary = {
+        "result": "PASS",
+        "review_round": review_round,
+        "verdict": "approve",
+        "reviewer": feedback.get("reviewer", ""),
+    }
+    try:
+        summary["feedback_path"] = review_feedback_path(task_id).relative_to(REPO_ROOT).as_posix()
+    except (ValueError, TypeError):
+        pass
+    return [], summary
+
+
+def latest_evidence_of_kind(os_evidence, kind):
+    """Return the most recently recorded os-evidence record of a given kind."""
+    matches = [
+        item for item in (os_evidence or [])
+        if isinstance(item, dict) and item.get("kind") == kind
+    ]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda item: str(item.get("recorded_at") or ""))[-1]
+
+
+def validate_prototype_gate(state, contract, receipt, os_evidence):
+    """Machine check for the thin prototype gate (evidence completeness only).
+
+    Prototype reuses the human_review round-trip for the human sign-off; this
+    gate only asserts prototype's own invariant — a valid design method, >=2
+    options generated, and one chosen among them — read from the recorded
+    prototype evidence. Anti-checkbox: a receipt that self-declares prototype
+    PASS with no backing evidence record still FAILs. Returns a summary dict
+    with result PASS / FAIL / NOT_APPLICABLE.
+    """
+    required = isinstance(contract, dict) and bool(contract.get("requires_prototype"))
+    if not required:
+        return {"result": "NOT_APPLICABLE"}
+    ev = latest_evidence_of_kind(os_evidence, "prototype")
+    if ev is None:
+        return {"result": "FAIL", "reason": "no prototype evidence recorded"}
+    everrors = validate_prototype_evidence(ev)
+    if everrors:
+        return {"result": "FAIL", "reason": "; ".join(everrors)}
+    return {
+        "result": "PASS",
+        "method": ev.get("method"),
+        "options": len([o for o in ev.get("options", []) if isinstance(o, dict)]),
+        "chosen": ev.get("chosen"),
+    }
 
 
 def evidence_text_blob(receipt, facts, os_evidence):
@@ -5914,6 +6303,7 @@ def validate_metric_evidence(evidence):
     for field in (
         "value", "count", "chars", "bytes", "duration_ms",
         "input_tokens", "output_tokens", "total_tokens",
+        "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
         "viewport_width", "viewport_height", "console_error_count",
         "page_error_count", "image_failure_count", "layout_overflow_count",
         "visual_diff_pixels", "visual_diff_ratio",
@@ -6095,7 +6485,69 @@ def evidence_payload_present(sanitized):
         return True
     if evidence_source_refs(sanitized):
         return True
+    if isinstance(sanitized.get("options"), list) and sanitized.get("options"):
+        return True
+    if isinstance(sanitized.get("decisions"), list) and sanitized.get("decisions"):
+        return True
     return False
+
+
+def validate_prototype_evidence(evidence):
+    """Validate a prototype evidence record (kind=prototype).
+
+    Prototype's invariant: at least two design options were generated and one
+    was chosen, via a valid design method. The human sign-off itself flows
+    through the reused human_review round-trip, not here.
+    """
+    if not isinstance(evidence, dict) or evidence.get("kind") != "prototype":
+        return []
+    errors = []
+    if evidence.get("method") not in PROTOTYPE_METHODS:
+        errors.append("prototype evidence requires method one of: " + ", ".join(sorted(PROTOTYPE_METHODS)))
+    options = evidence.get("options")
+    if not isinstance(options, list):
+        errors.append("prototype evidence requires an options list")
+        return errors
+    ids = []
+    for i, opt in enumerate(options):
+        if not isinstance(opt, dict) or not non_empty_string(opt.get("id")):
+            errors.append(f"prototype options[{i}] requires an id")
+            continue
+        ids.append(opt.get("id"))
+    if len(ids) < 2:
+        errors.append("prototype evidence requires >=2 options with ids")
+    chosen = evidence.get("chosen")
+    if not non_empty_string(chosen):
+        errors.append("prototype evidence requires a chosen option id")
+    elif ids and chosen not in ids:
+        errors.append("prototype chosen must be one of the generated option ids")
+    return errors
+
+
+def validate_discovery_evidence(evidence):
+    """Validate a discovery evidence record (kind=discovery).
+
+    Discovery is a judgment gate the phase runs up front; the only mechanical
+    check is that the confirmed decisions are recorded as evidence the
+    Traceability gate can trace to. Each decision names its question, answer and
+    source (user vs a pre-ticked "decide for me" default).
+    """
+    if not isinstance(evidence, dict) or evidence.get("kind") != "discovery":
+        return []
+    errors = []
+    decisions = evidence.get("decisions")
+    if not isinstance(decisions, list) or not decisions:
+        errors.append("discovery evidence requires a non-empty decisions list")
+        return errors
+    for i, dec in enumerate(decisions):
+        if not isinstance(dec, dict):
+            errors.append(f"discovery decisions[{i}] must be an object")
+            continue
+        if not non_empty_string(dec.get("q")):
+            errors.append(f"discovery decisions[{i}] requires a question 'q'")
+        if not non_empty_string(dec.get("answer")):
+            errors.append(f"discovery decisions[{i}] requires an 'answer'")
+    return errors
 
 
 def sanitize_os_evidence_payload(payload):
@@ -6109,9 +6561,14 @@ def sanitize_os_evidence_payload(payload):
         "token_count", "covered_groups", "surface", "artifact_path",
         "target_path", "source_refs", "coverage_scope", "generated_surfaces",
         "verification", "limitations",
+        "method", "options", "chosen", "chosen_rationale",
+        "prototype_doc", "prototype_sha256",
+        "discovery_doc", "decisions", "unresolved",
         "metric_type", "metric_name", "phase", "unit", "value", "count",
         "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
         "total_tokens", "real_token_telemetry", "unavailable_reason",
+        "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+        "model", "pricing_source", "window_start", "subagent_scope",
         "consumer_value_result", "all_mandatory_not_worse",
         "consumer_visible_win", "mandatory_regressions", "wins",
         "viewport_width", "viewport_height", "browser", "browser_tool", "url",
@@ -6146,6 +6603,12 @@ def sanitize_os_evidence_payload(payload):
     metric_errors = validate_metric_evidence(sanitized)
     if metric_errors:
         return None, metric_errors
+    prototype_errors = validate_prototype_evidence(sanitized)
+    if prototype_errors:
+        return None, prototype_errors
+    discovery_errors = validate_discovery_evidence(sanitized)
+    if discovery_errors:
+        return None, discovery_errors
     evidence_id = (
         safe_evidence_id(sanitized.get("id"))
         or safe_evidence_id(sanitized.get("ref"))
@@ -6174,6 +6637,253 @@ def metric_int(value):
         return 0
 
 
+def metric_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def load_model_pricing():
+    """Load the advisory model price map (USD per MTok). Fail-soft → {} when the
+    file is missing or malformed, so telemetry never breaks on a bad price map."""
+    data = load_json_file(PILOTHOS_DIR / "runtime" / "model-pricing.json")
+    if isinstance(data, dict) and isinstance(data.get("models"), dict):
+        return data
+    return {}
+
+
+def model_price(model, pricing=None):
+    """Return the price row {input, output, cache_write_5m, cache_read} for a
+    model id in USD/MTok, or None when the model is unknown (cost then omitted)."""
+    if not non_empty_string(model):
+        return None
+    pricing = pricing if isinstance(pricing, dict) else load_model_pricing()
+    models = pricing.get("models") if isinstance(pricing, dict) else None
+    row = models.get(model) if isinstance(models, dict) else None
+    return row if isinstance(row, dict) else None
+
+
+def compute_token_cost_usd(usage, model, pricing=None):
+    """Cost of one usage record given a price row, or None when the model is
+    unpriced. usage keys: input_tokens/output_tokens/cache_creation_input_tokens/
+    cache_read_input_tokens. Cache tiers are priced separately (cache_read ~0.1x,
+    cache_write ~1.25x input) — ignoring them would misstate cost badly."""
+    row = model_price(model, pricing)
+    if row is None:
+        return None
+    per_mtok = lambda tokens, rate: metric_float(tokens) / 1_000_000.0 * metric_float(rate)
+    cost = (
+        per_mtok(usage.get("input_tokens"), row.get("input"))
+        + per_mtok(usage.get("output_tokens"), row.get("output"))
+        + per_mtok(usage.get("cache_creation_input_tokens"), row.get("cache_write_5m"))
+        + per_mtok(usage.get("cache_read_input_tokens"), row.get("cache_read"))
+    )
+    return round(cost, 6)
+
+
+def parse_iso_timestamp(ts):
+    """Parse an ISO-8601 timestamp (accepting a trailing Z) to a datetime, or
+    None. Used to window transcript records by the OS run's created_at."""
+    if not non_empty_string(ts):
+        return None
+    text = ts.strip().replace("Z", "+00:00")
+    try:
+        return datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def transcript_project_slug():
+    """Claude Code encodes the project cwd into the transcript dir name by
+    replacing '/' and '.' with '-' (e.g. -Users-me-VNG-tools-piloth)."""
+    return re.sub(r"[/.]", "-", str(REPO_ROOT.resolve()))
+
+
+def resolve_transcript_path(argv, hook_input=None):
+    """Locate the Claude Code session transcript: explicit --transcript wins,
+    then a hook's transcript_path, then the newest *.jsonl for this project.
+    Returns a Path or None (None → telemetry unavailable, recorded honestly)."""
+    argv = argv or []
+    for i, arg in enumerate(argv):
+        if arg == "--transcript" and i + 1 < len(argv):
+            return pathlib.Path(argv[i + 1]).expanduser()
+        if arg.startswith("--transcript="):
+            return pathlib.Path(arg.split("=", 1)[1]).expanduser()
+    if isinstance(hook_input, dict) and non_empty_string(hook_input.get("transcript_path")):
+        return pathlib.Path(hook_input["transcript_path"]).expanduser()
+    base = pathlib.Path.home() / ".claude" / "projects" / transcript_project_slug()
+    if not base.exists():
+        return None
+    def _mtime(p):
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0
+    candidates = sorted(base.glob("*.jsonl"), key=_mtime)
+    return candidates[-1] if candidates else None
+
+
+TRANSCRIPT_USAGE_KEYS = (
+    "input_tokens", "output_tokens",
+    "cache_creation_input_tokens", "cache_read_input_tokens",
+)
+
+
+def sum_transcript_usage(path, since=None, pricing=None):
+    """Sum real per-turn `message.usage` from a Claude Code transcript, windowed
+    to records at/after `since` (a datetime). Returns a dict with summed usage,
+    per-model token totals, a summed cost (or None when any model is unpriced),
+    and record/model counts — or None if the file can't be read.
+
+    Attribution is main-session-only: background subagent transcripts are
+    separate files and are not summed here (disclosed as subagent_scope)."""
+    usage = {k: 0 for k in TRANSCRIPT_USAGE_KEYS}
+    per_model_tokens = {}
+    records = 0
+    cost_total = 0.0
+    cost_available = True
+    pricing = pricing if isinstance(pricing, dict) else load_model_pricing()
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                if since is not None:
+                    rec_ts = parse_iso_timestamp(rec.get("timestamp"))
+                    if rec_ts is not None and rec_ts < since:
+                        continue
+                msg = rec.get("message") if isinstance(rec.get("message"), dict) else {}
+                u = msg.get("usage") if isinstance(msg, dict) else None
+                if not isinstance(u, dict):
+                    continue
+                records += 1
+                row = {k: metric_int(u.get(k)) for k in TRANSCRIPT_USAGE_KEYS}
+                for k in TRANSCRIPT_USAGE_KEYS:
+                    usage[k] += row[k]
+                model = msg.get("model") if non_empty_string(msg.get("model")) else "unknown"
+                per_model_tokens[model] = per_model_tokens.get(model, 0) + sum(row.values())
+                c = compute_token_cost_usd(row, model, pricing)
+                if c is None:
+                    cost_available = False
+                else:
+                    cost_total += c
+    except OSError:
+        return None
+    primary_model = max(per_model_tokens, key=per_model_tokens.get) if per_model_tokens else ""
+    return {
+        "usage": usage,
+        "records": records,
+        "models": sorted(per_model_tokens),
+        "primary_model": primary_model,
+        "cost_usd": round(cost_total, 6) if cost_available else None,
+        "pricing_source": pricing.get("source") if isinstance(pricing, dict) else "",
+    }
+
+
+def token_telemetry(argv):
+    """Extract real LLM token telemetry from the Claude Code session transcript
+    and record it as an `os-evidence kind=metric metric_type=llm_usage
+    real_token_telemetry=true` for the active OS run. Windowed to the run's
+    created_at; main-session-only (disclosed). Fails soft: no transcript →
+    records real_token_telemetry=false + unavailable_reason.
+
+    Usage: token-telemetry [--task <id>] [--transcript <path>]
+    """
+    argv = argv or []
+    task_id = None
+    for i, arg in enumerate(argv):
+        if arg == "--task" and i + 1 < len(argv):
+            task_id = argv[i + 1]
+        elif arg.startswith("--task="):
+            task_id = arg.split("=", 1)[1]
+    state, _ = load_os_state(task_id)
+    if not state:
+        json_print({"result": "token_telemetry_rejected", "errors": ["no active OS run; call os-start first"]})
+        return
+    if state.get("status") in {"closed", "sealed"}:
+        json_print({"result": "token_telemetry_rejected", "task_id": state.get("task_id"), "errors": ["OS run is already closed"]})
+        return
+    task_id = state["task_id"]
+    created_at = state.get("created_at")
+    since = parse_iso_timestamp(created_at)
+    transcript = resolve_transcript_path(argv)
+    summed = sum_transcript_usage(transcript, since=since) if transcript else None
+
+    if not summed or summed.get("records", 0) == 0:
+        payload = {
+            "task_id": task_id,
+            "kind": "metric",
+            "metric_type": "llm_usage",
+            "metric_name": "session-token-usage",
+            "real_token_telemetry": False,
+            "unavailable_reason": "no Claude Code transcript usage found for this session (harness may not expose per-turn token telemetry)",
+            "subagent_scope": "main_session_only",
+            "summary": "token telemetry unavailable",
+        }
+        result_label = "token_telemetry_unavailable"
+    else:
+        usage = summed["usage"]
+        payload = {
+            "task_id": task_id,
+            "kind": "metric",
+            "metric_type": "llm_usage",
+            "metric_name": "session-token-usage",
+            "real_token_telemetry": True,
+            "input_tokens": usage["input_tokens"],
+            "output_tokens": usage["output_tokens"],
+            "cache_creation_input_tokens": usage["cache_creation_input_tokens"],
+            "cache_read_input_tokens": usage["cache_read_input_tokens"],
+            "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+            "model": summed.get("primary_model") or "",
+            "window_start": created_at or "",
+            "subagent_scope": "main_session_only",
+            "summary": f"session token telemetry from Claude Code transcript ({summed['records']} turns)",
+        }
+        if summed.get("cost_usd") is not None:
+            payload["cost_usd"] = summed["cost_usd"]
+            if non_empty_string(summed.get("pricing_source")):
+                payload["pricing_source"] = summed["pricing_source"]
+        result_label = "token_telemetry_recorded"
+
+    evidence, errors = sanitize_os_evidence_payload(payload)
+    if errors:
+        json_print({"result": "token_telemetry_rejected", "task_id": task_id, "errors": errors})
+        return
+    evidence["task_id"] = task_id
+    append_os_evidence(task_id, evidence)
+    state.setdefault("lifecycle", [])
+    if "tool/evidence" not in state["lifecycle"]:
+        state["lifecycle"].append("tool/evidence")
+    state["evidence_count"] = len(os_evidence_records(task_id))
+    save_os_state(state)
+    out = {
+        "result": result_label,
+        "task_id": task_id,
+        "evidence_ref": evidence["id"],
+        "transcript": str(transcript) if transcript else None,
+        "window_start": created_at or "",
+        "real_token_telemetry": bool(payload.get("real_token_telemetry")),
+        "subagent_scope": "main_session_only",
+    }
+    if result_label == "token_telemetry_recorded":
+        out.update({
+            "records": summed["records"],
+            "models": summed["models"],
+            "model": payload.get("model", ""),
+            "tokens": summed["usage"],
+            "cost_usd": payload.get("cost_usd", "unavailable_unpriced_model"),
+        })
+    json_print(out)
+
+
 def cost_ledger_summary(os_evidence):
     metrics = metric_records(os_evidence)
     real_llm = [item for item in metrics if item.get("metric_type") == "llm_usage" and item.get("real_token_telemetry") is True]
@@ -6191,6 +6901,9 @@ def cost_ledger_summary(os_evidence):
             "input_tokens": sum(metric_int(item.get("input_tokens")) for item in real_llm),
             "output_tokens": sum(metric_int(item.get("output_tokens")) for item in real_llm),
             "total_tokens": sum(metric_int(item.get("total_tokens")) for item in real_llm),
+            "cache_creation_input_tokens": sum(metric_int(item.get("cache_creation_input_tokens")) for item in real_llm),
+            "cache_read_input_tokens": sum(metric_int(item.get("cache_read_input_tokens")) for item in real_llm),
+            "cost_usd": round(sum(metric_float(item.get("cost_usd")) for item in real_llm), 6),
         }
     return {
         "schema_version": 1,
@@ -6220,6 +6933,39 @@ def cost_ledger_summary(os_evidence):
             }
             for item in benchmark
         ],
+    }
+
+
+def budget_status(contract, os_evidence):
+    """Advisory-only budget view: compare real spend (from token telemetry) to an
+    optional contract budget.max_usd. Surfaced in os-status / os-report; it NEVER
+    blocks os-close. Returns advisory_unavailable when no ceiling is set or no
+    real-token cost has been recorded yet."""
+    budget = contract.get("budget") if isinstance(contract, dict) else None
+    max_usd = None
+    if isinstance(budget, dict) and budget.get("max_usd") is not None:
+        try:
+            max_usd = float(budget.get("max_usd"))
+        except (TypeError, ValueError):
+            max_usd = None
+    if max_usd is None:
+        return {"status": "advisory_unavailable", "reason": "no budget.max_usd in contract"}
+    ledger = cost_ledger_summary(os_evidence)
+    real = ledger.get("real_tokens")
+    spent = real.get("cost_usd") if isinstance(real, dict) else None
+    if not isinstance(spent, (int, float)):
+        return {
+            "status": "advisory_unavailable",
+            "reason": "no real token telemetry / cost recorded yet (run token-telemetry)",
+            "max_usd": max_usd,
+        }
+    return {
+        "advisory": True,
+        "max_usd": max_usd,
+        "spent_usd": round(float(spent), 6),
+        "remaining_usd": round(max_usd - float(spent), 6),
+        "over_budget": float(spent) > max_usd,
+        "note": "advisory only — does not block os-close",
     }
 
 
@@ -6270,7 +7016,43 @@ def consumer_superiority_ok(receipt, os_evidence):
     return False
 
 
+def os_start_schema_payload():
+    """Machine-readable os-start request schema (SSOT for the doc page).
+
+    Mirrors `installer explain`: field -> {required, default, allowed, aliases}.
+    """
+    return {
+        "result": "os_start_schema",
+        "note": "All fields optional; a bare {} opens a repo-local run. See runtime/os-control-plane.md.",
+        "fields": {
+            "task_id": {"required": False, "default": "task-<sha256[:12]> from intent", "aliases": ["id", "request_id"]},
+            "intent": {"required": False, "default": "repo-local OS task", "aliases": ["task_scope", "summary", "title"], "note": "becomes contract.task_scope"},
+            "task_signal": {"required": False, "default": "not_applicable", "allowed": sorted(ASSET_ROUTING_SIGNALS)},
+            "target_repo": {"required": False, "default": "<control-plane repo>", "note": "absolute path; must exist and not be inside pilothOS/memory/state"},
+            "target_kind": {"required": False, "allowed": sorted(TARGET_KINDS), "note": "cross-checked vs actual git detection"},
+            "target_paths": {"required": False, "default": ["**/*"], "aliases": ["allowed_paths", "affected_paths", "paths"], "note": "each must be a safe glob"},
+            "affected_layers": {"required": False, "default": "derived from paths", "note": "contract requires a non-empty list"},
+            "expected_evidence": {"required": False, "default": ["manual verification receipt"]},
+            "out_of_scope_paths": {"required": False, "default": []},
+            "evidence_profile": {"required": False, "default": "generic", "allowed": sorted(EVIDENCE_PROFILES)},
+            "mode": {"required": False, "default": "adaptive", "allowed": sorted(OS_MODE_REQUESTS), "aliases": ["os_mode", "piloth_mode"], "note": "adaptive/auto resolve to lean|standard|strict"},
+            "operational_preset": {"required": False, "allowed": sorted(OPERATIONAL_PRESETS)},
+            "target_footprint_policy": {"required": False, "allowed": sorted(TARGET_FOOTPRINT_POLICIES), "aliases": ["footprint_policy"], "default": "no_control_plane_files if explicit target else repo_local_state_allowed"},
+            "execution_strategy": {"required": False, "default": "controlled_target if explicit target else repo_local"},
+            "budget": {"required": False, "note": "object; budget.max_usd is an advisory cost ceiling"},
+            "success_metrics": {"required": False},
+            "requires_prototype": {"required": False, "default": False, "note": "true also forces requires_human_review"},
+            "requires_human_review": {"required": False, "default": False},
+            "requires_discovery": {"required": False, "default": False},
+            "energy_budget_reason": {"required": "when expected_evidence names a full-suite/broad run", "note": "justify the blast radius of an expensive run"},
+        },
+    }
+
+
 def os_start(argv):
+    if "--explain" in list(argv):
+        json_print(os_start_schema_payload())
+        return
     try:
         request, source = json_arg_or_stdin(argv, "os-start")
     except Exception as e:
@@ -6361,22 +7143,13 @@ def os_start(argv):
         "scheduler_suggestion": scheduler,
     }
     state_path = save_os_state(state)
-    os_state_path(task_id, "contract.json").write_text(
-        json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    os_state_path(task_id, "target-snapshot.json").write_text(
-        json.dumps(target_snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(os_state_path(task_id, "contract.json"), contract)
+    write_json(os_state_path(task_id, "target-snapshot.json"), target_snapshot)
     repo_contract = dict(contract)
     repo_contract["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     repo_contract["source"] = state_path.relative_to(REPO_ROOT).as_posix()
     MARKER_DIR.mkdir(exist_ok=True)
-    repo_state_file("task-contract.json").write_text(
-        json.dumps(repo_contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("task-contract.json"), repo_contract)
     empty_facts = {
         "changed_files": {},
         "affected_layers": [],
@@ -6446,8 +7219,16 @@ def os_status(argv=None):
         "target_footprint_policy": state.get("target_footprint_policy", ""),
         "budget": state.get("budget", {}),
         "cost_ledger": cost_ledger_summary(evidence),
+        "budget_status": budget_status(state.get("contract") or {}, evidence),
         "expected_evidence": state.get("expected_evidence", []),
         "required_gates": state.get("required_gates", []),
+        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
+        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
+        "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
+        "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
+        "prototype": state.get("prototype", {}),
+        "human_review": state.get("human_review", {}),
+        "discovery_recorded": latest_evidence_of_kind(evidence, "discovery") is not None,
         "evidence_count": len(evidence),
         "seal_sha256": state.get("seal_sha256", ""),
     })
@@ -6503,10 +7284,7 @@ def write_active_receipt(receipt):
     MARKER_DIR.mkdir(exist_ok=True)
     receipt = dict(receipt)
     receipt["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    repo_state_file("deliver-receipt.json").write_text(
-        json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(repo_state_file("deliver-receipt.json"), receipt)
     return receipt, repo_state_file("deliver-receipt.json")
 
 
@@ -6521,7 +7299,28 @@ def record_receipt_seal(receipt, contract, facts):
     return seal
 
 
-def os_close_result(receipt, task_id=None):
+def cross_project_enforcement_advisory(active_facts, target_diff):
+    """Non-blocking advisory when hooks likely did not fire on the target.
+
+    If diff-facts (populated only by the target's own PostToolUse hook) is empty
+    yet the git/manifest target-diff shows changes, the run was almost certainly
+    driven from a different session/repo, so the target's Stop-time deliver gate
+    never ran. Enforcement then rests on the target-diff alone. Returns an
+    advisory string (or "" when coverage looks normal).
+    """
+    if not (isinstance(active_facts, dict) and isinstance(target_diff, dict)):
+        return ""
+    if active_facts.get("changed_files") or not target_diff.get("changed_paths"):
+        return ""
+    return (
+        "diff-facts empty but target-diff shows changes: the target's PostToolUse/"
+        "Stop hooks likely did not fire (task driven from another session). "
+        "Enforcement relied on the git/manifest target-diff only; run inside the "
+        "target's own session for full hook coverage."
+    )
+
+
+def os_close_result(receipt, task_id=None, dry_run=False):
     state, state_path = load_os_state(task_id or (receipt.get("task_id") if isinstance(receipt, dict) else None))
     errors = []
     if not state:
@@ -6537,16 +7336,35 @@ def os_close_result(receipt, task_id=None):
         target_diff = target_diff_from_active_facts(state, active_facts)
     else:
         target_diff = target_changed_paths(state)
-    os_state_path(state["task_id"], "target-diff.json").write_text(
-        json.dumps(target_diff, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    if not dry_run:
+        write_json(os_state_path(state["task_id"], "target-diff.json"), target_diff)
     facts = facts_from_target_diff(target_diff, active_facts)
+    enforcement_advisory = cross_project_enforcement_advisory(active_facts, target_diff)
+    if enforcement_advisory:
+        state["enforcement_advisory"] = enforcement_advisory
     os_evidence = os_evidence_records(state["task_id"])
     errors.extend(validate_deliver_receipt(receipt, contract, facts))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
     required_gates = state.get("required_gates") or required_gates_for_task(contract, receipt, mode=state.get("mode"))
+    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
+        required_gates = list(required_gates) + ["human_review"]
     errors.extend(validate_required_quality_gates(receipt, required_gates))
+    hr_errors, hr_summary = validate_human_review_gate(state, contract, receipt, os_evidence)
+    errors.extend(hr_errors)
+    state["human_review"] = hr_summary
+    if hr_summary.get("unresolved"):
+        state["repair_required"] = True
+        state["open_review_findings"] = hr_summary["unresolved"]
+        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review", "repair"]))
+    if isinstance(contract, dict) and contract.get("requires_prototype") and "prototype" not in required_gates:
+        required_gates = list(required_gates) + ["prototype"]
+        errors.extend(validate_required_quality_gates(receipt, ["prototype"]))
+    proto_summary = validate_prototype_gate(state, contract, receipt, os_evidence)
+    state["prototype"] = proto_summary
+    if proto_summary.get("result") == "FAIL":
+        errors.append("prototype gate failed: " + str(proto_summary.get("reason", "prototype evidence incomplete")))
+        state["prototype_incomplete"] = proto_summary.get("reason", "")
+        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["prototype", "repair"]))
     missing_evidence = validate_expected_evidence_present(contract, receipt, facts, os_evidence)
     errors.extend(missing_evidence)
     errors.extend(validate_design_token_receipt(receipt, contract, state, os_evidence))
@@ -6566,6 +7384,20 @@ def os_close_result(receipt, task_id=None):
         and target_janitor.get("result") != "artifact_janitor_passed"
     ):
         errors.append("target artifact janitor found local artifacts; run artifact-janitor --target <path> --fix only if explicit cleanup is intended")
+    if dry_run:
+        result = {
+            "result": "os_close_dry_run",
+            "task_id": state["task_id"],
+            "would_pass": not errors,
+            "errors": errors,
+            "required_gates": required_gates,
+            "janitor": janitor,
+            "target_janitor": target_janitor,
+            "target_footprint": target_footprint,
+        }
+        if enforcement_advisory:
+            result["enforcement_advisory"] = enforcement_advisory
+        return result
     if errors:
         state["status"] = "close_rejected"
         state["last_close_errors"] = errors
@@ -6583,15 +7415,13 @@ def os_close_result(receipt, task_id=None):
             "target_footprint": target_footprint,
             "target_diff": target_diff,
             "state_path": state_path.relative_to(REPO_ROOT).as_posix() if state_path else "",
+            "enforcement_advisory": enforcement_advisory,
         }
     receipt, receipt_path = write_active_receipt(receipt)
     save_diff_facts({}, facts)
     seal = record_receipt_seal(receipt, contract, facts)
     target_seal = build_target_seal(state, receipt, target_diff)
-    os_state_path(state["task_id"], "target-seal.json").write_text(
-        json.dumps(target_seal, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    write_json(os_state_path(state["task_id"], "target-seal.json"), target_seal)
     state["status"] = "closed"
     state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + [
         "quality gates",
@@ -6629,6 +7459,13 @@ def os_close_result(receipt, task_id=None):
         }
     state["status"] = "sealed"
     state["control_plane"] = control
+    # Auto-clean rác đĩa (Nhóm A) sau khi seal thành công. Run vừa seal là
+    # active + mới nhất nên luôn được retention giữ lại; fail-soft tuyệt đối —
+    # lỗi dọn dẹp KHÔNG bao giờ làm hỏng os-close.
+    try:
+        state["state_janitor"] = state_janitor_result(fix=True)
+    except Exception as e:
+        state["state_janitor"] = {"result": "state_janitor_error", "reason": str(e)}
     save_os_state(state)
     return {
         "result": "os_closed",
@@ -6647,19 +7484,181 @@ def os_close_result(receipt, task_id=None):
         "target_diff_path": os_state_path(state["task_id"], "target-diff.json").relative_to(REPO_ROOT).as_posix(),
         "target_seal_path": os_state_path(state["task_id"], "target-seal.json").relative_to(REPO_ROOT).as_posix(),
         "control_plane": control.get("result"),
+        "state_janitor": state.get("state_janitor"),
+        "enforcement_advisory": enforcement_advisory,
     }
 
 
 def os_close(argv):
+    args = list(argv)
+    dry_run = False
+    if "--dry-run" in args:
+        dry_run = True
+        args = [a for a in args if a != "--dry-run"]
     try:
-        receipt, _ = json_arg_or_stdin(argv, "os-close")
+        receipt, _ = json_arg_or_stdin(args, "os-close")
     except Exception as e:
         json_print({"result": "os_close_rejected", "errors": [str(e)]})
         return
     if not isinstance(receipt, dict):
         json_print({"result": "os_close_rejected", "errors": ["receipt must be a JSON object"]})
         return
-    json_print(os_close_result(receipt))
+    json_print(os_close_result(receipt, dry_run=dry_run))
+
+
+def review_request(argv):
+    """Emit the review-request artifact for the active OS run (Review state).
+
+    Accepts an optional task id, or a JSON payload {task_id, questions}.
+    """
+    payload = {}
+    task_id = None
+    if argv:
+        arg = argv[0].strip()
+        if arg.startswith("{"):
+            try:
+                payload = json.loads(arg)
+            except Exception as e:
+                json_print({"result": "review_request_rejected", "errors": [str(e)]})
+                return
+            task_id = payload.get("task_id")
+        else:
+            task_id = argv[0]
+    state, _ = load_os_state(task_id)
+    if not state:
+        json_print({"result": "review_request_rejected", "errors": ["no active OS run; call os-start first"]})
+        return
+    task_id = state["task_id"]
+    contract = state.get("contract") or {}
+    active_contract, _ = load_task_contract({})
+    if isinstance(active_contract, dict):
+        contract = active_contract
+    required_gates = state.get("required_gates") or required_gates_for_task(contract, None, mode=state.get("mode"))
+    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
+        required_gates = list(required_gates) + ["human_review"]
+    changed = sorted(facts_paths(load_diff_facts({}), None))
+    contract_path = os_state_path(task_id, "contract.json")
+    body = {
+        "schema_version": 1,
+        "kind": "review_request",
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "under_review": {
+            "contract_path": contract_path.relative_to(REPO_ROOT).as_posix() if contract_path.exists() else "",
+            "changed_files": changed,
+        },
+        "gates": required_gates,
+        "questions": payload.get("questions") if isinstance(payload.get("questions"), list) else [],
+        "requested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    body["request_sha256"] = sha256_json({
+        "task_id": task_id, "under_review": body["under_review"],
+        "gates": required_gates, "questions": body["questions"],
+    })
+    path = os_state_path(task_id, "review-request.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(path, body)
+    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review"]))
+    save_os_state(state)
+    json_print({
+        "result": "review_requested",
+        "task_id": task_id,
+        "gates": required_gates,
+        "review_request_path": path.relative_to(REPO_ROOT).as_posix(),
+        "request_sha256": body["request_sha256"],
+    })
+
+
+def review_feedback(argv):
+    """Ingest a structured human-review round, record it as evidence, update state."""
+    try:
+        payload, _ = json_arg_or_stdin(argv, "review-feedback")
+    except Exception as e:
+        json_print({"result": "review_feedback_rejected", "errors": [str(e)]})
+        return
+    if not isinstance(payload, dict):
+        json_print({"result": "review_feedback_rejected", "errors": ["feedback must be a JSON object"]})
+        return
+    state, _ = load_os_state(payload.get("task_id"))
+    if not state:
+        json_print({"result": "review_feedback_rejected", "errors": ["no active OS run; call os-start first"]})
+        return
+    task_id = state["task_id"]
+    errors = validate_review_feedback(payload)
+    if errors:
+        json_print({"result": "review_feedback_rejected", "task_id": task_id, "errors": errors})
+        return
+    existing = review_feedback_records(task_id)
+    try:
+        review_round = int(payload.get("review_round"))
+    except (TypeError, ValueError):
+        review_round = len(existing) + 1
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    record = sanitize_state_value({
+        "schema_version": 1,
+        "kind": "human_review",
+        "task_id": task_id,
+        "repo_key": REPO_KEY,
+        "reviewer": payload.get("reviewer") or "",
+        "review_round": review_round,
+        "verdict": payload.get("verdict"),
+        "finalized": bool(payload.get("finalized")),
+        "message": payload.get("message") or "",
+        "findings": payload.get("findings") or [],
+        "recorded_at": now,
+    }, limit=4000)
+    append_review_feedback(task_id, record)
+    unresolved = [
+        finding.get("id")
+        for finding in record["findings"]
+        if isinstance(finding, dict)
+        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
+        and finding.get("disposition") == "request-changes"
+    ]
+    append_os_evidence(task_id, {
+        "id": f"hr-round-{review_round}",
+        "kind": "human_review",
+        "review_round": review_round,
+        "verdict": record["verdict"],
+        "finalized": record["finalized"],
+        "unresolved": unresolved,
+        "reviewer": record["reviewer"],
+        "recorded_at": now,
+    })
+    lifecycle_add = ["review"] + (["repair"] if unresolved else [])
+    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + lifecycle_add))
+    if unresolved:
+        state["repair_required"] = True
+        state["open_review_findings"] = unresolved
+    save_os_state(state)
+    json_print({
+        "result": "review_feedback_recorded",
+        "task_id": task_id,
+        "review_round": review_round,
+        "verdict": record["verdict"],
+        "finalized": record["finalized"],
+        "unresolved": unresolved,
+    })
+
+
+def review_verify(argv):
+    """Read-only status of the human_review gate for the active OS run."""
+    state, _ = load_os_state(argv[0] if argv else None)
+    if not state:
+        json_print({"result": "review_verify_failed", "errors": ["no active OS run"]})
+        return
+    contract = state.get("contract") or {}
+    active_contract, _ = load_task_contract({})
+    if isinstance(active_contract, dict):
+        contract = active_contract
+    os_evidence = os_evidence_records(state["task_id"])
+    hr_errors, hr_summary = validate_human_review_gate(state, contract, {}, os_evidence)
+    json_print({
+        "result": "review_verified" if not hr_errors else "review_incomplete",
+        "task_id": state["task_id"],
+        "human_review": hr_summary,
+        "errors": hr_errors,
+    })
 
 
 def os_verify(argv):
@@ -6759,11 +7758,14 @@ def os_report(argv):
         "mode": state.get("mode", ""),
         "adaptive_mode": state.get("adaptive_mode", False),
         "mode_decisions": state.get("mode_decisions", []),
+        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
+        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
         "execution_strategy": state.get("execution_strategy", ""),
         "target_footprint_policy": state.get("target_footprint_policy", ""),
         "budget": state.get("budget", {}),
         "success_metrics": state.get("success_metrics", []),
         "cost_ledger": cost_ledger_summary(evidence),
+        "budget_status": budget_status(state.get("contract") or {}, evidence),
         "consumer_superiority": {
             "result": superiority_result,
             "payload_count": len(superiority_payloads),
@@ -7110,6 +8112,353 @@ def artifact_janitor(argv):
     json_print(artifact_janitor_result(fix=fix, root=root))
 
 
+# ---------------------------------------------------------------------------
+# State janitor: retention/GC cho rác vòng đời task.
+#   Nhóm A (đĩa, gitignored): artifacts/ của os-run đã seal ngoài retention +
+#     tail-truncate scheduler-history.jsonl. receipt-seals.jsonl chỉ WARN
+#     (hash-chain — không tự sửa để khỏi gãy chuỗi).
+#   Nhóm B (token, opt-in --kernel-logs): rotate lossless row cũ của
+#     lessons-learned.md / review-log.md sang *-archive.md (không load context).
+# Mirror artifact-janitor: detect mặc định, chỉ đổi đĩa khi fix=True.
+# ---------------------------------------------------------------------------
+
+
+def _count_jsonl_lines(path):
+    if not path.exists():
+        return 0
+    count = 0
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    count += 1
+    except OSError:
+        return 0
+    return count
+
+
+def _artifacts_size_bytes(path):
+    total = 0
+    for current, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += (pathlib.Path(current) / name).stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _md_table_parts(path):
+    """Tách file log markdown thành (prefix, rows).
+
+    prefix = mọi thứ tính đến hết dòng separator `|---|` (kèm newline cuối);
+    rows = các dòng data-row `| ... |` sau đó. Trả None nếu không có bảng.
+    """
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    lines = text.splitlines()
+    sep_idx = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("|") and "-" in stripped and set(stripped) <= set("|-: "):
+            sep_idx = idx
+            break
+    if sep_idx is None:
+        return None
+    prefix = "\n".join(lines[: sep_idx + 1]) + "\n"
+    rows = [line.rstrip() for line in lines[sep_idx + 1:] if line.strip().startswith("|")]
+    return prefix, rows
+
+
+def _md_table_rowcount(path):
+    parts = _md_table_parts(path)
+    return len(parts[1]) if parts else 0
+
+
+def os_run_retention_plan(keep_runs=None, keep_days=None):
+    """Quyết định os-run nào giữ nguyên, os-run nào bị dọn artifacts/.
+
+    Giữ = run active (current.json) + N run gần nhất + mọi run cập nhật trong
+    X ngày. Chỉ run ĐÃ SEAL nằm ngoài cửa sổ đó mới đủ điều kiện dọn artifacts/;
+    run đang dở (chưa seal) luôn giữ nguyên vẹn.
+    """
+    keep_runs = STATE_RETENTION_KEEP_RUNS if keep_runs is None else keep_runs
+    keep_days = STATE_RETENTION_KEEP_DAYS if keep_days is None else keep_days
+    plan = {"keep_runs": keep_runs, "keep_days": keep_days, "runs": []}
+    if not OS_RUNS_DIR.exists():
+        return plan
+    active_task = read_os_current_task_id()
+    active_dir = safe_task_id(active_task) if active_task else ""
+    cutoff = time.time() - keep_days * 86400
+    entries = []
+    for state_path in OS_RUNS_DIR.glob("*/state.json"):
+        data = load_json_file(state_path)
+        if not isinstance(data, dict) or data.get("repo_key") != REPO_KEY:
+            continue
+        try:
+            mtime = state_path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        sealed = (
+            data.get("status") in {"closed", "sealed"}
+            and non_empty_string(data.get("seal_sha256"))
+        )
+        entries.append({
+            "dir": state_path.parent,
+            "name": state_path.parent.name,
+            "mtime": mtime,
+            "updated_at": data.get("updated_at", ""),
+            "sealed": sealed,
+        })
+    entries.sort(key=lambda e: (e["mtime"], e["updated_at"]), reverse=True)
+    for idx, entry in enumerate(entries):
+        keep = (
+            entry["name"] == active_dir
+            or idx < keep_runs
+            or entry["mtime"] >= cutoff
+        )
+        prunable = (
+            (not keep)
+            and entry["sealed"]
+            and (entry["dir"] / "artifacts").is_dir()
+        )
+        plan["runs"].append({
+            "name": entry["name"],
+            "keep": keep,
+            "sealed": entry["sealed"],
+            "prune_artifacts": prunable,
+        })
+    return plan
+
+
+def state_janitor_findings(keep_runs=None, keep_days=None, kernel_logs=False):
+    findings = []
+    plan = os_run_retention_plan(keep_runs=keep_runs, keep_days=keep_days)
+    for run in plan["runs"]:
+        if not run["prune_artifacts"]:
+            continue
+        artifacts = OS_RUNS_DIR / run["name"] / "artifacts"
+        findings.append({
+            "path": artifacts.relative_to(REPO_ROOT).as_posix(),
+            "kind": "dir",
+            "action": "remove",
+            "reason": "sealed run outside retention (keeps state/seal JSON)",
+            "bytes": _artifacts_size_bytes(artifacts),
+        })
+    sched_lines = _count_jsonl_lines(SCHEDULER_HISTORY)
+    if sched_lines > SCHEDULER_HISTORY_KEEP:
+        findings.append({
+            "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
+            "kind": "jsonl-tail",
+            "action": "truncate",
+            "keep": SCHEDULER_HISTORY_KEEP,
+            "lines": sched_lines,
+        })
+    seal_lines = _count_jsonl_lines(RECEIPT_SEALS)
+    if seal_lines > RECEIPT_SEALS_WARN_LINES:
+        findings.append({
+            "path": RECEIPT_SEALS.relative_to(REPO_ROOT).as_posix(),
+            "kind": "warn",
+            "action": "none",
+            "lines": seal_lines,
+            "reason": "hash-chained ledger; archive manually to preserve chain",
+        })
+    if kernel_logs:
+        for live, archive in ((LESSONS, LESSONS_ARCHIVE), (REVIEW_LOG, REVIEW_LOG_ARCHIVE)):
+            rows = _md_table_rowcount(live)
+            if rows > KERNEL_LOG_KEEP_ROWS:
+                findings.append({
+                    "path": live.relative_to(REPO_ROOT).as_posix(),
+                    "kind": "md-rows",
+                    "action": "rotate",
+                    "keep": KERNEL_LOG_KEEP_ROWS,
+                    "rows": rows,
+                    "archive": archive.relative_to(REPO_ROOT).as_posix(),
+                })
+    if len(findings) > STATE_JANITOR_MAX_FINDINGS:
+        findings = findings[:STATE_JANITOR_MAX_FINDINGS]
+        findings.append({
+            "path": "",
+            "kind": "limit",
+            "action": "stop",
+            "reason": f"finding limit reached: {STATE_JANITOR_MAX_FINDINGS}",
+        })
+    return findings
+
+
+def _prune_artifacts_dir(rel_path):
+    abs_path = (REPO_ROOT / rel_path).resolve()
+    runs_root = OS_RUNS_DIR.resolve()
+    # Bất biến an toàn: chỉ bao giờ xoá thư mục tên "artifacts" ngay dưới một
+    # os-run — không bao giờ đụng state/seal/receipt JSON hay thư mục run.
+    if abs_path.name != "artifacts" or abs_path.parent.parent != runs_root:
+        return {"path": rel_path, "status": "skipped", "reason": "not an os-run artifacts dir"}
+    if not abs_path.is_dir():
+        return {"path": rel_path, "status": "missing"}
+    try:
+        freed = _artifacts_size_bytes(abs_path)
+        shutil.rmtree(abs_path)
+        return {"path": rel_path, "status": "removed", "bytes": freed}
+    except OSError as e:
+        return {"path": rel_path, "status": "failed", "reason": str(e)}
+
+
+def _truncate_jsonl_tail(path, keep):
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    if not path.exists():
+        return {"path": rel, "status": "missing"}
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = [line for line in f if line.strip()]
+    except OSError as e:
+        return {"path": rel, "status": "failed", "reason": str(e)}
+    if len(lines) <= keep:
+        return {"path": rel, "status": "noop", "lines": len(lines)}
+    kept = lines[-keep:]
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            for line in kept:
+                f.write(line if line.endswith("\n") else line + "\n")
+    except OSError as e:
+        return {"path": rel, "status": "failed", "reason": str(e)}
+    return {"path": rel, "status": "truncated", "removed": len(lines) - keep, "kept": len(kept)}
+
+
+def _rotate_md_log(rel_path, item):
+    live = REPO_ROOT / rel_path
+    archive = REPO_ROOT / item.get("archive", "")
+    keep = item.get("keep", KERNEL_LOG_KEEP_ROWS)
+    parts = _md_table_parts(live)
+    if not parts:
+        return {"path": rel_path, "status": "skipped", "reason": "no markdown table"}
+    prefix, rows = parts
+    if len(rows) <= keep:
+        return {"path": rel_path, "status": "noop", "rows": len(rows)}
+    moved = rows[:-keep]
+    kept = rows[-keep:]
+    archive_parts = _md_table_parts(archive)
+    if archive_parts:
+        archive_prefix, archive_rows = archive_parts
+    else:
+        archive_prefix, archive_rows = prefix, []
+    new_archive_rows = archive_rows + moved
+    try:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text(archive_prefix + "\n".join(new_archive_rows) + "\n", encoding="utf-8")
+        live.write_text(prefix + "\n".join(kept) + "\n", encoding="utf-8")
+    except OSError as e:
+        return {"path": rel_path, "status": "failed", "reason": str(e)}
+    return {
+        "path": rel_path,
+        "status": "rotated",
+        "moved": len(moved),
+        "kept": len(kept),
+        "archive": item.get("archive"),
+    }
+
+
+def state_janitor_apply(findings):
+    actions = []
+    for item in findings:
+        action = item.get("action")
+        if action == "remove" and item.get("kind") == "dir":
+            actions.append(_prune_artifacts_dir(item.get("path")))
+        elif action == "truncate" and item.get("kind") == "jsonl-tail":
+            actions.append(_truncate_jsonl_tail(SCHEDULER_HISTORY, item.get("keep", SCHEDULER_HISTORY_KEEP)))
+        elif action == "rotate" and item.get("kind") == "md-rows":
+            actions.append(_rotate_md_log(item.get("path"), item))
+    return actions
+
+
+def state_janitor_result(fix=False, keep_runs=None, keep_days=None, kernel_logs=False):
+    actionable_kinds = {"remove", "truncate", "rotate"}
+    findings = state_janitor_findings(keep_runs=keep_runs, keep_days=keep_days, kernel_logs=kernel_logs)
+    actionable = [f for f in findings if f.get("action") in actionable_kinds]
+    actions = []
+    if fix and actionable:
+        actions = state_janitor_apply(findings)
+        findings = state_janitor_findings(keep_runs=keep_runs, keep_days=keep_days, kernel_logs=kernel_logs)
+    if fix:
+        result = "state_janitor_cleaned" if actions else "state_janitor_clean"
+    else:
+        result = "state_janitor_findings" if actionable else "state_janitor_clean"
+    return {
+        "result": result,
+        "mode": "fix" if fix else "detect",
+        "retention": {
+            "keep_runs": STATE_RETENTION_KEEP_RUNS if keep_runs is None else keep_runs,
+            "keep_days": STATE_RETENTION_KEEP_DAYS if keep_days is None else keep_days,
+            "kernel_logs": kernel_logs,
+        },
+        "findings_count": len([f for f in findings if f.get("kind") != "limit"]),
+        "findings": findings,
+        "actions": actions,
+        "policy": {
+            "default": "read_only_detect",
+            "artifacts": "remove_only_artifacts_dir_of_sealed_runs_outside_retention",
+            "receipt_seals": "warn_only_hash_chain_preserved",
+            "kernel_logs": "lossless_rotate_to_archive_opt_in",
+        },
+    }
+
+
+def _parse_nonneg_int(value, flag, errors):
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        errors.append(f"{flag} requires a non-negative integer")
+        return None
+    if n < 0:
+        errors.append(f"{flag} requires a non-negative integer")
+        return None
+    return n
+
+
+def state_janitor(argv):
+    args = list(argv)
+    fix = False
+    kernel_logs = False
+    keep_runs = None
+    keep_days = None
+    errors = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--fix":
+            fix = True
+        elif arg == "--kernel-logs":
+            kernel_logs = True
+        elif arg == "--runs":
+            if i + 1 >= len(args):
+                errors.append("--runs requires a non-negative integer")
+                break
+            i += 1
+            keep_runs = _parse_nonneg_int(args[i], "--runs", errors)
+        elif arg.startswith("--runs="):
+            keep_runs = _parse_nonneg_int(arg.split("=", 1)[1], "--runs", errors)
+        elif arg == "--days":
+            if i + 1 >= len(args):
+                errors.append("--days requires a non-negative integer")
+                break
+            i += 1
+            keep_days = _parse_nonneg_int(args[i], "--days", errors)
+        elif arg.startswith("--days="):
+            keep_days = _parse_nonneg_int(arg.split("=", 1)[1], "--days", errors)
+        else:
+            errors.append(f"unsupported argument: {arg}")
+        i += 1
+    if errors:
+        json_print({"result": "state_janitor_rejected", "errors": errors})
+        return
+    json_print(state_janitor_result(
+        fix=fix, keep_runs=keep_runs, keep_days=keep_days, kernel_logs=kernel_logs,
+    ))
+
+
 def jsonl_state_doctor(path):
     rel = path.relative_to(REPO_ROOT).as_posix()
     if not path.exists():
@@ -7245,6 +8594,30 @@ def state_doctor_result():
         "repo-local state excluded from manifest",
         not shipped_state,
         "no JSONL state files shipped" if not shipped_state else shipped_state,
+    )
+
+    # Advisory hygiene: surface state bloat so người dùng biết khi nào nên chạy
+    # `state-janitor` (đặc biệt `--kernel-logs`). Luôn ok=True — không làm fail
+    # state-doctor; retention là dọn dẹp tuỳ chọn, không phải điều kiện đúng đắn.
+    total_runs = len(os_run_checks)
+    janitor = state_janitor_result(fix=False)
+    prunable = [f for f in janitor.get("findings", []) if f.get("action") == "remove"]
+    reclaimable = sum(int(f.get("bytes", 0) or 0) for f in prunable)
+    add_check(
+        "state retention advisory",
+        True,
+        {
+            "os_runs": total_runs,
+            "keep_runs": janitor.get("retention", {}).get("keep_runs"),
+            "keep_days": janitor.get("retention", {}).get("keep_days"),
+            "prunable_artifact_dirs": len(prunable),
+            "reclaimable_bytes": reclaimable,
+            "scheduler_history_lines": _count_jsonl_lines(SCHEDULER_HISTORY),
+            "receipt_seals_lines": _count_jsonl_lines(RECEIPT_SEALS),
+            "lessons_rows": _md_table_rowcount(LESSONS),
+            "review_log_rows": _md_table_rowcount(REVIEW_LOG),
+            "hint": "run `state-janitor --fix` (add --kernel-logs to rotate logs)",
+        },
     )
 
     errors = [check for check in checks if not check["ok"]]
@@ -7675,9 +9048,13 @@ COMMAND_TABLE = {
     "os-start": (os_start, "argv"),
     "os-status": (os_status, "argv"),
     "os-evidence": (os_evidence, "argv"),
+    "token-telemetry": (token_telemetry, "argv"),
     "os-close": (os_close, "argv"),
     "os-verify": (os_verify, "argv"),
     "os-report": (os_report, "argv"),
+    "review-request": (review_request, "argv"),
+    "review-feedback": (review_feedback, "argv"),
+    "review-verify": (review_verify, "argv"),
     "asset-scan": (asset_scan, "argv"),
     "asset-health": (asset_health, "argv"),
     "asset-sync": (asset_sync, "argv"),
@@ -7691,6 +9068,7 @@ COMMAND_TABLE = {
     "receipt-seal": (receipt_seal, "argv"),
     "receipt-verify": (receipt_verify, "argv"),
     "artifact-janitor": (artifact_janitor, "argv"),
+    "state-janitor": (state_janitor, "argv"),
     "control-plane-check": (control_plane_check, "argv"),
     "team-contract-write": (team_contract_write, "argv"),
     "team-receipt-write": (team_receipt_write, "argv"),

@@ -1,5 +1,139 @@
 # Changelog
 
+## Unreleased
+
+## v1.10.0 — 2026-07-23
+
+Init ergonomics từ consumer feedback (adapter selection, add-adapter, plan-write, gitignore).
+
+- **Adapter selection giờ được enforce (fix "chọn claude+codex vẫn cài đủ 4")**:
+  plan interactive khai báo field `adapters` (list adapter giữ lại, gồm `claude`);
+  engine `normalize_plan` tự sinh `remove_path` cho adapter KHÔNG chọn ở dry-run
+  (không còn phụ thuộc Claude gõ tay). Greenfield/brownfield BẮT BUỘC khai báo
+  `adapters` khi có optional adapter đã staging.
+- **`/piloth:adapter` (skill `pilothos-adapter`)**: thêm/bớt adapter SAU init mà
+  không cần re-init. ADD dùng `stage.sh --add-adapters <names>` (targeted — chỉ
+  copy adapter thiếu, không đụng kernel); REMOVE qua engine `remove_path` (có backup).
+- **Guard không còn chặn Claude ghi plan file khi harness không truyền
+  `permission_mode`**: `pre-edit` cho ghi khi mọi target nằm trong `~/.claude/plans/`
+  (hoặc `$CLAUDE_CONFIG_DIR/plans/`) — plan file là artifact harness, không phải
+  code repo. Safety-net bổ trợ cho exemption plan-mode.
+- **`.gitignore` runtime rules nhất quán + opt-in `all`**: SSOT `PILOTHOS_GITIGNORE_LINES`;
+  `normalize_plan` chèn `append_lines` cho `.gitignore` (idempotent) ở MỌI nhánh —
+  vá gap greenfield-có-sẵn-.gitignore và brownfield-append-thiếu-dòng. `pilothOS/`
+  vẫn commit theo thiết kế; `options.gitignore_scope="all"` (elicit/`--gitignore-scope all`)
+  cho consumer chọn ignore toàn bộ `pilothOS/`.
+- Tests: `test_installer_safety.py` (adapter_set, normalize_plan, gitignore, adapters
+  required); `test_guard_plan_mode.py` (harness plan-path allow); install C10f/C10g/C10h;
+  lifecycle/install fixtures khai báo `adapters`.
+
+Lifecycle ergonomics + taxonomy hardening (từ dogfood build landing page).
+
+- **`os-close --dry-run`**: chạy TOÀN BỘ validator của os-close (quality gates,
+  truth-in-seal, expected-evidence, footprint, janitor — không chỉ validator lõi)
+  và trả `{would_pass, errors}` mà KHÔNG mutate state / seal / ghi `target-diff.json`.
+  Lặp tới khi `would_pass:true` rồi close thật.
+- **`receipt-template` gate-aware**: chỉ in field mà run này thực sự cần (docs-only
+  bỏ field UI), enum điền sẵn giá trị hợp lệ (không còn `<placeholder>`); allowed
+  values gom trong `_allowed_values`.
+- **`os-start --explain`**: in schema request (field/required/default/allowed/alias)
+  — SSOT dạng máy, mirror `installer explain`.
+- **`energy_budget_reason` passthrough**: `build_os_contract` giờ nhận field này từ
+  request (trước đây gate full-suite đòi nó nhưng os-start không có cách cấp) — cũng
+  liệt kê trong `os-start --explain`.
+- **`browser_smoke`** thêm vào `METRIC_TYPES` (loại evidence UI tự nhiên).
+- **Gộp vocab decision**: `SEMANTIC_REVIEW_DECISIONS` alias `UI_DESIGN_SYSTEM_DECISIONS`
+  (một nguồn, chống drift); `ASSET_ROUTING_DECISIONS` giữ riêng (khác ngữ nghĩa).
+- **Error message rõ hơn**: `learning_review.promoted_to` liệt kê target hợp lệ +
+  cú pháp `<target>, upstream`; `lesson_decision` derive từ constant.
+- **Cross-project advisory** (không chặn): `os-close` phát `enforcement_advisory` khi
+  diff-facts rỗng nhưng target-diff có thay đổi (target hook không fire khi drive từ
+  session khác) — seal vẫn dựa trên git/manifest target-diff.
+- Tests: `tests/unit/test_guard_taxonomy.py`; lc7 mở rộng (dry-run + gate-aware
+  template). Docs: os-control-plane, task-lifecycle.
+
+State retention / janitor — dọn rác vòng đời task (Nhóm A đĩa + Nhóm B token).
+
+- **`state-janitor`** (detect mặc định, `--fix`): dọn `os-runs/<task>/artifacts/` của
+  run đã seal ngoài retention (giữ state/seal JSON), tail-truncate scheduler-history;
+  `receipt-seals.jsonl` (hash-chain) chỉ WARN. `--kernel-logs` rotate lossless
+  `lessons-learned.md`/`review-log.md` sang `*-archive.md` (không load context).
+  `os-close` tự chạy safe subset sau seal (fail-soft). `state-doctor` thêm advisory bloat.
+- Tests: `tests/unit/test_guard_state_janitor.py`. Docs: token-optimization,
+  energy-token-policy, os-control-plane, memory/state/README.
+
+Governed Visual Review — human-in-the-loop review + agent loop + hook bridge.
+
+- **Piloth Review** (`pilothOS/tools/review/`): companion tool tái hiện annotron 1:1
+  (Node built-ins, zero runtime dependency) — point-and-click annotation trên artifact
+  MD/HTML, agent loop poll/reply/finalized, live activity mirror (SSE), remote
+  permission gate (fail-open). Chạy độc lập được, disk sạch (SDK inject lúc serve).
+- **Gate `human_review`** trong guard: 3 mode `review-request`/`review-feedback`/
+  `review-verify`; structured feedback (verdict + findings gắn gate/severity/
+  disposition) thành evidence `kind=human_review`; `os-close` enforce — task cần human
+  review không Seal khi thiếu artifact `approve`+`finalized` hoặc còn blocker/major chưa
+  xử lý; blocker/major route về Repair. Receipt tự khai `PASS` mà thiếu artifact backing
+  bị reject (chống honor-system).
+- **Governance bridge** (opt-in, fail-soft): companion tool khi bind `--task`/`--govern`
+  forward feedback → `review-feedback` và quyết định permission → `os-evidence`; không
+  bind → core chạy 1:1 standalone.
+- Tests: `tests/lifecycle/cases/lc10-human-review-roundtrip.sh` (full os-close
+  enforcement) + `tests/unit/test_guard_human_review.py`.
+- Docs: quality-gates, task-lifecycle, os-control-plane, operational-controls.
+- **Review hooks default-on**: bản cài bật sẵn activity mirror + permission gate
+  của review tool (fail-open); tắt bằng `PILOTH_REVIEW=off` trong `.claude/settings.json`.
+- **Plan-mode exemption**: `pre-edit` bỏ qua enforcement khi `permission_mode=plan`
+  (fix Piloth chặn Claude ghi plan trong plan mode); governance enforce lại khi thực thi.
+  Test: `tests/unit/test_guard_plan_mode.py`.
+
+Prototype phase + Discovery gate + pipeline stepper + recipe suggestions
+(reimplement 1:1 DNA của aidlc, build native cho Piloth trên hạ tầng review).
+
+- **Prototype phase** (skill `piloth-prototype` + persona `agents/team-roles/designer.md`):
+  sinh ≥2 UI options (Claude Artifacts/Figma/design-system/shadcn/lo-fi), human chọn
+  **tái dùng** `human_review` round-trip. `requires_prototype` tự bật
+  `requires_human_review`; gate `prototype` (mỏng) kiểm invariant qua
+  `os-evidence kind=prototype` (method hợp lệ, ≥2 options, `chosen` ∈ options);
+  thiếu → route Repair; receipt tự khai `PASS` mà thiếu evidence bị reject.
+- **Discovery gate** (skill `piloth-discovery`): hỏi-xác nhận câu hỏi mở đầu phase qua
+  Governed Visual Review (`## Q<n>` + `[x] Decide for me` default), ghi
+  `os-evidence kind=discovery` + fold vào contract `discovery_decisions` (Traceability
+  trace tới). Là gate judgment, không hook tự trigger; `DISCOVERY.md` là working doc.
+- **Pipeline stepper + option-picker** trong review chrome (Piloth-layer, fail-soft):
+  route `/pipeline` đọc `os-status` qua `govern.js`; stepper hiện phase/gate + hint
+  `phase_plan_suggestion`; option-picker cho `PROTOTYPE-option*.html`. Ungoverned →
+  ẩn, core 1:1 annotron không đổi.
+- **Recipe suggest-only + model-hints** (advisory): `suggest_phase_plan` khuyến nghị
+  discovery/prototype theo signal/scope (**không auto-enable**); `model_hints` gợi ý
+  model per-phase; cả hai surface ở `os-status`/`os-report`. Budget ceiling hoãn tới
+  khi có `real_token_telemetry`.
+- Tests: `tests/unit/test_guard_{prototype_gate,discovery,recipe}.py` +
+  `tests/lifecycle/cases/lc11-prototype-roundtrip.sh`.
+- Docs: quality-gates, task-lifecycle, os-control-plane, energy-token-policy, skills/index.
+
+Real token telemetry (`token-telemetry`) + advisory budget — unlocks cost claims.
+
+- **`token-telemetry` guard mode**: reads real per-turn `message.usage` from the
+  Claude Code session transcript (`~/.claude/projects/<slug>/<session>.jsonl`),
+  windowed to the OS run's `created_at`, prices it via `runtime/model-pricing.json`
+  (input/output + cache-write ~1.25× / cache-read ~0.1×), and records
+  `os-evidence kind=metric metric_type=llm_usage real_token_telemetry=true`
+  (`cost_usd`, `model`, `window_start`, `subagent_scope=main_session_only`).
+  Fail-soft: no transcript → `real_token_telemetry=false` + `unavailable_reason`.
+  This is what unblocks `os-close` cost/token claims (superiority still needs a
+  benchmark).
+- **Price map** `pilothOS/runtime/model-pricing.json` (advisory, `as_of` dated;
+  helpers `load_model_pricing`/`model_price`/`compute_token_cost_usd`).
+- **Metric schema extended**: `cache_creation_input_tokens`,
+  `cache_read_input_tokens`, `cost_usd`, `model` (+ `pricing_source`,
+  `window_start`, `subagent_scope`) on `llm_usage`; `cost_ledger_summary` surfaces
+  cache tokens + total `cost_usd`.
+- **Advisory budget**: optional contract `budget.max_usd` → `budget_status`
+  (`spent_usd`/`remaining_usd`/`over_budget`) in `os-status`/`os-report`; **never
+  blocks `os-close`**.
+- Tests: `tests/unit/test_guard_token_telemetry.py` (pricing/cost, cost ledger,
+  metric schema, transcript parse/window) + `tests/unit/test_guard_budget.py`.
+
 ## 1.9.0
 
 Reproducibility, safety net và token optimization.

@@ -1,36 +1,18 @@
 #!/usr/bin/env python3
 """Sinh pilothOS/dist-manifest.json — SSOT cua 'ban cai hoan chinh' (path theo PROJECT).
-Mapping duplicate voi stage.sh co chu dich; linh gac = completeness check (C10)."""
+Distribution model (MAP + ignore rules) dung chung voi stage.py qua _distribution;
+linh gac = completeness check (C10)."""
 import pathlib, json, sys, datetime
+
+from _distribution import CONSUMER_OWNED, MAP, ignored_distribution_artifact
+
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parent.parent)
-MAP = [("pilothOS","pilothOS"),("adapters/claude",".claude"),("adapters/cursor",".cursor"),
-       ("adapters/codex",".codex"),("adapters/antigravity",".antigravity"),
-       ("templates/CLAUDE.md","CLAUDE.md"),("templates/AGENTS.md","AGENTS.md"),
-       ("templates/gitignore",".gitignore"),
-       ("pilothOS/skills/workflow/pilothos-init/payloads/settings.json",".claude/settings.json"),
-       ("LICENSE","pilothOS/LICENSE"),("CHANGELOG.md","pilothOS/CHANGELOG.md")]
-IGNORE_NAMES = {".DS_Store", "Thumbs.db"}
-IGNORE_DIRS = {"__pycache__"}
-LOCAL_STATE_FILES = {"memory/state/scheduler-history.jsonl", "memory/state/receipt-seals.jsonl"}
-LOCAL_STATE_DIRS = {"memory/state/team-runs", "memory/state/os-runs"}
-CONSUMER = {"CLAUDE.md","AGENTS.md",".gitignore",".claude/settings.json"}
 FACADE = {".claude/commands/pilothos-init.md",".claude/skills/pilothos-init/SKILL.md",
           "pilothOS/skills/workflow/pilothos-init/SKILL.md",
           "pilothOS/skills/workflow/pilothos-init/greenfield.md",
           "pilothOS/skills/workflow/pilothos-init/brownfield.md"}
 PERSONALIZE = {"CLAUDE.md","pilothOS/rot/registry.md"}
 entries = {}
-def ignored_distribution_artifact(path):
-    rel = pathlib.PurePosixPath(str(path))
-    rel_text = rel.as_posix()
-    return (
-        rel.name in IGNORE_NAMES
-        or any(part in IGNORE_DIRS for part in rel.parts)
-        or rel_text in LOCAL_STATE_FILES
-        or (rel_text.startswith("memory/state/") and rel.suffix == ".jsonl")
-        or any(rel_text == item or rel_text.startswith(item + "/") for item in LOCAL_STATE_DIRS)
-    )
-
 for src, dest in MAP:
     sp = ROOT / src
     if sp.is_file():
@@ -46,7 +28,7 @@ for src, dest in MAP:
 entries.pop("pilothOS/dist-manifest.json", None)
 files = []
 for path in sorted(entries):
-    cls = "installer-facade" if path in FACADE else "consumer-owned" if path in CONSUMER else "verbatim"
+    cls = "installer-facade" if path in FACADE else "consumer-owned" if path in CONSUMER_OWNED else "verbatim"
     e = {"path": path, "class": cls}
     if path in PERSONALIZE: e["personalize"] = True
     files.append(e)

@@ -95,6 +95,7 @@ cat > conflict-plan.json <<'JSON'
 {
   "plan_version": 1,
   "mode": "brownfield",
+  "adapters": ["claude", "cursor", "codex", "antigravity"],
   "steps": [
     {"op": "merge_settings", "payload": "settings.json", "target": ".claude/settings.json"},
     {"op": "write_marker"}
@@ -124,7 +125,7 @@ cd $W/hookmerge
 cat > .claude/settings.json <<'JSON'
 {
   "env": {
-    "PILOTHOS_VERSION": "1.9.0"
+    "PILOTHOS_VERSION": "1.10.0"
   },
   "statusLine": {
     "type": "command",
@@ -154,6 +155,7 @@ cat > hook-merge-plan.json <<'JSON'
 {
   "plan_version": 1,
   "mode": "brownfield",
+  "adapters": ["claude", "cursor", "codex", "antigravity"],
   "steps": [
     {"op": "merge_settings", "payload": "settings.json", "target": ".claude/settings.json"},
     {"op": "write_marker"}
@@ -168,12 +170,14 @@ from pathlib import Path
 
 settings = json.loads(Path(".claude/settings.json").read_text(encoding="utf-8"))
 pre = settings["hooks"]["PreToolUse"]
-assert len(pre) == 2, pre
+assert len(pre) == 3, pre
 assert pre[0]["hooks"][0]["command"] == "echo consumer-pre", pre
 assert pre[1]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py pre-edit", pre
+assert "review-hook.sh gate" in pre[2]["hooks"][0]["command"], pre
 stop = settings["hooks"]["Stop"]
-assert len(stop) == 1, stop
+assert len(stop) == 2, stop
 assert stop[0]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py stop-check", stop
+assert "review-hook.sh fire /hook/stop" in stop[1]["hooks"][0]["command"], stop
 print("C10b4 PASS: consumer hooks first, Piloth hooks appended, duplicates deduped")
 PY
 
@@ -183,7 +187,7 @@ diff -r $W/ch1 $W/ch2 > /dev/null && echo "C10c PASS: plugin-env va clone-path r
 
 echo "== C10d completeness bao dung khi thieu =="
 cd $W/gf && rm AGENTS.md
-printf '{"plan_version":1,"mode":"greenfield","fill":{"PERSONA":"P","GOALS":"G","OWNER":"O"},"steps":[{"op":"fill_placeholders","target":"CLAUDE.md"},{"op":"write_marker"}]}' > /tmp/c10d.json
+printf '{"plan_version":1,"mode":"greenfield","fill":{"PERSONA":"P","GOALS":"G","OWNER":"O"},"adapters":["claude","cursor","codex","antigravity"],"steps":[{"op":"fill_placeholders","target":"CLAUDE.md"},{"op":"write_marker"}]}' > /tmp/c10d.json
 python3 pilothOS/scripts/pilothos_installer.py apply /tmp/c10d.json > /tmp/c10d-receipt.json
 grep -q '"AGENTS.md"' /tmp/c10d-receipt.json && echo "C10d PASS (engine receipt that, khong duplicate logic)"
 
@@ -206,6 +210,42 @@ bash "$REPO/scripts/stage.sh" --unattended --dry-run "$W/stageflag" > /dev/null
 out=$(python3 pilothOS/scripts/pilothos_installer.py unattended --mode upgrade --adapters codez --dry-run 2>&1 || true)
 grep -q "unknown adapter" <<< "$out"
 echo "C10e PASS"
+
+echo "== C10f add-adapter targeted (post-init) =="
+cd $W/unatt
+[ ! -d .cursor ] && [ -d .codex ]   # tu C10e: init claude,codex
+before=$(find pilothOS -type f | wc -l)
+bash "$REPO/scripts/stage.sh" --add-adapters cursor "$W/unatt" > /dev/null
+[ -d .cursor ] && [ -d .codex ] && [ ! -d .antigravity ]
+after=$(find pilothOS -type f | wc -l)
+[ "$before" = "$after" ]   # kernel khong bi dung
+mkdir -p $W/noinit
+set +e
+bash "$REPO/scripts/stage.sh" --add-adapters cursor "$W/noinit" > /dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ]   # add tren project chua init phai fail
+echo "C10f PASS: targeted add copies only the missing adapter, kernel untouched"
+
+echo "== C10g gitignore gap: existing .gitignore gains runtime rules =="
+mkdir -p $W/gi && cd $W/gi && printf 'node_modules/\n' > .gitignore
+bash "$REPO/scripts/stage.sh" "$W/gi" > /dev/null   # staging bo qua .gitignore consumer-owned
+! grep -q 'pilothOS' .gitignore   # staging mot minh khong them gi
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude > receipt.json
+grep -q '"result": "applied"' receipt.json
+grep -qx 'pilothOS/.backup/' .gitignore
+grep -qx 'pilothOS/memory/state/os-runs/' .gitignore
+grep -qx 'node_modules/' .gitignore   # dong consumer giu nguyen
+! grep -qx 'pilothOS/' .gitignore     # runtime scope KHONG ignore ca cay
+echo "C10g PASS: existing .gitignore gains runtime rules"
+
+echo "== C10h gitignore opt-in scope=all =="
+mkdir -p $W/giall && cd $W/giall && printf 'node_modules/\n' > .gitignore
+bash "$REPO/scripts/stage.sh" "$W/giall" > /dev/null
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude --gitignore-scope all > receipt.json
+grep -q '"result": "applied"' receipt.json
+grep -qx 'pilothOS/' .gitignore
+echo "C10h PASS: opt-in scope=all ignores whole pilothOS/"
 
 echo "== sync-templates guard =="
 python3 - << EOP

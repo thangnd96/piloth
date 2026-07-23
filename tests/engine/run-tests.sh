@@ -50,7 +50,7 @@ else:
 consumer['env']={}
 notes=[]
 merged=installer.merge_settings_content(consumer, payload, {'statusline':'chain'}, notes)
-assert len(merged['hooks']['Stop'])==2 and 'c-stop' in json.dumps(merged['hooks']['Stop'][0])
+assert len(merged['hooks']['Stop'])==3 and 'c-stop' in json.dumps(merged['hooks']['Stop'][0])
 assert 'echo consumer' in merged['statusLine']['command']
 assert 'Bash(rm -rf:*)' not in merged['permissions']['allow']
 assert any('deny-thang' in n for n in notes)

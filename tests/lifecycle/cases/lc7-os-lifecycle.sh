@@ -43,6 +43,24 @@ grep -q '"sanitized": true' <<< "$out"
 printf 'os lifecycle docs\n' > README.md
 printf '%s' '{"tool_input":{"file_path":"README.md"}}' | python3 "$G" post-edit >/dev/null
 
+echo "== receipt-template is gate-aware (docs run omits UI fields) =="
+tmpl=$(python3 "$G" receipt-template)
+grep -q '"scope"' <<< "$tmpl"
+! grep -q "design_system_checked" <<< "$tmpl"
+
+echo "== os-close --dry-run validates without sealing =="
+dry=$(printf '%s' '{
+  "changed_files": ["README.md"],
+  "affected_layers": ["Docs"],
+  "verification_command": "docs smoke",
+  "result": "passed"
+}' | python3 "$G" os-close --dry-run)
+grep -q '"result": "os_close_dry_run"' <<< "$dry"
+grep -q '"would_pass": false' <<< "$dry"
+# dry-run must NOT mutate state, seal or write target-diff.json
+grep -q '"status": "open"' <<< "$(python3 "$G" os-status)"
+[ ! -f pilothOS/memory/state/os-runs/lc7-docs/target-diff.json ]
+
 echo "== os-close rejects missing claims and required gates =="
 out=$(printf '%s' '{
   "changed_files": ["README.md"],
@@ -55,7 +73,9 @@ grep -q "claims" <<< "$out"
 grep -q "quality_gates" <<< "$out"
 
 echo "== os-close records receipt seal and os-verify detects tampering =="
-out=$(printf '%s' '{
+RC="$(mktemp)"
+cat > "$RC" <<'JSON'
+{
   "changed_files": ["README.md"],
   "affected_layers": ["Docs"],
   "verification_command": "docs smoke",
@@ -69,9 +89,21 @@ out=$(printf '%s' '{
   "claims": [
     {"claim": "README docs smoke passed for the scoped docs change.", "evidence_refs": ["docs-smoke", "quality_gates.correctness"]}
   ]
-}' | python3 "$G" os-close)
+}
+JSON
+# dry-run of a complete receipt must agree with the real close verdict and must
+# not itself seal (never returns os_closed)
+dry=$(python3 "$G" os-close --dry-run "$RC")
+grep -q '"would_pass": true' <<< "$dry"
+! grep -q '"result": "os_closed"' <<< "$dry"
+out=$(python3 "$G" os-close "$RC")
 grep -q '"result": "os_closed"' <<< "$out"
 grep -q '"recorded_to": "pilothOS/memory/state/receipt-seals.jsonl"' <<< "$out"
+# os-close runs the state-janitor (safe subset) after sealing; it is fail-soft
+# and must never turn a good close into a rejection. The active run just sealed
+# is always within retention, so a clean project reports no prunable artifacts.
+grep -q '"state_janitor"' <<< "$out"
+grep -q '"result": "state_janitor_clean"' <<< "$out"
 out=$(python3 "$G" os-verify)
 grep -q '"result": "os_verify_passed"' <<< "$out"
 printf 'tamper\n' >> README.md
