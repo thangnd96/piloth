@@ -56,7 +56,7 @@ shutil.copytree(
     ignore=shutil.ignore_patterns(".git", ".DS_Store", "__pycache__", "pilothOS/.backup"),
 )
 PY
-(cd "$TMP/repo" && bash scripts/bump-version.sh 1.9.0 > "$TMP/bump.log")
+(cd "$TMP/repo" && bash scripts/bump-version.sh 1.10.0 > "$TMP/bump.log")
 grep -Fq "verified .claude-plugin/plugin.json" "$TMP/bump.log"
 echo "D2 PASS"
 

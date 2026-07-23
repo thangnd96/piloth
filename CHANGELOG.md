@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.10.0 — 2026-07-23
+
 Init ergonomics từ consumer feedback (adapter selection, add-adapter, plan-write, gitignore).
 
 - **Adapter selection giờ được enforce (fix "chọn claude+codex vẫn cài đủ 4")**:
