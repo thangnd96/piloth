@@ -27,6 +27,7 @@ def test_hook_modes_are_exactly_the_stdin_reading_modes(guard):
         "stop-check",
         "pre-edit",
         "post-edit",
+        "broker-check",
     }
 
 

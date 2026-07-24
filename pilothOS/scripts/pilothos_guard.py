@@ -249,6 +249,7 @@ READ_ONLY_GUARD_MODES = {
     "os-status",
     "os-verify",
     "os-report",
+    "os-inspect",
 }
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
@@ -8168,6 +8169,435 @@ def artifact_janitor(argv):
 
 
 # ---------------------------------------------------------------------------
+# Capability & Authority kernel (T0).
+#
+# Reify "authority" thanh mot surface first-class, fail-closed, inspectable —
+# ban Piloth cua AOS manifest-as-ACL + construction != activation. SSOT la
+# pilothOS/governance/capability-manifest.json: moi capability (skill/rule/
+# gate/adapter/guard-mode) khai mot authority block. Field thieu = quyen rong
+# nhat (fail-closed), giong AOS "every field fails closed".
+#
+# Modes:
+#   capability-list   liet ke capability + authority da resolve (fail-closed).
+#   capability-check  validate manifest shape + fail-closed defaults.
+#   authority-delta   in phan chenh quyen giua hai capability/authority de human
+#                     duyet (khong tom tat long — AOS authority.md).
+#
+# construction != activation: guard KHONG BAO GIO tu cap quyen; day chi
+# validate + trinh delta. Cap quyen la hanh vi human-approved, sealed.
+# ---------------------------------------------------------------------------
+
+CAPABILITY_MANIFEST = PILOTHOS_DIR / "governance" / "capability-manifest.json"
+
+CAPABILITY_KINDS = {"skill", "rule", "gate", "adapter", "guard-mode"}
+CAPABILITY_LAYERS = {
+    "Identity", "Rules", "Memory", "Knowledge", "Skills", "Runtime", "Agents",
+    "Tools", "Governance", "Evaluation", "Adapters", "AgentTeams",
+}
+# Fail-closed defaults: mot capability khong khai field authority nao thi field
+# do la quyen rong nhat (list rong / writes_policy=False).
+AUTHORITY_DEFAULTS = {
+    "paths": [],
+    "guard_modes": [],
+    "entitlements": [],
+    "enforcement_surface": [],
+    "writes_policy": False,
+}
+AUTHORITY_LIST_FIELDS = ("paths", "guard_modes", "entitlements", "enforcement_surface")
+CAPABILITY_TOP_FIELDS = {"id", "kind", "layer", "description", "source", "authority"}
+
+
+def resolve_authority(cap):
+    """Ap fail-closed defaults len authority block cua mot capability.
+
+    Field khai sai kieu bi coi nhu default (fail-closed); capability-check se
+    flag rieng. Luon tra ve du 5 field."""
+    declared = {}
+    if isinstance(cap, dict):
+        raw = cap.get("authority")
+        if isinstance(raw, dict):
+            declared = raw
+    resolved = {}
+    for field in AUTHORITY_LIST_FIELDS:
+        value = declared.get(field)
+        resolved[field] = [str(x) for x in value] if isinstance(value, list) else []
+    wp = declared.get("writes_policy")
+    resolved["writes_policy"] = wp if isinstance(wp, bool) else False
+    return resolved
+
+
+def load_capability_manifest():
+    data = load_json_file(CAPABILITY_MANIFEST)
+    return data if isinstance(data, dict) else None
+
+
+def capability_check_findings(manifest):
+    """Validate shape cua capability-manifest. Tra (errors, warnings).
+
+    errors = vi pham cung (chan capability-check PASS). warnings = advisory
+    (field la, coverage partial...)."""
+    errors = []
+    warnings = []
+    if not isinstance(manifest, dict):
+        return (["capability-manifest.json thieu hoac khong phai JSON object"], [])
+    if manifest.get("schema_version") != 1:
+        errors.append("schema_version phai la 1")
+    caps = manifest.get("capabilities")
+    if not isinstance(caps, list):
+        return (errors + ["capabilities phai la mot list"], warnings)
+    coverage = manifest.get("coverage")
+    if coverage not in {"partial", "full"}:
+        warnings.append("coverage nen la 'partial' hoac 'full'")
+    if coverage == "partial":
+        warnings.append("coverage=partial: danh muc chua phu het; enforcement fail-closed chi bat khi coverage=full")
+    seen_ids = set()
+    for idx, cap in enumerate(caps):
+        where = f"capabilities[{idx}]"
+        if not isinstance(cap, dict):
+            errors.append(f"{where} phai la object")
+            continue
+        cap_id = cap.get("id")
+        if not non_empty_string(cap_id):
+            errors.append(f"{where}.id thieu hoac rong")
+        else:
+            where = f"capability '{cap_id}'"
+            if cap_id in seen_ids:
+                errors.append(f"{where}: id trung lap")
+            seen_ids.add(cap_id)
+        if cap.get("kind") not in CAPABILITY_KINDS:
+            errors.append(f"{where}.kind phai thuoc {sorted(CAPABILITY_KINDS)}")
+        if cap.get("layer") not in CAPABILITY_LAYERS:
+            errors.append(f"{where}.layer phai thuoc {sorted(CAPABILITY_LAYERS)}")
+        for extra in set(cap) - CAPABILITY_TOP_FIELDS:
+            warnings.append(f"{where}: field la '{extra}' bi bo qua")
+        raw = cap.get("authority")
+        if raw is not None:
+            if not isinstance(raw, dict):
+                errors.append(f"{where}.authority phai la object")
+            else:
+                for field in AUTHORITY_LIST_FIELDS:
+                    if field in raw and not isinstance(raw[field], list):
+                        errors.append(f"{where}.authority.{field} phai la list")
+                if "writes_policy" in raw and not isinstance(raw["writes_policy"], bool):
+                    errors.append(f"{where}.authority.writes_policy phai la bool")
+                for extra in set(raw) - set(AUTHORITY_DEFAULTS):
+                    warnings.append(f"{where}.authority: field la '{extra}' bi bo qua")
+    return (errors, warnings)
+
+
+def capability_manifest_status():
+    """Tom tat trang thai manifest — dung cho self-check advisory + mode."""
+    manifest = load_capability_manifest()
+    if manifest is None:
+        return {
+            "ok": False,
+            "present": False,
+            "errors": ["capability-manifest.json khong ton tai"],
+            "warnings": [],
+            "capabilities": 0,
+            "coverage": None,
+        }
+    errors, warnings = capability_check_findings(manifest)
+    caps = manifest.get("capabilities")
+    return {
+        "ok": not errors,
+        "present": True,
+        "errors": errors,
+        "warnings": warnings,
+        "capabilities": len(caps) if isinstance(caps, list) else 0,
+        "coverage": manifest.get("coverage"),
+    }
+
+
+def _manifest_path_from_argv(argv):
+    for arg in argv or []:
+        if not arg.startswith("-"):
+            return pathlib.Path(arg)
+    return CAPABILITY_MANIFEST
+
+
+def capability_check(argv):
+    path = _manifest_path_from_argv(argv)
+    manifest = load_json_file(path)
+    manifest = manifest if isinstance(manifest, dict) else None
+    if manifest is None:
+        json_print({
+            "result": "capability_check_failed",
+            "path": path.as_posix(),
+            "errors": ["capability-manifest.json thieu hoac khong phai JSON object"],
+        })
+        return
+    errors, warnings = capability_check_findings(manifest)
+    caps = manifest.get("capabilities")
+    json_print({
+        "result": "capability_check_passed" if not errors else "capability_check_failed",
+        "path": path.as_posix(),
+        "schema_version": manifest.get("schema_version"),
+        "coverage": manifest.get("coverage"),
+        "capabilities_count": len(caps) if isinstance(caps, list) else 0,
+        "errors": errors,
+        "warnings": warnings,
+    })
+
+
+def capability_list(argv):
+    path = _manifest_path_from_argv(argv)
+    manifest = load_json_file(path)
+    if not isinstance(manifest, dict):
+        json_print({"result": "capability_list", "path": path.as_posix(), "capabilities": [], "note": "no manifest"})
+        return
+    caps = manifest.get("capabilities")
+    caps = caps if isinstance(caps, list) else []
+    listed = []
+    for cap in caps:
+        if not isinstance(cap, dict):
+            continue
+        listed.append({
+            "id": cap.get("id"),
+            "kind": cap.get("kind"),
+            "layer": cap.get("layer"),
+            "authority": resolve_authority(cap),
+        })
+    json_print({
+        "result": "capability_list",
+        "path": path.as_posix(),
+        "coverage": manifest.get("coverage"),
+        "count": len(listed),
+        "capabilities": listed,
+    })
+
+
+def _load_authority_source(path):
+    """Doc mot file thanh authority block da resolve.
+
+    Chap nhan: capability object (co 'authority'), authority object thuan, hoac
+    manifest 1-capability. Tra (authority_dict | None, error | None)."""
+    data = load_json_file(path)
+    if not isinstance(data, dict):
+        return None, f"{path.as_posix()}: khong phai JSON object"
+    if "authority" in data:
+        return resolve_authority(data), None
+    if set(data) & set(AUTHORITY_DEFAULTS):
+        return resolve_authority({"authority": data}), None
+    return None, f"{path.as_posix()}: khong tim thay 'authority' hoac field authority nao"
+
+
+def compute_authority_delta(before, after):
+    """So sanh hai authority block da resolve. widened=True khi co them quyen
+    (path/entitlement/guard_mode/enforcement moi hoac writes_policy False->True)."""
+    delta = {}
+    widened = False
+    for field in AUTHORITY_LIST_FIELDS:
+        before_set = set(before.get(field, []))
+        after_set = set(after.get(field, []))
+        added = sorted(after_set - before_set)
+        removed = sorted(before_set - after_set)
+        delta[field] = {"added": added, "removed": removed}
+        if added:
+            widened = True
+    wp_before = bool(before.get("writes_policy", False))
+    wp_after = bool(after.get("writes_policy", False))
+    delta["writes_policy"] = {"before": wp_before, "after": wp_after}
+    if wp_after and not wp_before:
+        widened = True
+    delta["widened"] = widened
+    return delta
+
+
+def authority_delta(argv):
+    files = [a for a in (argv or []) if not a.startswith("-")]
+    if len(files) != 2:
+        json_print({
+            "result": "authority_delta_rejected",
+            "errors": ["can dung 2 duong dan: <before.json> <after.json>"],
+        })
+        return
+    before, before_err = _load_authority_source(pathlib.Path(files[0]))
+    after, after_err = _load_authority_source(pathlib.Path(files[1]))
+    src_errors = [e for e in (before_err, after_err) if e]
+    if src_errors:
+        json_print({"result": "authority_delta_rejected", "errors": src_errors})
+        return
+    delta = compute_authority_delta(before, after)
+    json_print({
+        "result": "authority_delta",
+        "before": files[0],
+        "after": files[1],
+        "widened": delta["widened"],
+        "delta": delta,
+    })
+# ---------------------------------------------------------------------------
+# Execution Broker / Airlock (T1).
+#
+# Nang bien tool-call tu honor-system thanh mot PDP that — ban Piloth cua AOS
+# capsule-shell Process Airlock. Diem then chot credibility (probe #1): mot so
+# lenh bi TU CHOI VO DIEU KIEN truoc bat ky approval nao (catastrophic hard-deny),
+# dung nhu Airlock cua AOS. Cac lenh chuoi (&&/||/;/|) duoc tach va kiem TUNG
+# sub-command doc lap.
+#
+# Phan tang (trung thuc, giong AOS: hard-deny la that, gating con lai advisory):
+#   - deny (block that): catastrophic — fork bomb, mkfs, dd->block device,
+#     rm tren protected root path, ghi ra block device. Luon block.
+#   - ask: high-risk khong-catastrophic — surface trong decision; tren host co
+#     native permission prompt (Claude Code) thi PASS-THROUGH (khong double-prompt).
+#   - allow: sach.
+#
+# Entitlement fail-closed da song o tool-check (validate_payload_entitlements);
+# broker-check lo bien Bash command noi tool-check khong phu.
+#
+# broker-check la HOOK mode (doc tool_input.command tu PreToolUse). Fail-OPEN
+# khi loi noi bo: mot governance hook KHONG BAO GIO duoc brick session bang cach
+# block tat ca (bai hoc settings.json). Catastrophic matching dung string op don
+# gian, co guard — nhanh, khong ReDoS.
+# ---------------------------------------------------------------------------
+
+# Prefix cua block device (dia that). /dev/null|zero|random|tty... KHONG nam day.
+BROKER_BLOCK_DEV_PREFIXES = (
+    "/dev/sd", "/dev/disk", "/dev/nvme", "/dev/hd", "/dev/mmcblk",
+    "/dev/vd", "/dev/xvd", "/dev/rdisk",
+)
+# Target ma `rm -r` (co/khong -f) coi la catastrophic (xoa root/system/home).
+BROKER_PROTECTED_RM_TARGETS = {
+    "/", "/*", "~", "~/", "~/*", "*", "$HOME", "${HOME}", "$HOME/*",
+    "/etc", "/usr", "/bin", "/sbin", "/var", "/lib", "/lib64", "/boot",
+    "/dev", "/opt", "/root", "/home", "/Users", "/System", "/Library",
+    "/Applications",
+}
+
+
+def _broker_split_subcommands(command):
+    """Tach command thanh sub-command theo &&/||/;/|/newline (linear, khong regex
+    backtracking). Moi sub duoc kiem catastrophic doc lap."""
+    tmp = command
+    for op in ("&&", "||"):
+        tmp = tmp.replace(op, "\x00")
+    for ch in (";", "|", "\n"):
+        tmp = tmp.replace(ch, "\x00")
+    return [part for part in tmp.split("\x00") if part.strip()]
+
+
+def _broker_tokens(sub):
+    try:
+        toks = shlex.split(sub)
+    except ValueError:
+        toks = sub.split()
+    while toks and ENV_ASSIGNMENT_RE.fullmatch(toks[0]):
+        toks = toks[1:]
+    return toks
+
+
+def _rm_targets_protected(toks):
+    long_flags = {t for t in toks[1:] if t.startswith("--")}
+    if "--no-preserve-root" in long_flags:
+        return True
+    short = "".join(t[1:] for t in toks[1:] if t.startswith("-") and not t.startswith("--"))
+    recursive = ("r" in short.lower()) or ("--recursive" in long_flags)
+    if not recursive:
+        return False
+    for t in toks[1:]:
+        if t.startswith("-"):
+            continue
+        if t in BROKER_PROTECTED_RM_TARGETS or t.rstrip("/") in BROKER_PROTECTED_RM_TARGETS:
+            return True
+    return False
+
+
+def _dd_to_block_device(toks):
+    for t in toks:
+        if t.startswith("of="):
+            target = t[3:]
+            if any(target.startswith(p) for p in BROKER_BLOCK_DEV_PREFIXES):
+                return True
+    return False
+
+
+def _writes_block_device(command):
+    compact = command.lower().replace(" ", "")
+    return any(">" + p in compact for p in BROKER_BLOCK_DEV_PREFIXES)
+
+
+def catastrophic_match(sub):
+    """Tra ten rule catastrophic neu sub-command bi hard-deny, else None."""
+    if not isinstance(sub, str):
+        return None
+    s = sub.strip()
+    if not s:
+        return None
+    nospace = "".join(s.split())
+    # fork bomb: classic :(){ :|:& };: va bien the copy-paste
+    if ":(){" in nospace or ":|:&" in nospace:
+        return "fork_bomb"
+    if _writes_block_device(s):
+        return "write_block_device"
+    toks = _broker_tokens(s)
+    if not toks:
+        return None
+    exe = pathlib.PurePosixPath(toks[0].replace("\\", "/")).name.lower()
+    if exe == "mkfs" or exe.startswith("mkfs."):
+        return "mkfs"
+    if exe in ("rm", "grm") and _rm_targets_protected(toks):
+        return "rm_protected_path"
+    if exe == "dd" and _dd_to_block_device(toks):
+        return "dd_block_device"
+    return None
+
+
+def broker_decision(command, contract=None, coverage=None):
+    """Pure decision: allow | deny | ask. deny = catastrophic (hard-deny vo dieu
+    kien). ask = high-risk non-catastrophic (consent). allow = sach."""
+    if not isinstance(command, str) or not command.strip():
+        return {"decision": "allow", "rule": "empty", "reason": "empty command"}
+    # Kiem tung sub-command chuoi truoc (bat `foo && rm -rf /`)...
+    for sub in _broker_split_subcommands(command):
+        rule = catastrophic_match(sub)
+        if rule:
+            return {
+                "decision": "deny",
+                "rule": "catastrophic:" + rule,
+                "reason": f"catastrophic command hard-denied ({rule}) — refused before any approval",
+                "subcommand": sub.strip(),
+            }
+    # ...roi kiem toan bo lenh (bat lenh don khong chuoi).
+    rule = catastrophic_match(command)
+    if rule:
+        return {
+            "decision": "deny",
+            "rule": "catastrophic:" + rule,
+            "reason": f"catastrophic command hard-denied ({rule}) — refused before any approval",
+            "subcommand": command.strip(),
+        }
+    if command_looks_high_risk(command):
+        return {
+            "decision": "ask",
+            "rule": "high_risk",
+            "reason": "high-risk command — requires explicit consent before running",
+        }
+    return {"decision": "allow", "rule": "clean", "reason": "no catastrophic or high-risk pattern"}
+
+
+def broker_check(hook_input):
+    """PreToolUse:Bash gate. Block CHI khi catastrophic (hard-deny). high-risk
+    'ask' pass-through cho native permission prompt cua host (khong double-prompt).
+    Fail-OPEN khi loi noi bo — governance hook khong duoc brick session."""
+    try:
+        command = ""
+        if isinstance(hook_input, dict):
+            tool_input = hook_input.get("tool_input")
+            if isinstance(tool_input, dict):
+                command = tool_input.get("command") or ""
+            if not command:
+                command = hook_input.get("command") or ""
+        if not isinstance(command, str) or not command.strip():
+            return
+        contract, _ = load_task_contract(hook_input)
+        status = capability_manifest_status()
+        decision = broker_decision(command, contract, status.get("coverage"))
+        if decision["decision"] == "deny":
+            block_decision("PILOTHOS BROKER: " + decision["reason"])
+        # ask/allow -> pass-through (host native prompt handles consent).
+    except Exception:
+        return
+# ---------------------------------------------------------------------------
 # State janitor: retention/GC cho rác vòng đời task.
 #   Nhóm A (đĩa, gitignored): artifacts/ của os-run đã seal ngoài retention +
 #     tail-truncate scheduler-history.jsonl. receipt-seals.jsonl chỉ WARN
@@ -8927,6 +9357,22 @@ def control_plane_check_result(active_policy="auto"):
         state.get("result", "unknown"),
     )
 
+    # Capability manifest: ADVISORY (luon ok=True) trong khi coverage=partial —
+    # surface trang thai authority model ma khong chan delivery. Promote thanh
+    # hard check khi coverage=full (danh muc phu het capability).
+    cap = capability_manifest_status()
+    add_check(
+        "capability manifest advisory",
+        True,
+        {
+            "present": cap["present"],
+            "valid": cap["ok"],
+            "capabilities": cap["capabilities"],
+            "coverage": cap["coverage"],
+            "errors": cap["errors"][:5],
+        },
+    )
+
     errors = [check for check in checks if not check["ok"]]
     return {
         "result": "control_plane_passed" if not errors else "control_plane_failed",
@@ -9079,7 +9525,83 @@ def self_check():
         else:
             ok = False
             print(f"FAIL khong tim thay {name} — auto-log gate se khong chinh xac")
+
+    # Capability manifest: ADVISORY / fail-soft (forward-looking, giong
+    # drift-warning v1.11). Manifest thieu hoac coverage=partial KHONG lam
+    # self-check FAIL — enforcement fail-closed chi bat khi coverage=full.
+    cap = capability_manifest_status()
+    if cap["present"] and cap["ok"]:
+        print(f"OK   capability-manifest hop le: {cap['capabilities']} capability (coverage={cap['coverage']})")
+    elif cap["present"]:
+        print(f"WARN capability-manifest co van de (advisory): {cap['errors'][:2]}")
+    else:
+        print("WARN capability-manifest chua co (advisory, forward-looking)")
+
     print("SELF-CHECK " + ("PASSED" if ok else "FAILED"))
+
+
+def _settings_valid():
+    if not SETTINGS.exists():
+        return False
+    try:
+        with open(SETTINGS, encoding="utf-8") as f:
+            json.load(f)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def os_inspect_result():
+    """Unified introspection (T2) — ban Piloth cua `aos status` + capsule-system.
+    MOT bao cao legible cho ca agent lan human, AGGREGATE (khong duplicate) cac
+    result-function san co: control-plane infra, capability/authority, rot,
+    guard-mode surface (syscalls), version. Tien de "inspect the world" cua Forge."""
+    pj = load_json_file(REPO_ROOT / ".claude-plugin" / "plugin.json")
+    plugin_version = pj.get("version") if isinstance(pj, dict) else None
+    cap = capability_manifest_status()
+    manifest = load_capability_manifest()
+    kinds = {}
+    if isinstance(manifest, dict):
+        for c in manifest.get("capabilities", []):
+            if isinstance(c, dict):
+                k = c.get("kind", "unknown")
+                kinds[k] = kinds.get(k, 0) + 1
+    overdue = get_overdue_scopes()
+    modes = sorted(guard_registered_modes())
+    cp = control_plane_check_result(active_policy="never")
+    settings_ok = _settings_valid()
+
+    health = [{"name": c["name"], "ok": c["ok"]} for c in cp.get("checks", [])]
+    health.append({"name": "settings.json valid", "ok": settings_ok})
+    health.append({"name": "rot registry present", "ok": overdue is not None})
+    attention = [h["name"] for h in health if not h["ok"]]
+
+    advisories = []
+    if overdue:
+        advisories.append(f"rot: {len(overdue)} scope(s) overdue")
+    if version_drift_advisory() is not None:
+        advisories.append("version drift: plugin newer than installed version")
+
+    return {
+        "result": "os_inspect_attention" if attention else "os_inspect_healthy",
+        "version": {"plugin": plugin_version, "installed": installed_pilothos_version()},
+        "capabilities": {
+            "present": cap["present"],
+            "valid": cap["ok"],
+            "count": cap["capabilities"],
+            "coverage": cap["coverage"],
+            "kinds": kinds,
+        },
+        "syscalls": {"guard_modes": len(modes), "modes": modes},
+        "rot": {"registry_found": overdue is not None, "overdue": overdue or []},
+        "health": health,
+        "attention": attention,
+        "advisories": advisories,
+    }
+
+
+def os_inspect():
+    json_print(os_inspect_result())
 
 
 # Command dispatch: mode -> (handler, arg_kind). One source of truth for every
@@ -9095,6 +9617,7 @@ COMMAND_TABLE = {
     "stop-check": (stop_check, "hook"),
     "pre-edit": (pre_edit, "hook"),
     "post-edit": (post_edit, "hook"),
+    "broker-check": (broker_check, "hook"),
     # argv modes (JSON arg / file / stdin payload)
     "contract-write": (task_contract_write, "argv"),
     "evidence-add": (evidence_add, "argv"),
@@ -9128,6 +9651,9 @@ COMMAND_TABLE = {
     "team-contract-write": (team_contract_write, "argv"),
     "team-receipt-write": (team_receipt_write, "argv"),
     "log-append": (log_append, "argv"),
+    "capability-list": (capability_list, "argv"),
+    "capability-check": (capability_check, "argv"),
+    "authority-delta": (authority_delta, "argv"),
     # no-arg modes
     "receipt-template": (receipt_template, "none"),
     "statusline": (statusline, "none"),
@@ -9139,6 +9665,7 @@ COMMAND_TABLE = {
     "registry-assets": (registry_consumer_assets, "none"),
     "state-doctor": (state_doctor, "none"),
     "production-review": (production_review, "none"),
+    "os-inspect": (os_inspect, "none"),
 }
 
 

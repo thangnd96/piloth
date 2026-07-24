@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-23T01:57:31.618161+00:00",
+ "generated_at": "2026-07-24T08:36:02.183861+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -173,6 +173,10 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/governance/capability-manifest.json",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/governance/index.md",
    "class": "verbatim"
   },
@@ -250,6 +254,10 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/runtime/capability-model.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/consumer-assets.md",
    "class": "verbatim"
   },
@@ -262,6 +270,10 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/runtime/execution-broker.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/index.md",
    "class": "verbatim"
   },
@@ -271,6 +283,10 @@
   },
   {
    "path": "pilothOS/runtime/os-control-plane.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/os-services.md",
    "class": "verbatim"
   },
   {

@@ -758,6 +758,22 @@ def control_plane_check_result(active_policy="auto"):
         state.get("result", "unknown"),
     )
 
+    # Capability manifest: ADVISORY (luon ok=True) trong khi coverage=partial —
+    # surface trang thai authority model ma khong chan delivery. Promote thanh
+    # hard check khi coverage=full (danh muc phu het capability).
+    cap = capability_manifest_status()
+    add_check(
+        "capability manifest advisory",
+        True,
+        {
+            "present": cap["present"],
+            "valid": cap["ok"],
+            "capabilities": cap["capabilities"],
+            "coverage": cap["coverage"],
+            "errors": cap["errors"][:5],
+        },
+    )
+
     errors = [check for check in checks if not check["ok"]]
     return {
         "result": "control_plane_passed" if not errors else "control_plane_failed",
@@ -910,7 +926,83 @@ def self_check():
         else:
             ok = False
             print(f"FAIL khong tim thay {name} — auto-log gate se khong chinh xac")
+
+    # Capability manifest: ADVISORY / fail-soft (forward-looking, giong
+    # drift-warning v1.11). Manifest thieu hoac coverage=partial KHONG lam
+    # self-check FAIL — enforcement fail-closed chi bat khi coverage=full.
+    cap = capability_manifest_status()
+    if cap["present"] and cap["ok"]:
+        print(f"OK   capability-manifest hop le: {cap['capabilities']} capability (coverage={cap['coverage']})")
+    elif cap["present"]:
+        print(f"WARN capability-manifest co van de (advisory): {cap['errors'][:2]}")
+    else:
+        print("WARN capability-manifest chua co (advisory, forward-looking)")
+
     print("SELF-CHECK " + ("PASSED" if ok else "FAILED"))
+
+
+def _settings_valid():
+    if not SETTINGS.exists():
+        return False
+    try:
+        with open(SETTINGS, encoding="utf-8") as f:
+            json.load(f)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def os_inspect_result():
+    """Unified introspection (T2) — ban Piloth cua `aos status` + capsule-system.
+    MOT bao cao legible cho ca agent lan human, AGGREGATE (khong duplicate) cac
+    result-function san co: control-plane infra, capability/authority, rot,
+    guard-mode surface (syscalls), version. Tien de "inspect the world" cua Forge."""
+    pj = load_json_file(REPO_ROOT / ".claude-plugin" / "plugin.json")
+    plugin_version = pj.get("version") if isinstance(pj, dict) else None
+    cap = capability_manifest_status()
+    manifest = load_capability_manifest()
+    kinds = {}
+    if isinstance(manifest, dict):
+        for c in manifest.get("capabilities", []):
+            if isinstance(c, dict):
+                k = c.get("kind", "unknown")
+                kinds[k] = kinds.get(k, 0) + 1
+    overdue = get_overdue_scopes()
+    modes = sorted(guard_registered_modes())
+    cp = control_plane_check_result(active_policy="never")
+    settings_ok = _settings_valid()
+
+    health = [{"name": c["name"], "ok": c["ok"]} for c in cp.get("checks", [])]
+    health.append({"name": "settings.json valid", "ok": settings_ok})
+    health.append({"name": "rot registry present", "ok": overdue is not None})
+    attention = [h["name"] for h in health if not h["ok"]]
+
+    advisories = []
+    if overdue:
+        advisories.append(f"rot: {len(overdue)} scope(s) overdue")
+    if version_drift_advisory() is not None:
+        advisories.append("version drift: plugin newer than installed version")
+
+    return {
+        "result": "os_inspect_attention" if attention else "os_inspect_healthy",
+        "version": {"plugin": plugin_version, "installed": installed_pilothos_version()},
+        "capabilities": {
+            "present": cap["present"],
+            "valid": cap["ok"],
+            "count": cap["capabilities"],
+            "coverage": cap["coverage"],
+            "kinds": kinds,
+        },
+        "syscalls": {"guard_modes": len(modes), "modes": modes},
+        "rot": {"registry_found": overdue is not None, "overdue": overdue or []},
+        "health": health,
+        "attention": attention,
+        "advisories": advisories,
+    }
+
+
+def os_inspect():
+    json_print(os_inspect_result())
 
 
 # Command dispatch: mode -> (handler, arg_kind). One source of truth for every
@@ -926,6 +1018,7 @@ COMMAND_TABLE = {
     "stop-check": (stop_check, "hook"),
     "pre-edit": (pre_edit, "hook"),
     "post-edit": (post_edit, "hook"),
+    "broker-check": (broker_check, "hook"),
     # argv modes (JSON arg / file / stdin payload)
     "contract-write": (task_contract_write, "argv"),
     "evidence-add": (evidence_add, "argv"),
@@ -959,6 +1052,9 @@ COMMAND_TABLE = {
     "team-contract-write": (team_contract_write, "argv"),
     "team-receipt-write": (team_receipt_write, "argv"),
     "log-append": (log_append, "argv"),
+    "capability-list": (capability_list, "argv"),
+    "capability-check": (capability_check, "argv"),
+    "authority-delta": (authority_delta, "argv"),
     # no-arg modes
     "receipt-template": (receipt_template, "none"),
     "statusline": (statusline, "none"),
@@ -970,6 +1066,7 @@ COMMAND_TABLE = {
     "registry-assets": (registry_consumer_assets, "none"),
     "state-doctor": (state_doctor, "none"),
     "production-review": (production_review, "none"),
+    "os-inspect": (os_inspect, "none"),
 }
 
 

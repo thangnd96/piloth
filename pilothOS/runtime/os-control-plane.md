@@ -29,6 +29,9 @@ The project-local OS controls are deterministic, local and auditable:
   hashes against the OS run seal;
 - `os-report` summarizes mode decisions, target footprint, cost ledger, target
   seal and consumer superiority status;
+- `os-inspect` gives a single legible system-status report — version,
+  capability/authority map, guard-mode (syscall) surface, rot and control-plane
+  health — the Piloth analog of `aos status`; see `runtime/os-services.md`;
 - `review-request`, `review-feedback` and `review-verify` run the structured
   human-review round-trip that backs the `human_review` gate;
 - `control-plane-check` verifies the installed control-plane surface and, by

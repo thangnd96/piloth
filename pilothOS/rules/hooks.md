@@ -73,6 +73,7 @@ Hooks là cơ chế biến Rule dạng văn bản thành enforcement thật. Cá
 | SessionStart | `session-start` | Inject cảnh báo Rot vào context khi mở session |
 | UserPromptSubmit | `prompt-check` | Inject cảnh báo Rot ở mỗi lượt message |
 | statusLine | `statusline` | 🔴 trên UI khi có scope quá hạn; im lặng khi healthy |
+| PreToolUse (Bash) | `broker-check` | Execution airlock: hard-deny lệnh catastrophic (fork bomb, mkfs, dd→block device, rm→protected root, chained sub-command); high-risk → ask (nhường native prompt); fail-open khi lỗi nội bộ |
 | PreToolUse | `pre-edit` | Enforce task contract + allowed paths + layer/path checks cơ học |
 | PostToolUse | `post-edit` | Ghi diff facts: files, layers, line counts, docs/tests/evidence flags |
 | Stop | `stop-check` | DELIVER GATE: auto-log + deliver receipt đủ evidence; block đúng một lần, không loop |
