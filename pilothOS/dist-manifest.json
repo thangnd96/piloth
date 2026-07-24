@@ -1,505 +1,636 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T09:03:08.358644+00:00",
+ "generated_at": "2026-07-24T09:19:02.408337+00:00",
+ "source_commit": "6326c4b32ea548eab3de21fc0da1ec653171a522",
+ "manifest_digest": "332405fecfc33dfdd6122510862bff2c088f34721a8911c07cd861fa4d23a676",
  "files": [
   {
    "path": ".antigravity/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "7f2cf74ead116bdcfe89017e03d055f0da50b392e45ea7c4c7c032ef61b3666e"
   },
   {
    "path": ".antigravity/rules/pilothos-core.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "6ecba308fb38629bc39a4b4e720ca7a4a3755287a426774763fbd9a926fe9954"
   },
   {
    "path": ".antigravity/rules/pilothos-evidence.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5188f054bd05942c868c549432118a6078d3127a8629732f42b6bd8600731c4f"
   },
   {
    "path": ".antigravity/rules/pilothos-team-routing.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "a36161f7a758c89b3d91b0e8f62842859906428d590791e8c0c35e1639bb7f23"
   },
   {
    "path": ".claude/agents/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "03c5371c69da21c82507e966d9e817676cafaab7234d96cd4c01ef38cdc174bb"
   },
   {
    "path": ".claude/commands/piloth-team.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5cbf3b2556e6ecb2ac58f2f16def393f5b146b5e25fd9a8d551f59ca591d3dfc"
   },
   {
    "path": ".claude/commands/pilothos-adapter.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "a01e7f2cb3790943c610152375d5ef4373b83e22b888fcce239a447c80b409b7"
   },
   {
    "path": ".claude/commands/pilothos-init.md",
-   "class": "installer-facade"
+   "class": "installer-facade",
+   "sha256": "b485d38f742c02b16871a45571564903f898e356b5f6b00b724a9127343d8996"
   },
   {
    "path": ".claude/commands/pilothos-uninstall.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "12648be6b04d639c70c0279bea2e735aa494000688d067271e9a5d107df9b3f0"
   },
   {
    "path": ".claude/commands/pilothos-update.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "587d8082f684deb8808152979146f1292c65e6df613de8f9d9d38aa88484e83e"
   },
   {
    "path": ".claude/rules/00-pilothos-bridge.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "88bf532efc138b4b14b92339aa7c178bb3234fc0b864286a3fdacdc64f4f7ac9"
   },
   {
    "path": ".claude/rules/10-coding-behavior.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "31df5bbab41d522049014fa19e3514f1675da6903e2a5008a149fc6fea885f17"
   },
   {
    "path": ".claude/rules/20-evidence.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "23ef91bff7a1310b9667720970d8144685338edd3f2d1243f840bc07368c6af4"
   },
   {
    "path": ".claude/rules/30-layer-boundary.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "0731aa1b05b5e197d2311cb81c94833c617a2b51311b56503c619b169bbd1c9e"
   },
   {
    "path": ".claude/settings.json",
-   "class": "consumer-owned"
+   "class": "consumer-owned",
+   "sha256": "0eb4f180db75e0839f567eae44696d57349ca50bcb186c6ae981b632991ad239"
   },
   {
    "path": ".claude/skills/piloth-team-setup/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bd6be07172e26a45345c8ea43dc27e791350cca64e29044bd6fd885e5b4aee8d"
   },
   {
    "path": ".claude/skills/pilothos-init/SKILL.md",
-   "class": "installer-facade"
+   "class": "installer-facade",
+   "sha256": "a475d17bf87bd9ba33e05969ed2abffa61cd5b50a7f950ab37490fecd27ab8a8"
   },
   {
    "path": ".codex/config.toml",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "ab24633340ae5f6aa92dd3be87206f73ea4443f28757f24ccaa114e5521a88c4"
   },
   {
    "path": ".cursor/rules/pilothos-coding.mdc",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "eac7e23100ac7663f7f8bd7dd38bb68738316ddc9c9609b398a6ba41f090dadf"
   },
   {
    "path": ".cursor/rules/pilothos-core.mdc",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "4d16ae0c9c18382e2c2bcd297c7ca55a4157fad0098131b6391801413006c591"
   },
   {
    "path": ".gitignore",
-   "class": "consumer-owned"
+   "class": "consumer-owned",
+   "sha256": "4b98938a09b9b4d029b681d7b397cb2536042fa3ce94999d3ca97bd670f012c3"
   },
   {
    "path": "AGENTS.md",
-   "class": "consumer-owned"
+   "class": "consumer-owned",
+   "sha256": "f204326850ad7170049d22cdf68cadb23d1fc5b0cfb7ad2e9bcfdcad69e634c8"
   },
   {
    "path": "CLAUDE.md",
    "class": "consumer-owned",
+   "sha256": "e2cf27396c753fa6f4834b1001b1e60a8f53930674c629a0df9f09ae34d9ef0f",
    "personalize": true
   },
   {
    "path": "pilothOS/CHANGELOG.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "aca5a65de53b5f4ac046d2fadbf65eb46df84c931346555e8bbcb36b7ae97392"
   },
   {
    "path": "pilothOS/LICENSE",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "6545fad88f138ee80c4ca4dbce326eb56d6988007eb67e10880576571ebd5a2c"
   },
   {
    "path": "pilothOS/PilothOS.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "b6099021ddc87613545efdda98e00784ab082261dc809a7dec8d350455800d80"
   },
   {
    "path": "pilothOS/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "51da25f158c94147652ab7ffebbe4fe711a56de1f7208b997877ff7d2ff1df29"
   },
   {
    "path": "pilothOS/VALIDATION.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "8b699ece07af37ce87b31b62438280157932146061e48b31318720c7efc2c4cc"
   },
   {
    "path": "pilothOS/agent-teams/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "f75352dce62532db58e13a80963421f0ed80dd42f4d2eb8c81d408b6cc931692"
   },
   {
    "path": "pilothOS/agent-teams/piloth-team.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "f8e1a59532b2d944a9d9438f02ba4a60a4119339c279f2f492f92d375ad9e109"
   },
   {
    "path": "pilothOS/agent-teams/task-routing.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "f9133c464ca5dc21644936c563bf891c5611837e5d8316ce5bb0296b6336a52f"
   },
   {
    "path": "pilothOS/agent-teams/team-contract.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "27c37613127788eea804063ff8ab1e796666438d7c49e6b9f18c5d48c225ee9b"
   },
   {
    "path": "pilothOS/agents/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "3dfdb4f28dcb295b020064a1dae371b334af41bd0e568b0c657544ca6a0a5c23"
   },
   {
    "path": "pilothOS/agents/software-engineer.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "1588d7b4070fe91db66e8352b2a5b3a45ca739147b38ac1016521fec6a2192a7"
   },
   {
    "path": "pilothOS/agents/team-roles/critical-evaluator.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "35dbe7ce7f4b727bdf9268c5806f8174f90715ef9ec4a26c889c230c76749eeb"
   },
   {
    "path": "pilothOS/agents/team-roles/designer.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5b8d8e68700a6abacc9b88d8f8cb380edb7126b3f9be2671c493200719257360"
   },
   {
    "path": "pilothOS/agents/team-roles/lead-solution-architect.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "40595ba40204b21a07359dc96aef48c680c55893c0c9b9ba464fed6d4c35483c"
   },
   {
    "path": "pilothOS/agents/team-roles/solution-generator.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "194443de5d2b0bb44d4b9126eba66ec84c6452a4c73968d339ea281d64de0258"
   },
   {
    "path": "pilothOS/bootstrap.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "cc82d3e178f1c966152fed47f3b06b11c63d7bb0589ee9e432f53e350892cbe7"
   },
   {
    "path": "pilothOS/evaluation/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "0b721a69d7e019f069074d9e5b2b45d3b0a6484fbb6f9205abbd95bdd0411ba7"
   },
   {
    "path": "pilothOS/evaluation/quality-gates.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5c241f1ffe6d6428f31d3968b6eba274ef359f7f3253ad7e7c3972ae32632646"
   },
   {
    "path": "pilothOS/examples/task-routing.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "c35e6910e59f35422b4100bd7fc6603a6dfc3e3ca093fddd58e61d4da82d038b"
   },
   {
    "path": "pilothOS/governance/capability-manifest.json",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "edaffffb8861dd2b95386b2a3dde466f72cdbfa03cc2885b60f755827c4f99fd"
   },
   {
    "path": "pilothOS/governance/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "b5096b304c1d54bf1618a7eb83da9ca9dea0fb1b3ad1f1220abafcc24540629e"
   },
   {
    "path": "pilothOS/governance/operational-controls.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "d73bed856bc67dd9db1fdee6277ed3efb34f01c26b630fedf2167aca157e3a92"
   },
   {
    "path": "pilothOS/knowledge/architecture/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "084fec77f60e5cf46812b2750daf2a0b0bd70e8430c14751ac6a17b30aa7b68f"
   },
   {
    "path": "pilothOS/knowledge/domain/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "b256c7c93346ec6d2ea51a86690eb9fb1253eddb6c068f52f16df3636efde667"
   },
   {
    "path": "pilothOS/knowledge/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "40226352bb98c28920d535eaceb1fbfeaf083e491935e7daaf457def0aa718bb"
   },
   {
    "path": "pilothOS/knowledge/standards/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "3430807fccffd9772109b9d50233cc9882f4ade8a60b32a756408b7b32fd1eae"
   },
   {
    "path": "pilothOS/memory/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "a120dd093d8cf4edbc762b6f322377e2e16c7b7a369560d7cc7f0fdcf06b0b0f"
   },
   {
    "path": "pilothOS/memory/lessons-learned.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "39027b1334f0decafe23df0bfb5302d13d10198cecdbc11c770c812241b94f0b"
   },
   {
    "path": "pilothOS/memory/state/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "51abf149652f4714cd32a87f862b93925ba94604cccc0c0d74c949a672a0ae9c"
   },
   {
    "path": "pilothOS/rot/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "33f7762bf3937b7fe10715d460cf6d9cd185b65886058a36e2dffc58c8b38341"
   },
   {
    "path": "pilothOS/rot/registry.md",
    "class": "verbatim",
+   "sha256": "c1338d4c8129ce2f371dbee2bf93a588cfedfae503a2f41c5f7c47ea86bc4d5a",
    "personalize": true
   },
   {
    "path": "pilothOS/rot/review-guide.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "26274658073cf83f5cebab93a2aa3ccba5fdff3df125bf3df8df4e237330969f"
   },
   {
    "path": "pilothOS/rot/review-log.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "2e0a13e38f97c70c8654679b76b42769cadaab7d2606939327989f951a01540a"
   },
   {
    "path": "pilothOS/rules/coding-behavior.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "d76af4995259012d4f9a734fb8b691f8349d95484bf50785c32576fc1aeb6d22"
   },
   {
    "path": "pilothOS/rules/evidence.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "dd1a0707e10f266df5914c5091e5c0761c9563ff515e2e63d9c158448989a799"
   },
   {
    "path": "pilothOS/rules/hooks.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "cf58d115715fb548c649c4d8b5cada2f580399b04eecc5967e23c43dcb5c8d60"
   },
   {
    "path": "pilothOS/rules/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "faf53ad00e95ae3d3084917ecf5d5b48be06c1555ccf245b8b68d15544f5fec8"
   },
   {
    "path": "pilothOS/rules/layer-boundary.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bb93c01b60af2b32fd3784fc684724486499e2eec0232764912abd3831cb6352"
   },
   {
    "path": "pilothOS/rules/ui-design-system.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "d4fd2ab92340fef2e38f5456ff400ff7f0020d64c29e4ad72397f8d8671b7be9"
   },
   {
    "path": "pilothOS/runtime/capability-model.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "e2a06ed695c064de35af4497e2750b41a3cedf2ff402fb0f566cd192c9f3e3b2"
   },
   {
    "path": "pilothOS/runtime/consumer-assets.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "60d7fd28871ee59ff0de4ec179b6c97cccb5985390b19133101892060ee61a4c"
   },
   {
    "path": "pilothOS/runtime/context-loading.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "114cbcd9baf37cceb1ecd7f3f7f891e46c69dcca748b08fa118cad40f9f43d89"
   },
   {
    "path": "pilothOS/runtime/energy-token-policy.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "c93720f1d512f2ecddbdc01471edbc6a0ff8dba90dfb094db2696ff8dd6930d7"
   },
   {
    "path": "pilothOS/runtime/execution-broker.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "95a0bc439c455a0202fa241d01f0016e657719375a0db68c0fdb01da68ba48cf"
   },
   {
    "path": "pilothOS/runtime/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "1e224fcc90e73dfa516ba720da08b0fab30483d5a536bf463903b287de39d225"
   },
   {
    "path": "pilothOS/runtime/model-pricing.json",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "98a1f1c9ea3dcbcd4fde54cb0a145cfd813c2ec6b7803a6ccfff01295d3bd9ec"
   },
   {
    "path": "pilothOS/runtime/os-control-plane.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5f72a242d30f721aa3d61e8370483a01852f41fb63f2470e2c6aae30f5c82b4a"
   },
   {
    "path": "pilothOS/runtime/os-services.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "b411c58972460965116a2bc7af4e20527db6cf2d7a3279c3ba2902980a144ed0"
   },
   {
    "path": "pilothOS/runtime/self-hosting.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bedc0c7ccd24b5fffb17ff53bd02fedd2d86571efa4f239e3eb807889785e6f6"
+  },
+  {
+   "path": "pilothOS/runtime/supply-chain.md",
+   "class": "verbatim",
+   "sha256": "d80ab06f8e472b46608feaf765444c27f89a0a6fb3f837874e689c6018b2141b"
   },
   {
    "path": "pilothOS/runtime/task-lifecycle.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bf86450a1846af4d1fedf42a3cfca42d3060d0e51c0be75ca52dcf4b39cb38d6"
   },
   {
    "path": "pilothOS/runtime/team-orchestration.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "76b29fcddfe45cbb112d81f69b3a092a3fe58abee7808bcfc4a578a3b5ad9be2"
   },
   {
    "path": "pilothOS/scripts/pilothos_guard.py",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5d400d6cac89c8773aa3e0e6ae78a9cedb6ce7725e7030b9f7998d54ba4af04b"
   },
   {
    "path": "pilothOS/scripts/pilothos_installer.py",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "028b0983f88d24fdb5e7d2d58d04c626c8f3c5ce5f17b299e858bb1982e6802d"
   },
   {
    "path": "pilothOS/skills/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "a81c7219c434f06d2677cb4edbc9ea7b4c9baf44e19bf86feca8b0b416d57be6"
   },
   {
    "path": "pilothOS/skills/integration/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "21de0b6d8b020327441334bb7b28e0b8bf868d5b6de474a2c4a0a1658bcb977e"
   },
   {
    "path": "pilothOS/skills/workflow/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5c4887801e115245caf2314ca30e1d30710aa091228300ec3d0e34bd7fb6ad4b"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-discovery/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "7ac44784bf89a16f67fdc66c9516966f9af43081fef45e0cb758ce176494d683"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-forge/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bbd805c1a9747bca9fb6593a61e72689229c3a0bc806f86f3c99cfbcbaf33e90"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-forge/guides/capability-authority.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "94e6c3f96c0492fefa1fae310a52b6898f80103d09b871a740221f47802696d7"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-forge/guides/skill-authoring.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5951cdecbed4849c90c33692976974de89cbf49a5947a33b911cea73770dc62f"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-forge/guides/verify.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "26e9bb63963dae3dc2f777d68de55259cc3ea5640edc5131fa9e896190021d67"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-prototype/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "ae940b658a14dd1597b363e874e9b763541049b8152b553cab4fdb7852ff277a"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "6964a7294f666a24bad0376586cbbd0ff845075125171c9de88422d5dd14e82a"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/claude-adapter-sentinel.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "08b6ce50cb8604dd5c10d1f3368718f0d0f2df1ea11a544d15f2683c8f664936"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/elicitation.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "85c87498f47aab881947c631260e52dac3c5b525274bcd17d258c22e388e9047"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/recommendation-matrix.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "07b56b057e65d2ff44f5aaaf0544f86c1732d5f49969232d44756aa61e954d94"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/role-archetypes.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "1cfa92c2816237a4922b0a3ca0a2db626e5a42f925449a393a7ee4d83fa65cdc"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/team-architecture-principles.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "54180753d23545c6c72890c11715e2287f41f864ba5ee303c6ac963aa3a2aeb5"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/agent-base.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "44dbe981ca8650fb0c82bd3617b59e203d02eb29cd926cdf737659f292e76519"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/cleanup-logs.sh",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "73226244cb0656ab59dc5733567b7ab57c8ae4015d0142f5158b2e26fc2aad67"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/qa-verdict-gate.sh",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "47b2a0a3995e25808b5205ca34c26d76bc863c924dc0ddbb5b7490a58cf400d0"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/runtime-skill.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bb078bd75462cf7bc2b5fdece44d2481984b8b8536071a4885aac0317e267837"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/slash-command.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "2b091d233f190da282da59e89f08c3fae73b12251a70c745d99de4cf6b6ef59c"
   },
   {
    "path": "pilothOS/skills/workflow/piloth-team-setup/templates/team-workflow.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "18b0f99f93f48efb80d43bf576f46898b33e1456fa1959ea8c90057269f37dae"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-adapter/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "26f9e87598e2020899626bc3c71ad05cb985bb1ebec3605d5efff3b879361008"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/SKILL.md",
-   "class": "installer-facade"
+   "class": "installer-facade",
+   "sha256": "babdc81c47e232f3723a9c08aaf6d6e174c9d7a907fad6019d69daa1fe422319"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/brownfield.md",
-   "class": "installer-facade"
+   "class": "installer-facade",
+   "sha256": "375a703dd56e1a17ae4637ee9f8bff910273ea83782bd0c66ac10b88218f05d5"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/greenfield.md",
-   "class": "installer-facade"
+   "class": "installer-facade",
+   "sha256": "a44d42c80642f4140eb65f23ed933602e6cf2397d4f7d0cd0e1eb2325a9ed04e"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/manifest-spec.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "7afc7c36d2061ee5e0b1a077b2682d278c84c1d1fa1e4776dff3398bb95f66bc"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/payloads/identity-block.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "5ec95e34990ebc16bebea248045cee31b7e8d77c2e26a32809dfe8dc8c330db6"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/payloads/settings.json",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "0eb4f180db75e0839f567eae44696d57349ca50bcb186c6ae981b632991ad239"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/payloads/startup-contract-block.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "95174a4f18f5faf71662c0c5d9a1a9e77c26c11e2be7c165b41f3017aed1852b"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-update/SKILL.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "3480b240c8073feab5de1a26a25c7254580f8fbe4777c23b76890195d5117f85"
   },
   {
    "path": "pilothOS/templates/agent.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "0400f0e5164290fcc6e6461dabdde4cf7f139f6e09e4e793b73a41017f80005d"
   },
   {
    "path": "pilothOS/templates/forge/rule.md.tmpl",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "4032b8815e476dbc70b50ded9efe9895e5d0bb68c3b0e646c49970e868395f75"
   },
   {
    "path": "pilothOS/templates/forge/skill.SKILL.md.tmpl",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "9913b02fd1251ae8d1c3d508574b4bbd48d272aa2f4b5f5c9f78dd3b72bff3a5"
   },
   {
    "path": "pilothOS/templates/knowledge.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "c6aafb3ac48831911285a0550a0c5a0b7a0c24e9a061cb1a392e1ac45cd8d278"
   },
   {
    "path": "pilothOS/templates/rule.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "bb132609a256241c11ac0f8ef68b6b1987844f93a969a5b41f0d6f69dee3baed"
   },
   {
    "path": "pilothOS/templates/skill.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "252b76858009c2b360104f00840a02f93593f3c3ef25d8f4b3661755a5c38b16"
   },
   {
    "path": "pilothOS/tools/index.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "196e3a9add842db1ba6e3a618ce20fad9f462416b3cb97c35d7f3efb71e930d2"
   },
   {
    "path": "pilothOS/tools/mcp/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "8851afe2dfcef6206888e4be40cd33f63bac75dab2703dbb771efea5ce07427a"
   },
   {
    "path": "pilothOS/tools/review/README.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "ae9f8fca7b0c47ad8c7aa7b71911b1fca683b2886b869dc1815aa72ed0ec0ed0"
   },
   {
    "path": "pilothOS/tools/review/bin/review",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "1ef3c3f72d2c5c82860891862105526d657ce83ae262789821e4c9dfda1ab177"
   },
   {
    "path": "pilothOS/tools/review/hooks/hooks.json",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "0870d468678840db0d82155af265ea620dda9b73755c7c851d88ea09f936b970"
   },
   {
    "path": "pilothOS/tools/review/hooks/review-hook.sh",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "c803c0736e1faee73cba4ca5ed58077fdd2108cdf94da2795c0559dff5e5575f"
   },
   {
    "path": "pilothOS/tools/review/integration/govern.js",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "d0fe11149e26d37ef395bd241ce52821cfbd96f57d6c13cacd8ed489becdd488"
   },
   {
    "path": "pilothOS/tools/review/package.json",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "15ada2723103635e1d2a84e7ce40fd88dcae90b3996565ae419bacffbb5236fe"
   },
   {
    "path": "pilothOS/tools/review/src/chrome.html",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "457ca1758a4ef8209240e7b5cd8ec335a92078c8e22f05083d7e8b280590e193"
   },
   {
    "path": "pilothOS/tools/review/src/mdRender.js",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "631132abd2a913cc97056e868aa4f0716b9beca6c9a4b059006706b184b9f032"
   },
   {
    "path": "pilothOS/tools/review/src/sdk.js",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "3a4d8742bdd26da22e7c6012269211f4c14d88ff7be2498c42a2a520a945fa5e"
   },
   {
    "path": "pilothOS/tools/review/src/server.js",
-   "class": "verbatim"
+   "class": "verbatim",
+   "sha256": "8b69d3665a259caf70d80b80b8d56499649fa5be51b91962b8c8115996b2316e"
   }
  ]
 }

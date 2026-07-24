@@ -975,6 +975,7 @@ def os_inspect_result():
     health = [{"name": c["name"], "ok": c["ok"]} for c in cp.get("checks", [])]
     health.append({"name": "settings.json valid", "ok": settings_ok})
     health.append({"name": "rot registry present", "ok": overdue is not None})
+    health.append({"name": "supply-chain provenance", "ok": provenance_result().get("result") == "provenance_ok"})
     attention = [h["name"] for h in health if not h["ok"]]
 
     advisories = []
@@ -1070,6 +1071,7 @@ COMMAND_TABLE = {
     "forge-scaffold": (forge_scaffold, "argv"),
     "forge-verify": (forge_verify, "argv"),
     "forge-plan": (forge_plan, "argv"),
+    "provenance": (provenance, "argv"),
 }
 
 
