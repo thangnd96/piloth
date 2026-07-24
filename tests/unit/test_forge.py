@@ -86,6 +86,19 @@ def test_plan_authority_delta_widens(guard):
     assert "os-evidence" in delta["guard_modes"]["added"]
 
 
+def test_scaffold_rule_fills_template(guard):
+    spec = dict(GOOD, kind="rule", layer="Rules")
+    content = guard._forge_fill(guard._forge_template("rule"), spec)
+    assert "{{" not in content
+    assert spec["intent"] in content and spec["reason"] in content
+
+
+def test_verify_rejects_non_kebab_slug(guard):
+    spec = dict(GOOD, id="Deploy_Check")
+    errors, _ = guard.forge_verify_findings(spec)
+    assert any("kebab-slug" in e for e in errors)
+
+
 def test_forge_modes_registered_read_only(guard):
     for mode in ("forge-scaffold", "forge-verify", "forge-plan"):
         assert mode in guard.COMMAND_TABLE

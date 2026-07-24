@@ -61,6 +61,8 @@ def verify_manifest_files(root, manifest=None):
     consumer-owned/personalize (co chu dinh khac sau cai). Cho consumer kiem
     tinh toan ven ban cai."""
     root = pathlib.Path(root)
+    if not root.is_absolute():
+        root = REPO_ROOT / root  # cwd-independent: repo-relative manifest paths
     if manifest is None:
         manifest = _load_dist_manifest()
     files = manifest.get("files", []) if isinstance(manifest, dict) else []
@@ -109,9 +111,11 @@ def upgrade_verify_result(root, manifest=None):
     marker class/personalize san co trong manifest (khong duplicate preserve-set
     cua stage.py)."""
     root_p = pathlib.Path(root)
+    if not root_p.is_absolute():
+        root_p = REPO_ROOT / root_p  # cwd-independent
     if manifest is None:
         manifest = _load_dist_manifest()
-    kernel = verify_manifest_files(root, manifest=manifest)
+    kernel = verify_manifest_files(root_p, manifest=manifest)
     files_list = manifest.get("files", []) if isinstance(manifest, dict) else []
     preserved_present = 0
     preserved_missing = []

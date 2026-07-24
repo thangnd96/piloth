@@ -54,6 +54,16 @@ Các mode:
   receipt-write   Ghi deliver receipt có changed files/layers/evidence/result.
   pre-edit        PreToolUse: enforce allowed paths + một số layer/path rule cơ học.
   post-edit       PostToolUse: ghi diff facts, không judge đúng/sai.
+  broker-check    PreToolUse:Bash execution airlock — hard-deny lệnh catastrophic
+                  (kể cả bọc trong wrapper/-c/subst); high-risk → ask (T1).
+  capability-list / capability-check / authority-delta
+                  Capability & authority model: fail-closed SSOT + authority-delta (T0).
+  os-inspect      Unified system-status introspection (bản Piloth của aos status) (T2).
+  forge-scaffold / forge-verify / forge-plan
+                  Governed self-extension (Forge), read-only; construction≠activation (T3).
+  provenance      Content-addressed manifest verify (self-consistency + --files) (T4).
+  upgrade-verify  Upgrade integrity: kernel khớp sha256 + preserve-class còn mặt (T6).
+  skill-index     Skill precedence (workspace-wins) + principal identity (T5).
 
 Ghi chú thiết kế:
 - Đường dẫn neo theo vị trí file này, không phụ thuộc cwd khi hook chạy.
@@ -256,6 +266,9 @@ READ_ONLY_GUARD_MODES = {
     "provenance",
     "skill-index",
     "upgrade-verify",
+    "capability-list",
+    "capability-check",
+    "authority-delta",
 }
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
@@ -356,6 +369,13 @@ SELF_HOST_REQUIRED_GUARD_MODES = (
     "os-report",
     "team-contract-write",
     "team-receipt-write",
+    "capability-check",
+    "broker-check",
+    "os-inspect",
+    "forge-verify",
+    "provenance",
+    "skill-index",
+    "upgrade-verify",
 )
 PRODUCTION_FORBIDDEN_PATHS = {
     "pilothOS/scripts/pilothos_hostd.py",

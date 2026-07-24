@@ -578,6 +578,13 @@ def control_plane_check_result(active_policy="auto"):
         "artifact-janitor",
         "control-plane-check",
         "production-review",
+        "capability-check",
+        "broker-check",
+        "os-inspect",
+        "forge-verify",
+        "provenance",
+        "skill-index",
+        "upgrade-verify",
     }
     missing_modes = sorted(required_modes - modes)
     add_check(

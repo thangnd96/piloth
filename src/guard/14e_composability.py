@@ -34,6 +34,8 @@ def _rel_or_str(p):
 def _scan_skills(root):
     out = {}
     root = pathlib.Path(root)
+    if not root.is_absolute():
+        root = REPO_ROOT / root  # cwd-independent
     if not root.is_dir():
         return out
     for skill_md in sorted(root.glob("*/SKILL.md")):

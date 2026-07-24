@@ -54,6 +54,16 @@ Các mode:
   receipt-write   Ghi deliver receipt có changed files/layers/evidence/result.
   pre-edit        PreToolUse: enforce allowed paths + một số layer/path rule cơ học.
   post-edit       PostToolUse: ghi diff facts, không judge đúng/sai.
+  broker-check    PreToolUse:Bash execution airlock — hard-deny lệnh catastrophic
+                  (kể cả bọc trong wrapper/-c/subst); high-risk → ask (T1).
+  capability-list / capability-check / authority-delta
+                  Capability & authority model: fail-closed SSOT + authority-delta (T0).
+  os-inspect      Unified system-status introspection (bản Piloth của aos status) (T2).
+  forge-scaffold / forge-verify / forge-plan
+                  Governed self-extension (Forge), read-only; construction≠activation (T3).
+  provenance      Content-addressed manifest verify (self-consistency + --files) (T4).
+  upgrade-verify  Upgrade integrity: kernel khớp sha256 + preserve-class còn mặt (T6).
+  skill-index     Skill precedence (workspace-wins) + principal identity (T5).
 
 Ghi chú thiết kế:
 - Đường dẫn neo theo vị trí file này, không phụ thuộc cwd khi hook chạy.
@@ -256,6 +266,9 @@ READ_ONLY_GUARD_MODES = {
     "provenance",
     "skill-index",
     "upgrade-verify",
+    "capability-list",
+    "capability-check",
+    "authority-delta",
 }
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
@@ -356,6 +369,13 @@ SELF_HOST_REQUIRED_GUARD_MODES = (
     "os-report",
     "team-contract-write",
     "team-receipt-write",
+    "capability-check",
+    "broker-check",
+    "os-inspect",
+    "forge-verify",
+    "provenance",
+    "skill-index",
+    "upgrade-verify",
 )
 PRODUCTION_FORBIDDEN_PATHS = {
     "pilothOS/scripts/pilothos_hostd.py",
@@ -8953,6 +8973,8 @@ def verify_manifest_files(root, manifest=None):
     consumer-owned/personalize (co chu dinh khac sau cai). Cho consumer kiem
     tinh toan ven ban cai."""
     root = pathlib.Path(root)
+    if not root.is_absolute():
+        root = REPO_ROOT / root  # cwd-independent: repo-relative manifest paths
     if manifest is None:
         manifest = _load_dist_manifest()
     files = manifest.get("files", []) if isinstance(manifest, dict) else []
@@ -9001,9 +9023,11 @@ def upgrade_verify_result(root, manifest=None):
     marker class/personalize san co trong manifest (khong duplicate preserve-set
     cua stage.py)."""
     root_p = pathlib.Path(root)
+    if not root_p.is_absolute():
+        root_p = REPO_ROOT / root_p  # cwd-independent
     if manifest is None:
         manifest = _load_dist_manifest()
-    kernel = verify_manifest_files(root, manifest=manifest)
+    kernel = verify_manifest_files(root_p, manifest=manifest)
     files_list = manifest.get("files", []) if isinstance(manifest, dict) else []
     preserved_present = 0
     preserved_missing = []
@@ -9069,6 +9093,8 @@ def _rel_or_str(p):
 def _scan_skills(root):
     out = {}
     root = pathlib.Path(root)
+    if not root.is_absolute():
+        root = REPO_ROOT / root  # cwd-independent
     if not root.is_dir():
         return out
     for skill_md in sorted(root.glob("*/SKILL.md")):
@@ -9692,6 +9718,13 @@ def control_plane_check_result(active_policy="auto"):
         "artifact-janitor",
         "control-plane-check",
         "production-review",
+        "capability-check",
+        "broker-check",
+        "os-inspect",
+        "forge-verify",
+        "provenance",
+        "skill-index",
+        "upgrade-verify",
     }
     missing_modes = sorted(required_modes - modes)
     add_check(

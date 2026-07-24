@@ -77,7 +77,7 @@
       "authority": {
         "paths": ["pilothOS/governance/capability-manifest.json"],
         "guard_modes": ["capability-check", "capability-list", "authority-delta"],
-        "writes_policy": true
+        "writes_policy": false
       }
     },
     {

@@ -61,6 +61,19 @@ def build_text():
 
 
 def do_split():
+    # CUT_POINTS reflects the ORIGINAL monolith. Once src/guard has diverged
+    # (fragments added beyond CUT_POINTS, e.g. 14a–14e), re-splitting by line
+    # number would overwrite/duplicate the real fragments. Refuse rather than
+    # corrupt the source of truth. --split is a one-time bootstrap only.
+    if len(_fragments()) != len(CUT_POINTS):
+        print(
+            f"do_split refused: {len(_fragments())} fragment files vs "
+            f"{len(CUT_POINTS)} CUT_POINTS — src/guard has diverged from the "
+            "original monolith. Fragments are now the source of truth; edit them "
+            "directly and run `build_guard.py` (no --split).",
+            file=sys.stderr,
+        )
+        return 1
     lines = BUNDLE.read_text(encoding="utf-8").splitlines(keepends=True)
     SRC_DIR.mkdir(parents=True, exist_ok=True)
     for i, (name, start) in enumerate(CUT_POINTS):

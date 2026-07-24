@@ -39,6 +39,15 @@ def test_table_covers_self_host_required_modes(guard):
     assert set(guard.SELF_HOST_REQUIRED_GUARD_MODES) <= set(guard.COMMAND_TABLE)
 
 
+def test_aos_parity_modes_registered(guard):
+    # F15: pin the T0–T6 modes so a future refactor cannot silently drop one
+    # (self-host-check / control-plane-check now require them too).
+    for mode in ("capability-list", "capability-check", "authority-delta",
+                 "broker-check", "os-inspect", "forge-scaffold", "forge-verify",
+                 "forge-plan", "provenance", "upgrade-verify", "skill-index"):
+        assert mode in guard.COMMAND_TABLE, f"{mode} dropped from dispatch table"
+
+
 def test_core_lifecycle_modes_present(guard):
     for mode in ("os-start", "os-evidence", "os-close", "os-verify", "os-report",
                  "control-plane-check", "context-budget", "receipt-seal"):

@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T10:47:07.763345+00:00",
- "source_commit": "f75b9d4ee270ba4c00921db2ac31366e96053870",
- "manifest_digest": "9bc931e1c59426ebf461927f72f97c7761f96b008181d4d4200590c8804a33ee",
+ "generated_at": "2026-07-24T10:53:35.132727+00:00",
+ "source_commit": "2ce8f29244332a095dd5e1c23d2fe2d12bd49905",
+ "manifest_digest": "74594f0536d119d934015771e10153a19ddde2bff4b4c9b0e5e8fe07c4c8837a",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -219,7 +219,7 @@
   {
    "path": "pilothOS/governance/capability-manifest.json",
    "class": "verbatim",
-   "sha256": "edaffffb8861dd2b95386b2a3dde466f72cdbfa03cc2885b60f755827c4f99fd"
+   "sha256": "46452211cb89677e2645e379949962f78d9abea4c324428cb80fd3f90369d333"
   },
   {
    "path": "pilothOS/governance/index.md",
@@ -365,7 +365,7 @@
   {
    "path": "pilothOS/runtime/os-services.md",
    "class": "verbatim",
-   "sha256": "b411c58972460965116a2bc7af4e20527db6cf2d7a3279c3ba2902980a144ed0"
+   "sha256": "39ab2a8c405babbd7b681c01b73bc1bd2e9d95cbf7d6f611d5530b9b0f3a9f9c"
   },
   {
    "path": "pilothOS/runtime/self-hosting.md",
@@ -390,7 +390,7 @@
   {
    "path": "pilothOS/scripts/pilothos_guard.py",
    "class": "verbatim",
-   "sha256": "5a8e6f6b912f2330fa7e6cd1428c83c0a0bc0400bb46bbba156be4a775a1938a"
+   "sha256": "9b6e823dc1a6d51ebfb91ce8f1f6d0aa61d8283695f9e9ab752abd0c108d9503"
   },
   {
    "path": "pilothOS/scripts/pilothos_installer.py",

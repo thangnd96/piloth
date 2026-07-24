@@ -33,6 +33,10 @@ def guard(monkeypatch):
     # non-deterministic across machines/CI — clear them for every test.
     monkeypatch.delenv("PILOTHOS_OPERATIONAL_PRESET", raising=False)
     monkeypatch.delenv("PILOTHOS_PRESET", raising=False)
+    # Composability/principal env (T5) would otherwise leak from a dev shell and
+    # make skill-index / principal tests non-deterministic.
+    monkeypatch.delenv("PILOTHOS_CONSUMER_SKILLS", raising=False)
+    monkeypatch.delenv("PILOTHOS_PRINCIPAL", raising=False)
     return _load_guard()
 
 

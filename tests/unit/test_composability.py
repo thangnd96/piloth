@@ -50,6 +50,14 @@ def test_skill_title_parse(guard, tmp_path):
     assert guard._skill_title(p) == "Hello World"
 
 
+def test_consumer_dir_from_env(guard, monkeypatch, tmp_path):
+    (tmp_path / "env-skill").mkdir()
+    (tmp_path / "env-skill" / "SKILL.md").write_text("# Env Skill\n", encoding="utf-8")
+    monkeypatch.setenv("PILOTHOS_CONSUMER_SKILLS", str(tmp_path))
+    r = guard.skill_index_result(consumer_dir=None)  # falls back to env
+    assert any(s["id"] == "env-skill" and s["source"] == "consumer" for s in r["skills"])
+
+
 def test_skill_index_registered_read_only(guard):
     assert "skill-index" in guard.COMMAND_TABLE
     _handler, kind = guard.COMMAND_TABLE["skill-index"]
