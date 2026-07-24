@@ -1,10 +1,9 @@
 """TB benchmark — none-piloth vs had-piloth for T5 composability.
 
-Probe #7 for T5: a consumer can customize a kernel skill without forking it.
-none-piloth: to change a shipped skill you must edit the kernel file in place
-(a fork) — which diverges from upstream and forfeits future kernel updates.
-had-piloth: a consumer override wins via skill-index precedence while the kernel
-file stays pristine (upstream still updatable).
+Genuine A/B: the SAME skill_index_result code is run two ways. none-piloth = no
+consumer override skills (only the kernel skill exists, so customizing it means
+editing the kernel — a fork); had-piloth = a consumer override wins via
+workspace precedence while the kernel file stays pristine. Probe #7.
 """
 import importlib.util
 import pathlib
@@ -23,24 +22,28 @@ def _load_guard():
 def test_none_vs_had_composability_benchmark(tmp_path):
     guard = _load_guard()
 
-    # Consumer customizes piloth-forge for their project (an override, not a fork).
-    consumer = tmp_path / "skills"
+    # none-piloth: an EMPTY consumer skills dir — no override mechanism in play.
+    empty = tmp_path / "none-skills"
+    empty.mkdir()
+    none = guard.skill_index_result(consumer_dir=str(empty))
+    none_forge = next(s for s in none["skills"] if s["id"] == "piloth-forge")
+    none_can_override = bool(none["overrides"]) or none_forge["source"] == "consumer"
+
+    # had-piloth: a consumer override skill wins via precedence.
+    consumer = tmp_path / "had-skills"
     (consumer / "piloth-forge").mkdir(parents=True)
     (consumer / "piloth-forge" / "SKILL.md").write_text(
         "# Piloth Forge (project override)\n", encoding="utf-8")
+    had = guard.skill_index_result(consumer_dir=str(consumer))
+    had_forge = next(s for s in had["skills"] if s["id"] == "piloth-forge")
+    had_can_override = "piloth-forge" in had["overrides"] and had_forge["source"] == "consumer"
 
-    idx = guard.skill_index_result(consumer_dir=str(consumer))
-    forge = next(s for s in idx["skills"] if s["id"] == "piloth-forge")
+    assert none_can_override is False, none   # no override path without a consumer skill
+    assert had_can_override is True, had      # override wins via precedence
 
-    # had-piloth: the override wins via precedence...
-    had_override_wins = forge["source"] == "consumer" and forge["overrides"] == "kernel"
     # ...and the kernel skill file is untouched (upstream stays updatable).
     kernel_forge = REPO / "pilothOS" / "skills" / "workflow" / "piloth-forge" / "SKILL.md"
-    had_kernel_pristine = guard._skill_title(kernel_forge) == "Piloth Forge — Governed Self-Extension"
+    assert guard._skill_title(kernel_forge) == "Piloth Forge — Governed Self-Extension"
 
-    # none-piloth: customizing a shipped skill requires editing the kernel file
-    # in place (a fork) — divergence + lost upstream updates.
-    none_requires_fork = True
-
-    consumer_value_passed = had_override_wins and had_kernel_pristine and none_requires_fork
-    assert consumer_value_passed, {"forge": forge, "kernel_title": guard._skill_title(kernel_forge)}
+    consumer_value_passed = had_can_override and not none_can_override
+    assert consumer_value_passed

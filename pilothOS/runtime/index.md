@@ -33,6 +33,11 @@ Intake → Plan → Execute → Review → Repair → Deliver
 | `os-control-plane.md` | Project-local OS lifecycle, controlled-target governor, UI quality evidence, real cost ledger, benchmark value policy, entitlement profile, truth-in-seal and receipt seal mechanics |
 | `self-hosting.md` | Dogfood contract for operating the Piloth repo through PilothOS |
 | `team-orchestration.md` | Multi-agent handoff, QA and stop-condition runtime protocol |
+| `capability-model.md` | Capability & authority model: fail-closed authority SSOT, authority-delta, construction≠activation (T0, preview) |
+| `execution-broker.md` | Execution airlock: catastrophic hard-deny at the tool-call boundary (T1, preview) |
+| `os-services.md` | OS services map (Piloth ↔ real-OS analogs); unified introspection via `os-inspect` (T2, preview) |
+| `supply-chain.md` | Content-addressed manifest provenance + upgrade self-heal (T4/T6, preview) |
+| `composability.md` | Skill precedence (workspace-wins) + principal identity (T5, preview) |
 
 ## Convention
 

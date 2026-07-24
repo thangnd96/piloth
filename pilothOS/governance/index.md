@@ -25,6 +25,7 @@ Kiểm soát quyền hạn, rủi ro, chi phí, retry và escalation trong toàn
 | File | Scope |
 |---|---|
 | `operational-controls.md` | Approval, budget, retry, timeout, escalation |
+| `capability-manifest.json` | Fail-closed authority SSOT: per-capability paths/guard_modes/entitlements/enforcement_surface/writes_policy — read by `capability-list/check`, `authority-delta`, `os-inspect` (T0, preview) |
 
 ## Review Checklist
 

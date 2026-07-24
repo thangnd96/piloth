@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T10:37:37.234343+00:00",
- "source_commit": "4784b148246939e2c7e2f18ea3e8e8592c320835",
- "manifest_digest": "1a5e58578796c2dd752af9eb31d5b6c81a1fc45c5a6e054b10f7d14f3372d356",
+ "generated_at": "2026-07-24T10:47:07.763345+00:00",
+ "source_commit": "f75b9d4ee270ba4c00921db2ac31366e96053870",
+ "manifest_digest": "9bc931e1c59426ebf461927f72f97c7761f96b008181d4d4200590c8804a33ee",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -224,7 +224,7 @@
   {
    "path": "pilothOS/governance/index.md",
    "class": "verbatim",
-   "sha256": "b5096b304c1d54bf1618a7eb83da9ca9dea0fb1b3ad1f1220abafcc24540629e"
+   "sha256": "c69a9a076ff0ff0ba8d148a5e00f85f28e132ff51ea3abbe0cf2537d2bd21a90"
   },
   {
    "path": "pilothOS/governance/operational-controls.md",
@@ -350,7 +350,7 @@
   {
    "path": "pilothOS/runtime/index.md",
    "class": "verbatim",
-   "sha256": "1e224fcc90e73dfa516ba720da08b0fab30483d5a536bf463903b287de39d225"
+   "sha256": "281f27a963bbf5d8d25778856e622041d80865635b9b45c0ffa43a69e27a5968"
   },
   {
    "path": "pilothOS/runtime/model-pricing.json",
@@ -390,7 +390,7 @@
   {
    "path": "pilothOS/scripts/pilothos_guard.py",
    "class": "verbatim",
-   "sha256": "2093bd539d3b83989738bf2459bac2d3a7d5de5c72bdfe9fd03e586b52947da2"
+   "sha256": "5a8e6f6b912f2330fa7e6cd1428c83c0a0bc0400bb46bbba156be4a775a1938a"
   },
   {
    "path": "pilothOS/scripts/pilothos_installer.py",
@@ -400,7 +400,7 @@
   {
    "path": "pilothOS/skills/index.md",
    "class": "verbatim",
-   "sha256": "a81c7219c434f06d2677cb4edbc9ea7b4c9baf44e19bf86feca8b0b416d57be6"
+   "sha256": "07816cab2dd10e84952e135b072569fea21ff7263291e7a5c408d807ff4e0ba4"
   },
   {
    "path": "pilothOS/skills/integration/README.md",

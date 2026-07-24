@@ -26,6 +26,7 @@ Mô tả CAPABILITY có thể tái sử dụng.
 | `workflow/pilothos-update/` | Upgrade bản đã init lên version plugin hiện tại (re-stage `--upgrade` + engine `mode=upgrade`), giữ customization + state |
 | `workflow/piloth-discovery/` | Front-of-phase discovery gate: hỏi-xác nhận câu hỏi mở qua Governed Visual Review, fold quyết định vào contract/evidence |
 | `workflow/piloth-prototype/` | Prototype phase: sinh ≥2 biến thể UI, human chọn qua human_review round-trip, ghi `PROTOTYPE.md` + evidence `kind=prototype` |
+| `workflow/piloth-forge/` | Governed self-extension (Forge): scaffold + verify + trình authority-delta cho skill/rule mới; construction≠activation (T3, preview) |
 | `integration/` | Wrapper deterministic cho API/CLI/MCP |
 
 ## Convention

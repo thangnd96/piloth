@@ -42,6 +42,22 @@ def test_syscalls_surface_matches_dispatch_table(guard):
         assert mode in r["syscalls"]["modes"]
 
 
+def test_attention_path_forced_when_a_health_check_fails(guard, monkeypatch):
+    # F11: force a health check to fail and prove the verdict flips.
+    monkeypatch.setattr(guard, "provenance_result", lambda *a, **k: {"result": "provenance_mismatch"})
+    r = guard.os_inspect_result()
+    assert r["result"] == "os_inspect_attention"
+    assert "supply-chain provenance" in r["attention"]
+
+
+def test_transient_artifacts_excluded_from_verdict(guard):
+    # F7: artifact-janitor is advisory, never part of the health verdict, so a
+    # stray .DS_Store / __pycache__ must not flip healthy -> attention.
+    r = guard.os_inspect_result()
+    names = {h["name"] for h in r["health"]}
+    assert "artifact janitor" not in names
+
+
 def test_rot_key_present(guard):
     r = guard.os_inspect_result()
     assert isinstance(r["rot"]["registry_found"], bool)

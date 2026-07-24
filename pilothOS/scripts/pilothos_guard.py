@@ -10086,13 +10086,20 @@ def os_inspect_result():
     cp = control_plane_check_result(active_policy="never")
     settings_ok = _settings_valid()
 
-    health = [{"name": c["name"], "ok": c["ok"]} for c in cp.get("checks", [])]
+    # Transient/janitor-style checks are ADVISORY — a stray .DS_Store or
+    # __pycache__ must not flip the system verdict to attention (F7). They are
+    # surfaced under `advisories`, not folded into the health verdict.
+    transient = {"artifact janitor"}
+    health = [{"name": c["name"], "ok": c["ok"]} for c in cp.get("checks", []) if c["name"] not in transient]
     health.append({"name": "settings.json valid", "ok": settings_ok})
     health.append({"name": "rot registry present", "ok": overdue is not None})
     health.append({"name": "supply-chain provenance", "ok": provenance_result().get("result") == "provenance_ok"})
     attention = [h["name"] for h in health if not h["ok"]]
 
     advisories = []
+    janitor = next((c for c in cp.get("checks", []) if c["name"] == "artifact janitor"), None)
+    if janitor and not janitor["ok"]:
+        advisories.append("local build artifacts present (run artifact-janitor --fix)")
     if overdue:
         advisories.append(f"rot: {len(overdue)} scope(s) overdue")
     if version_drift_advisory() is not None:
