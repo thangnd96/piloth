@@ -254,6 +254,7 @@ READ_ONLY_GUARD_MODES = {
     "forge-verify",
     "forge-plan",
     "provenance",
+    "skill-index",
 }
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")

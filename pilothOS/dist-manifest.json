@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T09:19:02.408337+00:00",
- "source_commit": "6326c4b32ea548eab3de21fc0da1ec653171a522",
- "manifest_digest": "332405fecfc33dfdd6122510862bff2c088f34721a8911c07cd861fa4d23a676",
+ "generated_at": "2026-07-24T09:27:05.140301+00:00",
+ "source_commit": "727d0e86a7dd74a5a945e4804e912634a352f6d8",
+ "manifest_digest": "d3b1c531809425d76e3b46cc97d40acf9b1a1b7d1db4a7452803c7aca5c1e542",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -323,6 +323,11 @@
    "sha256": "e2a06ed695c064de35af4497e2750b41a3cedf2ff402fb0f566cd192c9f3e3b2"
   },
   {
+   "path": "pilothOS/runtime/composability.md",
+   "class": "verbatim",
+   "sha256": "eb4bc366037f9301d60a5fd85714ea1c91b4135c38348d4bc9af23880fa60895"
+  },
+  {
    "path": "pilothOS/runtime/consumer-assets.md",
    "class": "verbatim",
    "sha256": "60d7fd28871ee59ff0de4ec179b6c97cccb5985390b19133101892060ee61a4c"
@@ -385,7 +390,7 @@
   {
    "path": "pilothOS/scripts/pilothos_guard.py",
    "class": "verbatim",
-   "sha256": "5d400d6cac89c8773aa3e0e6ae78a9cedb6ce7725e7030b9f7998d54ba4af04b"
+   "sha256": "cbc08180422c2110ba54e3f34d645fb58be6cf4a8aafb56a8f8c172682e100e9"
   },
   {
    "path": "pilothOS/scripts/pilothos_installer.py",

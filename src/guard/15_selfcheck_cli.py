@@ -986,6 +986,7 @@ def os_inspect_result():
 
     return {
         "result": "os_inspect_attention" if attention else "os_inspect_healthy",
+        "principal": current_principal(),
         "version": {"plugin": plugin_version, "installed": installed_pilothos_version()},
         "capabilities": {
             "present": cap["present"],
@@ -1072,6 +1073,7 @@ COMMAND_TABLE = {
     "forge-verify": (forge_verify, "argv"),
     "forge-plan": (forge_plan, "argv"),
     "provenance": (provenance, "argv"),
+    "skill-index": (skill_index, "argv"),
 }
 
 
