@@ -1,11 +1,13 @@
 """TB benchmark — none-piloth vs had-piloth for T3 Piloth Forge.
 
-Probe #7 for T3: governed self-extension delivers consumer value that an
-ungoverned agent does not. A bare agent that "just creates a file" accepts a
-defective capability (duplicate id, wrong layer, no justification, undeclared
-authority); Piloth Forge catches those defects AND still admits a valid
-extension — governed growth without blocking legitimate work.
+GENUINE A/B: both arms run the real capability-check validator against real
+manifests. none-piloth = an ungoverned agent appends a defective capability
+straight into the manifest -> capability-check FAILS (the defect really lands).
+had-piloth = forge-verify rejects the same spec BEFORE any write -> the manifest
+is never mutated -> capability-check still PASSES. Probe #7 — governed growth
+keeps the system valid; ungoverned growth corrupts it.
 """
+import copy
 import importlib.util
 import pathlib
 
@@ -20,47 +22,31 @@ def _load_guard():
     return module
 
 
-DEFECTIVE = {  # dup id (os-start), wrong layer, no reason, no authority
-    "kind": "skill", "id": "os-start", "layer": "Rules", "intent": "x",
-}
-VALID = {
-    "kind": "skill", "id": "deploy-smoke-check", "layer": "Skills",
-    "intent": "Run a post-deploy smoke check",
-    "reason": "Incident: deploy broke prod; need a repeatable smoke",
-    "authority": {"guard_modes": ["os-evidence"]},
-}
-
-
-def _none_piloth(_spec):
-    # Ungoverned: an agent just writes the file. No verification, no authority
-    # declaration, no justification check — always "accepted".
-    return {"accepted": True, "defects_caught": 0}
-
-
-def _had_piloth(guard, spec):
-    errors, _warnings = guard.forge_verify_findings(spec)
-    return {"accepted": not errors, "defects_caught": len(errors)}
+# Defective: id collides with an existing guard-mode capability, wrong layer,
+# no justification, no authority.
+DEFECTIVE = {"kind": "skill", "id": "os-start", "layer": "Rules", "intent": "x"}
 
 
 def test_none_vs_had_forge_benchmark():
     guard = _load_guard()
+    shipped = guard.load_capability_manifest()
+    assert shipped is not None and shipped.get("capabilities")
 
-    none_defective = _none_piloth(DEFECTIVE)
-    had_defective = _had_piloth(guard, DEFECTIVE)
-    none_valid = _none_piloth(VALID)
-    had_valid = _had_piloth(guard, VALID)
+    # none-piloth: ungoverned agent just appends the capability into the manifest.
+    none_manifest = copy.deepcopy(shipped)
+    none_manifest["capabilities"].append(dict(DEFECTIVE))
+    none_errors, _ = guard.capability_check_findings(none_manifest)
+    none_manifest_valid = not none_errors
 
-    # Ungoverned admits the defective capability; Forge rejects it.
-    assert none_defective["accepted"] is True
-    assert had_defective["accepted"] is False
-    assert had_defective["defects_caught"] >= 1
+    # had-piloth: forge-verify rejects the defective spec BEFORE any write.
+    had_verify_errors, _ = guard.forge_verify_findings(DEFECTIVE)
+    had_blocked = bool(had_verify_errors)
+    # ...so the real manifest is never mutated and stays valid.
+    had_manifest_valid = not guard.capability_check_findings(shipped)[0]
 
-    # Legitimate extension is NOT collateral-blocked by governance.
-    assert none_valid["accepted"] is True
-    assert had_valid["accepted"] is True
+    assert none_manifest_valid is False, "ungoverned append must corrupt the manifest (duplicate id)"
+    assert had_blocked is True, "forge-verify must reject the defective spec pre-write"
+    assert had_manifest_valid is True, "governed path keeps the manifest valid"
 
-    consumer_value_passed = (
-        had_defective["defects_caught"] > none_defective["defects_caught"]  # governance catches real defects
-        and had_valid["accepted"] == none_valid["accepted"]                # no regression on valid work
-    )
-    assert consumer_value_passed, {"none_defective": none_defective, "had_defective": had_defective}
+    consumer_value_passed = (not none_manifest_valid) and had_blocked and had_manifest_valid
+    assert consumer_value_passed

@@ -8466,7 +8466,8 @@ def authority_delta(argv):
 # Phan tang (trung thuc, giong AOS: hard-deny la that, gating con lai advisory):
 #   - deny (block that): catastrophic — fork bomb, mkfs, dd->block device,
 #     rm tren protected root path (hoac target la command-substitution), ghi ra
-#     block device. Luon block, khong bao gio fail-open.
+#     block device, find <protected> -delete, chmod/chown -R <protected>, shred
+#     block-device/critical-file. Luon block, khong bao gio fail-open.
 #   - ask: high-risk khong-catastrophic — surface trong decision; tren host co
 #     native permission prompt (Claude Code) thi PASS-THROUGH (khong double-prompt).
 #   - allow: sach.
@@ -8501,6 +8502,11 @@ BROKER_ARG_WRAPPERS = {
 }
 # Shell chay payload qua `-c` (inner command = arg sau -c).
 BROKER_SHELL_EXES = {"bash", "sh", "zsh", "dash", "ash", "ksh", "fish"}
+# Prefix he thong tro yeu (dung cho shred: shred /etc/passwd la catastrophic).
+BROKER_CRITICAL_PREFIXES = (
+    "/etc/", "/usr/", "/bin/", "/sbin/", "/boot/", "/var/", "/lib/",
+    "/dev/", "/System/", "/Library/",
+)
 
 
 def _broker_split_subcommands(command):
@@ -8532,19 +8538,58 @@ def _broker_exe(toks):
     return pathlib.PurePosixPath(toks[0].replace("\\", "/")).name.lower()
 
 
-def _rm_targets_protected(toks):
+def _is_protected_target(t):
+    """Target la protected root/system/home path, hoac command-substitution
+    (opaque -> khong xac minh duoc -> danger)."""
+    return (
+        t in BROKER_PROTECTED_RM_TARGETS
+        or t.rstrip("/") in BROKER_PROTECTED_RM_TARGETS
+        or "$(" in t
+        or "`" in t
+    )
+
+
+def _has_recursive_flag(toks):
     long_flags = {t for t in toks[1:] if t.startswith("--")}
     short = "".join(t[1:] for t in toks[1:] if t.startswith("-") and not t.startswith("--"))
-    recursive = ("r" in short.lower()) or ("--recursive" in long_flags)
-    if not recursive:
+    return ("r" in short.lower()) or ("--recursive" in long_flags)
+
+
+def _rm_targets_protected(toks):
+    if not _has_recursive_flag(toks):
+        return False
+    return any(_is_protected_target(t) for t in toks[1:] if not t.startswith("-"))
+
+
+def _find_delete_protected(toks):
+    # `find <paths...> ... -delete`: paths precede the first -expression.
+    if "-delete" not in toks[1:]:
         return False
     for t in toks[1:]:
         if t.startswith("-"):
-            continue
-        if t in BROKER_PROTECTED_RM_TARGETS or t.rstrip("/") in BROKER_PROTECTED_RM_TARGETS:
+            break
+        if _is_protected_target(t):
             return True
-        # Target la command-substitution -> khong the xac minh -> opaque danger.
-        if "$(" in t or "`" in t:
+    return False
+
+
+def _recursive_perm_protected(toks):
+    # chmod/chown/chgrp -R tren protected path (vd chmod -R 000 /).
+    if not _has_recursive_flag(toks):
+        return False
+    return any(_is_protected_target(t) for t in toks[1:] if not t.startswith("-"))
+
+
+def _shred_catastrophic(toks):
+    # shred block device hoac file he thong (shred /dev/sda, shred /etc/passwd).
+    for t in toks[1:]:
+        if t.startswith("-"):
+            continue
+        if any(t.startswith(p) for p in BROKER_BLOCK_DEV_PREFIXES):
+            return True
+        if _is_protected_target(t):
+            return True
+        if any(t.startswith(p) for p in BROKER_CRITICAL_PREFIXES):
             return True
     return False
 
@@ -8617,6 +8662,12 @@ def _direct_catastrophic(sub):
         return "rm_protected_path"
     if exe == "dd" and _dd_to_block_device(toks):
         return "dd_block_device"
+    if exe == "find" and _find_delete_protected(toks):
+        return "find_delete_protected"
+    if exe in ("chmod", "chown", "chgrp") and _recursive_perm_protected(toks):
+        return "recursive_perm_protected"
+    if exe == "shred" and _shred_catastrophic(toks):
+        return "shred_critical"
     return None
 
 

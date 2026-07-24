@@ -159,3 +159,50 @@ def test_broker_decision_takes_only_command(guard):
     import inspect
     params = list(inspect.signature(guard.broker_decision).parameters)
     assert params == ["command"], f"broker_decision should take only 'command', got {params}"
+
+
+# --- Part C: expanded catastrophic classes found by gap investigation ---
+# find <protected> -delete / chmod|chown -R <protected> / shred <block-dev|critical>.
+CATASTROPHIC_EXPANDED = [
+    "find / -delete", "find /etc -delete", "find ~ -delete", "sudo find / -delete",
+    "bash -c 'find / -delete'",
+    "chmod -R 000 /", "chmod -R 777 /", "chmod -R 000 ~", "chown -R root /",
+    "chgrp -R staff /etc", "sudo chmod -R 000 /", "bash -c 'chmod -R 000 /'",
+    "shred /dev/sda", "shred -u /etc/passwd", "shred /boot/vmlinuz", "shred /dev/rdisk0",
+]
+# Safe variants of the same tools — must NOT be denied (no false-positive).
+SAFE_EXPANDED = [
+    "find . -name '*.pyc' -delete", "find . -type f", "find /etc -name hosts",
+    "chmod -R 755 ./build", "chmod 644 file.txt", "chown -R me ./project",
+    "shred ./scratch.tmp", "shred -u ./secret-local.txt",
+    "rm -rf ./node_modules", "sudo apt-get update", "git commit -m 'wip'",
+    "timeout 5 ./run.sh",
+]
+
+
+def test_expanded_catastrophic_denied(guard):
+    for cmd in CATASTROPHIC_EXPANDED:
+        assert guard.broker_decision(cmd)["decision"] == "deny", f"should deny: {cmd}"
+
+
+def test_expanded_safe_not_denied(guard):
+    for cmd in SAFE_EXPANDED:
+        assert guard.broker_decision(cmd)["decision"] != "deny", f"false-deny: {cmd}"
+
+
+def test_find_delete_only_on_protected(guard):
+    assert guard.broker_decision("find / -delete")["decision"] == "deny"
+    assert guard.broker_decision("find . -delete")["decision"] != "deny"       # non-protected path
+    assert guard.broker_decision("find /etc -name x")["decision"] != "deny"    # no -delete
+
+
+def test_recursive_perm_only_on_protected_and_recursive(guard):
+    assert guard.broker_decision("chmod -R 000 /")["decision"] == "deny"
+    assert guard.broker_decision("chmod 000 /")["decision"] != "deny"          # not recursive
+    assert guard.broker_decision("chmod -R 000 ./x")["decision"] != "deny"     # not protected
+
+
+def test_shred_block_device_and_critical(guard):
+    assert guard.broker_decision("shred /dev/sda")["decision"] == "deny"
+    assert guard.broker_decision("shred /etc/passwd")["decision"] == "deny"
+    assert guard.broker_decision("shred ./local.tmp")["decision"] != "deny"

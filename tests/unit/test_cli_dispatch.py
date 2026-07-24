@@ -103,3 +103,37 @@ def test_forge_verify_cli_rejects_bad_spec(tmp_path):
     d = _run_json("forge-verify", str(spec))
     assert d["result"] == "forge_verify_failed"
     assert d["errors"]
+
+
+def test_forge_scaffold_cli_does_not_write_live(tmp_path):
+    # construction != activation: forge-scaffold returns content, never writes live.
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({
+        "kind": "skill", "id": "noexist-skill", "layer": "Skills",
+        "intent": "x", "reason": "y",
+    }), encoding="utf-8")
+    d = _run_json("forge-scaffold", str(spec))
+    assert "pilothOS/skills/workflow/noexist-skill/SKILL.md" in d["files"]
+    assert not (REPO / "pilothOS" / "skills" / "workflow" / "noexist-skill").exists()
+
+
+def test_forge_plan_cli_shape(tmp_path):
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({
+        "kind": "skill", "id": "plan-skill", "layer": "Skills",
+        "intent": "x", "reason": "y",
+        "authority": {"guard_modes": ["os-evidence"], "paths": ["a/**"]},
+    }), encoding="utf-8")
+    d = _run_json("forge-plan", str(spec))
+    assert d["result"] == "forge_plan"
+    assert d["approval_required"] is True
+    assert d["widened"] is True
+    assert "os-evidence" in d["authority_delta"]["guard_modes"]["added"]
+
+
+def test_forge_verify_cli_rejects_missing_intent(tmp_path):
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"kind": "skill", "id": "noreason-skill", "layer": "Skills"}), encoding="utf-8")
+    d = _run_json("forge-verify", str(spec))
+    assert d["result"] == "forge_verify_failed"
+    assert any("intent" in e for e in d["errors"]) and any("reason" in e for e in d["errors"])

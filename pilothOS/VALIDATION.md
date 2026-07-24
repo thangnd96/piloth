@@ -152,8 +152,12 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   (Claude Code); **advisory** trên Codex/Cursor/Antigravity tới khi adapter route
   tool-call qua guard. Broker cưỡng chế tại **biên tool-call**, KHÔNG sandbox
   token-level của model; "ask" (high-risk) dựa vào native permission prompt của host.
-  Giới hạn đã biết: command-substitution lồng nhiều lớp và fork-bomb đổi tên
-  (deny-on-doubt phủ phần lớn wrapper/`$()`/backtick).
+  Catastrophic hard-deny phủ: fork bomb, `mkfs`, `dd`→block device, `rm -r`→
+  protected/subst, redirect→block device, `find <protected> -delete`,
+  `chmod/chown -R <protected>`, `shred` block-device/critical-file.
+  **Giới hạn đã biết (chưa deny — high-risk, không phải system-catastrophic):**
+  `mv <x> /dev/null`, `truncate` file hệ thống, command-substitution lồng nhiều
+  lớp, fork-bomb đổi tên. deny-on-doubt phủ phần lớn wrapper/`sudo`/`$()`/backtick.
 - **Capability/authority model** advisory/fail-soft khi `coverage=partial`; fail-closed
   cứng chỉ khi `coverage=full` (hiện `partial`).
 - **Provenance** (per-file `sha256` + `manifest_digest`) là content-addressed,

@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
  "piloth_version": "1.12.0",
- "generated_at": "2026-07-24T10:59:30.552714+00:00",
- "source_commit": "0c19b4ea5f23d69cbb068e09fd165a494d757110",
- "manifest_digest": "0e6276327ebce60b13bec8588d074de89e20ea29596233fd94b0f18c0b5e80c6",
+ "generated_at": "2026-07-24T11:28:14.792312+00:00",
+ "source_commit": "4760d08a5ea5ccf11da3aae4a5e4e4399822c8c8",
+ "manifest_digest": "87c9b786426bf190c7dd8f5e6d438f1c2c5b8cb4396480a362544d01e8dcfa9c",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -144,7 +144,7 @@
   {
    "path": "pilothOS/VALIDATION.md",
    "class": "verbatim",
-   "sha256": "1d0c378d57c34d5e850f0087cefa5a2a7afaec2be29df114d762f62083e37b63"
+   "sha256": "cdcf068b6b5c286327cb145e47ff6661bce0bd728d8c18da590c64d5979b1569"
   },
   {
    "path": "pilothOS/agent-teams/index.md",
@@ -390,7 +390,7 @@
   {
    "path": "pilothOS/scripts/pilothos_guard.py",
    "class": "verbatim",
-   "sha256": "9b6e823dc1a6d51ebfb91ce8f1f6d0aa61d8283695f9e9ab752abd0c108d9503"
+   "sha256": "3f5fd5e38c241ecfabf62c4cad34390f873643ab2ca74caf97d8466813dab028"
   },
   {
    "path": "pilothOS/scripts/pilothos_installer.py",

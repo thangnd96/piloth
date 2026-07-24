@@ -105,3 +105,25 @@ def test_forge_modes_registered_read_only(guard):
         _handler, kind = guard.COMMAND_TABLE[mode]
         assert kind == "argv"
         assert mode in guard.READ_ONLY_GUARD_MODES
+
+
+def test_governed_activation_keeps_manifest_valid(guard):
+    # The governed loop: verify -> scaffold content -> (human) add manifest entry
+    # -> capability-check still PASSES. A valid new capability doesn't corrupt.
+    import copy
+    spec = {
+        "kind": "skill", "id": "part-d-check", "layer": "Skills",
+        "intent": "a real project check", "reason": "recurring real need",
+        "authority": {"guard_modes": ["os-evidence"]},
+    }
+    assert guard.forge_verify_findings(spec)[0] == []            # verify passes
+    content = guard._forge_fill(guard._forge_template("skill"), spec)
+    assert "{{" not in content and spec["intent"] in content     # scaffold content ready
+    manifest = copy.deepcopy(guard.load_capability_manifest())
+    manifest["capabilities"].append(guard._forge_manifest_entry(spec))
+    assert guard.capability_check_findings(manifest)[0] == []    # activation keeps manifest valid
+
+
+def test_gate_kind_scaffolds_no_file(guard):
+    # gate needs guard wiring -> no file target (only skill/rule scaffold files).
+    assert guard._forge_target_path({"kind": "gate", "id": "x", "layer": "Evaluation"}) is None
