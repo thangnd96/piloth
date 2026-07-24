@@ -1067,6 +1067,9 @@ COMMAND_TABLE = {
     "state-doctor": (state_doctor, "none"),
     "production-review": (production_review, "none"),
     "os-inspect": (os_inspect, "none"),
+    "forge-scaffold": (forge_scaffold, "argv"),
+    "forge-verify": (forge_verify, "argv"),
+    "forge-plan": (forge_plan, "argv"),
 }
 
 

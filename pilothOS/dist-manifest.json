@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T08:36:02.183861+00:00",
+ "generated_at": "2026-07-24T09:03:08.358644+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -326,6 +326,22 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/skills/workflow/piloth-forge/SKILL.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-forge/guides/capability-authority.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-forge/guides/skill-authoring.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/skills/workflow/piloth-forge/guides/verify.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/skills/workflow/piloth-prototype/SKILL.md",
    "class": "verbatim"
   },
@@ -415,6 +431,14 @@
   },
   {
    "path": "pilothOS/templates/agent.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/templates/forge/rule.md.tmpl",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/templates/forge/skill.SKILL.md.tmpl",
    "class": "verbatim"
   },
   {
