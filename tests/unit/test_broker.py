@@ -98,3 +98,64 @@ def test_broker_check_blocks_catastrophic(guard, capsys):
 def test_broker_check_allows_safe_silently(guard, capsys):
     guard.broker_check({"tool_name": "Bash", "tool_input": {"command": "ls -la"}})
     assert capsys.readouterr().out.strip() == ""
+
+
+# --- F1: wrapper / substitution / double-wrapper evasions must be hard-denied ---
+WRAPPER_EVASIONS = [
+    "bash -c 'rm -rf /'",
+    'bash -c "rm --recursive --force /"',
+    "sh -c 'mkfs.ext4 /dev/sda'",
+    "sudo rm -rf /",
+    "sudo dd if=/dev/zero of=/dev/sda",
+    "xargs rm -rf /",
+    "env rm -rf /",
+    "env -i rm -rf /",
+    "time rm -rf /",
+    "nohup rm -rf /",
+    "eval 'rm -rf /'",
+    "rm -rf $(echo /)",
+    "rm -rf `echo /`",
+    "echo $(rm -rf /)",
+    "bash -c 'a && rm -rf /'",
+    "sudo bash -c 'rm -rf /home'",
+    "sudo env bash -c 'rm -rf /'",
+    "nice -n 10 sudo rm -rf /",
+    "sudo -u root rm -rf /",
+    "stdbuf -oL rm -rf /",
+]
+
+# Safe commands that merely wrap benign work — must NOT be hard-denied.
+WRAPPER_SAFE = [
+    "sudo apt install foo",
+    "bash -c 'ls -la'",
+    "sudo systemctl restart nginx",
+    "sudo rm -rf ./cache",       # not a protected target
+    "nice -n 5 python train.py",
+    "rm --no-preserve-root notes.txt",  # not recursive -> safe (F16)
+]
+
+
+def test_wrapper_and_substitution_evasions_denied(guard):
+    for cmd in WRAPPER_EVASIONS:
+        d = guard.broker_decision(cmd)
+        assert d["decision"] == "deny", f"evasion not blocked: {cmd} -> {d}"
+
+
+def test_wrappers_no_false_deny_on_safe(guard):
+    for cmd in WRAPPER_SAFE:
+        d = guard.broker_decision(cmd)
+        assert d["decision"] != "deny", f"false-deny on safe wrapper: {cmd} -> {d}"
+
+
+def test_no_preserve_root_alone_is_not_catastrophic(guard):
+    # F16: --no-preserve-root without recursion + protected target must not deny.
+    assert guard.broker_decision("rm --no-preserve-root notes.txt")["decision"] != "deny"
+    # but with recursion on a protected target it still denies (target check).
+    assert guard.broker_decision("rm -rf --no-preserve-root /")["decision"] == "deny"
+
+
+def test_broker_decision_takes_only_command(guard):
+    # F2: dead contract/coverage params removed — single-arg signature.
+    import inspect
+    params = list(inspect.signature(guard.broker_decision).parameters)
+    assert params == ["command"], f"broker_decision should take only 'command', got {params}"

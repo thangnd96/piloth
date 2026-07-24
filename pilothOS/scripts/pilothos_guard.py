@@ -255,6 +255,7 @@ READ_ONLY_GUARD_MODES = {
     "forge-plan",
     "provenance",
     "skill-index",
+    "upgrade-verify",
 }
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
@@ -8438,11 +8439,14 @@ def authority_delta(argv):
 # capsule-shell Process Airlock. Diem then chot credibility (probe #1): mot so
 # lenh bi TU CHOI VO DIEU KIEN truoc bat ky approval nao (catastrophic hard-deny),
 # dung nhu Airlock cua AOS. Cac lenh chuoi (&&/||/;/|) duoc tach va kiem TUNG
-# sub-command doc lap.
+# sub-command doc lap; lenh boc trong wrapper (sudo/env/xargs/time/nohup/...),
+# shell `-c` payload, `eval`, va command-substitution `$(...)`/backtick deu duoc
+# DE QUY vao ben trong (neu khong, `bash -c "rm -rf /"` se lach airlock).
 #
 # Phan tang (trung thuc, giong AOS: hard-deny la that, gating con lai advisory):
 #   - deny (block that): catastrophic — fork bomb, mkfs, dd->block device,
-#     rm tren protected root path, ghi ra block device. Luon block.
+#     rm tren protected root path (hoac target la command-substitution), ghi ra
+#     block device. Luon block, khong bao gio fail-open.
 #   - ask: high-risk khong-catastrophic — surface trong decision; tren host co
 #     native permission prompt (Claude Code) thi PASS-THROUGH (khong double-prompt).
 #   - allow: sach.
@@ -8450,9 +8454,11 @@ def authority_delta(argv):
 # Entitlement fail-closed da song o tool-check (validate_payload_entitlements);
 # broker-check lo bien Bash command noi tool-check khong phu.
 #
-# broker-check la HOOK mode (doc tool_input.command tu PreToolUse). Fail-OPEN
-# khi loi noi bo: mot governance hook KHONG BAO GIO duoc brick session bang cach
-# block tat ca (bai hoc settings.json). Catastrophic matching dung string op don
+# broker-check la HOOK mode (doc tool_input.command tu PreToolUse). Quyet dinh
+# catastrophic chay TRUOC va DOC LAP moi I/O (khong load contract/manifest) —
+# de exception o subsystem khac khong the nuot viec block. Chi fail-OPEN khi
+# chinh logic string loi (rat kho): governance hook khong duoc brick session
+# bang cach block tat ca (bai hoc settings.json). Matching dung string op don
 # gian, co guard — nhanh, khong ReDoS.
 # ---------------------------------------------------------------------------
 
@@ -8468,11 +8474,20 @@ BROKER_PROTECTED_RM_TARGETS = {
     "/dev", "/opt", "/root", "/home", "/Users", "/System", "/Library",
     "/Applications",
 }
+# Prefix wrapper: lenh that = cac token sau wrapper (bo cac flag/env cua no).
+BROKER_ARG_WRAPPERS = {
+    "sudo", "doas", "env", "xargs", "time", "nohup", "nice", "ionice",
+    "stdbuf", "setsid", "command",
+}
+# Shell chay payload qua `-c` (inner command = arg sau -c).
+BROKER_SHELL_EXES = {"bash", "sh", "zsh", "dash", "ash", "ksh", "fish"}
 
 
 def _broker_split_subcommands(command):
     """Tach command thanh sub-command theo &&/||/;/|/newline (linear, khong regex
-    backtracking). Moi sub duoc kiem catastrophic doc lap."""
+    backtracking). Moi sub duoc kiem catastrophic doc lap. (Toan bo lenh cung
+    duoc kiem rieng o broker_decision de bat truong hop operator nam trong quote,
+    vd `bash -c "a && rm -rf /"`.)"""
     tmp = command
     for op in ("&&", "||"):
         tmp = tmp.replace(op, "\x00")
@@ -8491,10 +8506,14 @@ def _broker_tokens(sub):
     return toks
 
 
+def _broker_exe(toks):
+    if not toks:
+        return ""
+    return pathlib.PurePosixPath(toks[0].replace("\\", "/")).name.lower()
+
+
 def _rm_targets_protected(toks):
     long_flags = {t for t in toks[1:] if t.startswith("--")}
-    if "--no-preserve-root" in long_flags:
-        return True
     short = "".join(t[1:] for t in toks[1:] if t.startswith("-") and not t.startswith("--"))
     recursive = ("r" in short.lower()) or ("--recursive" in long_flags)
     if not recursive:
@@ -8503,6 +8522,9 @@ def _rm_targets_protected(toks):
         if t.startswith("-"):
             continue
         if t in BROKER_PROTECTED_RM_TARGETS or t.rstrip("/") in BROKER_PROTECTED_RM_TARGETS:
+            return True
+        # Target la command-substitution -> khong the xac minh -> opaque danger.
+        if "$(" in t or "`" in t:
             return True
     return False
 
@@ -8521,10 +8543,41 @@ def _writes_block_device(command):
     return any(">" + p in compact for p in BROKER_BLOCK_DEV_PREFIXES)
 
 
-def catastrophic_match(sub):
-    """Tra ten rule catastrophic neu sub-command bi hard-deny, else None."""
-    if not isinstance(sub, str):
-        return None
+def _nested_command_strings(sub):
+    """Tra cac command string 'an' ben trong: wrapper argv (sudo/env/xargs/...),
+    shell `-c` payload, `eval` args, va command-substitution $(...)/backtick.
+    Dung de kiem catastrophic DE QUY (chong lach airlock qua wrapper)."""
+    out = []
+    toks = _broker_tokens(sub)
+    if toks:
+        exe = _broker_exe(toks)
+        if exe in BROKER_ARG_WRAPPERS:
+            # Grammar option cua wrapper khac nhau (nice -n 10, sudo -u x, env -i,
+            # xargs -n1, stdbuf -oL...). Thay vi parse tung loai, coi MOI suffix la
+            # candidate inner command (fail-safe: over-generate; airlock nen
+            # deny-on-doubt). shlex.quote giu nguyen -c arg khi re-tokenize.
+            for i in range(1, min(len(toks), 8)):
+                out.append(" ".join(shlex.quote(t) for t in toks[i:]))
+        elif exe == "eval":
+            arg = " ".join(t for t in toks[1:] if not t.startswith("-"))
+            if arg:
+                out.append(arg)
+        elif exe in BROKER_SHELL_EXES:
+            for i in range(1, len(toks) - 1):
+                if toks[i] == "-c":
+                    out.append(toks[i + 1])
+                    break
+    for m in re.finditer(r"\$\(([^()]*)\)", sub):
+        if m.group(1).strip():
+            out.append(m.group(1))
+    for m in re.finditer(r"`([^`]*)`", sub):
+        if m.group(1).strip():
+            out.append(m.group(1))
+    return out
+
+
+def _direct_catastrophic(sub):
+    """Kiem catastrophic TRUC TIEP tren mot sub-command (khong de quy)."""
     s = sub.strip()
     if not s:
         return None
@@ -8537,7 +8590,7 @@ def catastrophic_match(sub):
     toks = _broker_tokens(s)
     if not toks:
         return None
-    exe = pathlib.PurePosixPath(toks[0].replace("\\", "/")).name.lower()
+    exe = _broker_exe(toks)
     if exe == "mkfs" or exe.startswith("mkfs."):
         return "mkfs"
     if exe in ("rm", "grm") and _rm_targets_protected(toks):
@@ -8547,30 +8600,42 @@ def catastrophic_match(sub):
     return None
 
 
-def broker_decision(command, contract=None, coverage=None):
+def catastrophic_match(sub, _depth=0):
+    """Tra ten rule catastrophic neu sub-command bi hard-deny, else None.
+    De quy vao wrapper/`-c`/eval/substitution (gioi han do sau chong loop)."""
+    if not isinstance(sub, str):
+        return None
+    rule = _direct_catastrophic(sub)
+    if rule:
+        return rule
+    if _depth >= 4:
+        return None
+    for inner in _nested_command_strings(sub):
+        for piece in _broker_split_subcommands(inner):
+            r = catastrophic_match(piece, _depth + 1)
+            if r:
+                return r
+    return None
+
+
+def broker_decision(command):
     """Pure decision: allow | deny | ask. deny = catastrophic (hard-deny vo dieu
-    kien). ask = high-risk non-catastrophic (consent). allow = sach."""
+    kien, ke ca khi boc trong wrapper/`-c`/substitution). ask = high-risk
+    non-catastrophic (consent). allow = sach. Chi phu thuoc chuoi `command` —
+    khong doc contract/manifest/I/O (de khong the fail-open qua exception ngoai)."""
     if not isinstance(command, str) or not command.strip():
         return {"decision": "allow", "rule": "empty", "reason": "empty command"}
-    # Kiem tung sub-command chuoi truoc (bat `foo && rm -rf /`)...
-    for sub in _broker_split_subcommands(command):
-        rule = catastrophic_match(sub)
+    # Kiem toan bo lenh (bat wrapper + operator-trong-quote), roi tung sub-command.
+    candidates = [command] + _broker_split_subcommands(command)
+    for cand in candidates:
+        rule = catastrophic_match(cand)
         if rule:
             return {
                 "decision": "deny",
                 "rule": "catastrophic:" + rule,
                 "reason": f"catastrophic command hard-denied ({rule}) — refused before any approval",
-                "subcommand": sub.strip(),
+                "subcommand": cand.strip(),
             }
-    # ...roi kiem toan bo lenh (bat lenh don khong chuoi).
-    rule = catastrophic_match(command)
-    if rule:
-        return {
-            "decision": "deny",
-            "rule": "catastrophic:" + rule,
-            "reason": f"catastrophic command hard-denied ({rule}) — refused before any approval",
-            "subcommand": command.strip(),
-        }
     if command_looks_high_risk(command):
         return {
             "decision": "ask",
@@ -8583,25 +8648,25 @@ def broker_decision(command, contract=None, coverage=None):
 def broker_check(hook_input):
     """PreToolUse:Bash gate. Block CHI khi catastrophic (hard-deny). high-risk
     'ask' pass-through cho native permission prompt cua host (khong double-prompt).
-    Fail-OPEN khi loi noi bo — governance hook khong duoc brick session."""
-    try:
-        command = ""
-        if isinstance(hook_input, dict):
-            tool_input = hook_input.get("tool_input")
-            if isinstance(tool_input, dict):
-                command = tool_input.get("command") or ""
-            if not command:
-                command = hook_input.get("command") or ""
-        if not isinstance(command, str) or not command.strip():
-            return
-        contract, _ = load_task_contract(hook_input)
-        status = capability_manifest_status()
-        decision = broker_decision(command, contract, status.get("coverage"))
-        if decision["decision"] == "deny":
-            block_decision("PILOTHOS BROKER: " + decision["reason"])
-        # ask/allow -> pass-through (host native prompt handles consent).
-    except Exception:
+    Catastrophic quyet dinh TRUOC, chi tu chuoi command — khong load contract/
+    manifest — nen exception subsystem khac khong the nuot viec block. Fail-OPEN
+    chi khi chinh logic loi (rat kho): hook khong duoc brick session."""
+    command = ""
+    if isinstance(hook_input, dict):
+        tool_input = hook_input.get("tool_input")
+        if isinstance(tool_input, dict):
+            command = tool_input.get("command") or ""
+        if not command:
+            command = hook_input.get("command") or ""
+    if not isinstance(command, str) or not command.strip():
         return
+    try:
+        decision = broker_decision(command)
+    except Exception:
+        return  # fail-open only on internal logic error
+    if decision["decision"] == "deny":
+        block_decision("PILOTHOS BROKER: " + decision["reason"])
+    # ask/allow -> pass-through (host native prompt handles consent).
 # ---------------------------------------------------------------------------
 # Piloth Forge (T3) — governed self-extension.
 #
@@ -8926,6 +8991,48 @@ def provenance(argv):
         json_print(verify_manifest_files(root))
         return
     json_print(provenance_result())
+
+
+def upgrade_verify_result(root, manifest=None):
+    """Upgrade self-heal (T6): sau khi nang cap, ban cai co (a) kernel verbatim
+    khop sha256 (da update dung), (b) file preserve-class (consumer-owned /
+    personalize) VAN CON MAT (customization/state duoc bao ton). Analog cua
+    upgrade-self-heal-ready gate cua AOS. Tai dung verify_manifest_files (T4) +
+    marker class/personalize san co trong manifest (khong duplicate preserve-set
+    cua stage.py)."""
+    root_p = pathlib.Path(root)
+    if manifest is None:
+        manifest = _load_dist_manifest()
+    kernel = verify_manifest_files(root, manifest=manifest)
+    files_list = manifest.get("files", []) if isinstance(manifest, dict) else []
+    preserved_present = 0
+    preserved_missing = []
+    for e in files_list:
+        if not isinstance(e, dict):
+            continue
+        if e.get("class") == "consumer-owned" or e.get("personalize"):
+            p = e.get("path")
+            if not p:
+                continue
+            if (root_p / p).exists():
+                preserved_present += 1
+            else:
+                preserved_missing.append(p)
+    ok = kernel.get("result") == "provenance_files_ok" and not preserved_missing
+    return {
+        "result": "upgrade_verify_ok" if ok else "upgrade_verify_failed",
+        "root": str(root),
+        "kernel_integrity": kernel.get("result"),
+        "kernel_mismatched": kernel.get("mismatched", []),
+        "kernel_missing": kernel.get("missing", 0),
+        "preserved_present": preserved_present,
+        "preserved_missing": preserved_missing,
+    }
+
+
+def upgrade_verify(argv):
+    files = [a for a in (argv or []) if not a.startswith("-")]
+    json_print(upgrade_verify_result(files[0] if files else "."))
 # ---------------------------------------------------------------------------
 # Composability (T5) — workspace-wins skill precedence + principal.
 #
@@ -10081,6 +10188,7 @@ COMMAND_TABLE = {
     "forge-plan": (forge_plan, "argv"),
     "provenance": (provenance, "argv"),
     "skill-index": (skill_index, "argv"),
+    "upgrade-verify": (upgrade_verify, "argv"),
 }
 
 

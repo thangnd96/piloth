@@ -99,3 +99,45 @@ def provenance(argv):
         json_print(verify_manifest_files(root))
         return
     json_print(provenance_result())
+
+
+def upgrade_verify_result(root, manifest=None):
+    """Upgrade self-heal (T6): sau khi nang cap, ban cai co (a) kernel verbatim
+    khop sha256 (da update dung), (b) file preserve-class (consumer-owned /
+    personalize) VAN CON MAT (customization/state duoc bao ton). Analog cua
+    upgrade-self-heal-ready gate cua AOS. Tai dung verify_manifest_files (T4) +
+    marker class/personalize san co trong manifest (khong duplicate preserve-set
+    cua stage.py)."""
+    root_p = pathlib.Path(root)
+    if manifest is None:
+        manifest = _load_dist_manifest()
+    kernel = verify_manifest_files(root, manifest=manifest)
+    files_list = manifest.get("files", []) if isinstance(manifest, dict) else []
+    preserved_present = 0
+    preserved_missing = []
+    for e in files_list:
+        if not isinstance(e, dict):
+            continue
+        if e.get("class") == "consumer-owned" or e.get("personalize"):
+            p = e.get("path")
+            if not p:
+                continue
+            if (root_p / p).exists():
+                preserved_present += 1
+            else:
+                preserved_missing.append(p)
+    ok = kernel.get("result") == "provenance_files_ok" and not preserved_missing
+    return {
+        "result": "upgrade_verify_ok" if ok else "upgrade_verify_failed",
+        "root": str(root),
+        "kernel_integrity": kernel.get("result"),
+        "kernel_mismatched": kernel.get("mismatched", []),
+        "kernel_missing": kernel.get("missing", 0),
+        "preserved_present": preserved_present,
+        "preserved_missing": preserved_missing,
+    }
+
+
+def upgrade_verify(argv):
+    files = [a for a in (argv or []) if not a.startswith("-")]
+    json_print(upgrade_verify_result(files[0] if files else "."))

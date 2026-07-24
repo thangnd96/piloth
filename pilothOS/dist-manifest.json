@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T09:27:05.140301+00:00",
- "source_commit": "727d0e86a7dd74a5a945e4804e912634a352f6d8",
- "manifest_digest": "d3b1c531809425d76e3b46cc97d40acf9b1a1b7d1db4a7452803c7aca5c1e542",
+ "generated_at": "2026-07-24T10:25:00.421732+00:00",
+ "source_commit": "7a729428e3066fd7d76d9f1053d59b476eb035a4",
+ "manifest_digest": "f153d0cbeda70f60b8357e466ffe7b670280a9146072886ec0d1c052a9390adb",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -375,7 +375,7 @@
   {
    "path": "pilothOS/runtime/supply-chain.md",
    "class": "verbatim",
-   "sha256": "d80ab06f8e472b46608feaf765444c27f89a0a6fb3f837874e689c6018b2141b"
+   "sha256": "ccf39a296dab4712e91ec024df0d9f92f0965022a0244df02699c05d94549fc9"
   },
   {
    "path": "pilothOS/runtime/task-lifecycle.md",
@@ -390,7 +390,7 @@
   {
    "path": "pilothOS/scripts/pilothos_guard.py",
    "class": "verbatim",
-   "sha256": "cbc08180422c2110ba54e3f34d645fb58be6cf4a8aafb56a8f8c172682e100e9"
+   "sha256": "2093bd539d3b83989738bf2459bac2d3a7d5de5c72bdfe9fd03e586b52947da2"
   },
   {
    "path": "pilothOS/scripts/pilothos_installer.py",

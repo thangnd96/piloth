@@ -1074,6 +1074,7 @@ COMMAND_TABLE = {
     "forge-plan": (forge_plan, "argv"),
     "provenance": (provenance, "argv"),
     "skill-index": (skill_index, "argv"),
+    "upgrade-verify": (upgrade_verify, "argv"),
 }
 
 

@@ -34,6 +34,24 @@ python3 pilothOS/scripts/pilothos_guard.py provenance --files . # consumer: so f
 - **Bổ sung, không thay:** cùng với `receipt-seals.jsonl` (hash-chain per-delivery)
   và target-seal (SHA-256 per-task), provenance phủ lớp *distribution*.
 
+## Upgrade self-heal (T6)
+
+Nâng cấp Piloth (`/piloth:update` → `stage.py --upgrade`) phải **bảo toàn
+customization + state** của consumer trong khi cập nhật kernel — bản Piloth của
+`upgrade-self-heal-ready` gate của AOS.
+
+- **Preserve:** consumer-owned (CLAUDE.md, AGENTS.md, .gitignore, settings.json)
+  + `.initialized` + `rot/registry.md` + `rot/review-log.md` +
+  `memory/lessons-learned.md` không bị ghi đè; `memory/state/**` nằm ngoài MAP nên
+  không bao giờ bị chạm. File kernel bị ghi đè được **backup** vào
+  `pilothOS/.backup/stage-upgrade-<ts>/`.
+- **Verify:** sau nâng cấp, consumer chạy
+  `python3 pilothOS/scripts/pilothos_guard.py upgrade-verify <root>` — kiểm (a)
+  kernel verbatim khớp sha256 (đã update đúng, dùng lại provenance T4), (b) file
+  preserve-class (consumer-owned/personalize) vẫn còn mặt.
+- **Gate:** `tests/install/test_upgrade_self_heal.py` chứng minh bất biến này qua
+  chính `stage.py --upgrade` (fresh → customize → upgrade → preserved).
+
 ## Giới hạn trung thực (ghi cùng `VALIDATION.md`)
 
 - SHA-256 self-describing manifest + hash-chain **KHÔNG** phải code
