@@ -258,6 +258,23 @@ Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution r
 - **Agent Teams** — composition, role contract, handoff và stop condition.
 - **Safe uninstall** — khôi phục dựa trên installation evidence.
 
+## Preview: Agent-OS capabilities (T0–T6)
+
+> **Experimental / preview** — enforcement là advisory/partial theo thiết kế
+> (xem `pilothOS/VALIDATION.md`). Đây KHÔNG phải claim "stable OS".
+
+Bước tiến tới một agent OS *inspectable, tự mở rộng*, hướng tới ngang tầm
+`unicity-aos/aos-ce`, chứng minh bằng none-vs-had consumer benchmark:
+
+- **Capability & Authority** (`capability-list`/`capability-check`, `authority-delta`) — fail-closed authority SSOT `pilothOS/governance/capability-manifest.json`.
+- **Execution Broker / Airlock** (`broker-check`) — hard-deny lệnh catastrophic tại biên tool-call (kể cả bọc `sudo`/`bash -c`/`$()`); high-risk → ask.
+- **Introspection** (`os-inspect`) — báo cáo sức khỏe toàn hệ thống một lệnh.
+- **Piloth Forge** (`forge-scaffold`/`forge-verify`/`forge-plan`) — tự mở rộng có quản trị; construction ≠ activation.
+- **Provenance & Upgrade self-heal** (`provenance`, `upgrade-verify`) — dist-manifest content-addressed + nâng cấp bảo toàn state/customization.
+- **Composability** (`skill-index`) — override/thêm skill không cần fork kernel.
+
+Chi tiết: `pilothOS/runtime/{capability-model,execution-broker,os-services,supply-chain,composability}.md`.
+
 ## Hỗ trợ công cụ
 
 | Capability | Claude Code | Codex | Cursor | Antigravity |

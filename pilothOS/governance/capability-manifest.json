@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "piloth_version": "1.11.0",
+  "piloth_version": "1.12.0",
   "coverage": "partial",
   "note": "SSOT khai bao authority cua tung capability (skill/rule/gate/adapter/guard-mode). Fail-closed: field authority thieu = quyen rong nhat. Coverage=partial: danh muc duoc bo sung tang dan qua van hanh that (va Forge/T3 se giup giu day du). Khong duplicate SSOT khac; day la noi khai authority, khong phai noi dinh nghia capability.",
   "authority_defaults": {
@@ -17,8 +17,12 @@
       "layer": "Runtime",
       "description": "Mo task run, ghi contract + target snapshot, chon mode, tinh required gates.",
       "authority": {
-        "paths": ["pilothOS/memory/state/os-runs/**"],
-        "guard_modes": ["os-start"],
+        "paths": [
+          "pilothOS/memory/state/os-runs/**"
+        ],
+        "guard_modes": [
+          "os-start"
+        ],
         "writes_policy": false
       }
     },
@@ -28,9 +32,28 @@
       "layer": "Runtime",
       "description": "Validate receipt vs gates/evidence/footprint/truth-in-seal, seal, dong run.",
       "authority": {
-        "paths": ["pilothOS/memory/state/os-runs/**", "pilothOS/memory/state/receipt-seals.jsonl"],
-        "guard_modes": ["os-close"],
-        "enforcement_surface": ["scope", "correctness", "disclosure", "traceability", "architecture", "reuse_non_duplication", "regression", "human_review", "prototype", "ui_quality", "design_system", "design_token_coverage", "operational_approval"],
+        "paths": [
+          "pilothOS/memory/state/os-runs/**",
+          "pilothOS/memory/state/receipt-seals.jsonl"
+        ],
+        "guard_modes": [
+          "os-close"
+        ],
+        "enforcement_surface": [
+          "scope",
+          "correctness",
+          "disclosure",
+          "traceability",
+          "architecture",
+          "reuse_non_duplication",
+          "regression",
+          "human_review",
+          "prototype",
+          "ui_quality",
+          "design_system",
+          "design_token_coverage",
+          "operational_approval"
+        ],
         "writes_policy": false
       }
     },
@@ -40,9 +63,15 @@
       "layer": "Runtime",
       "description": "Ghi task contract truoc khi sua file (contract-before-edit gate).",
       "authority": {
-        "paths": ["pilothOS/memory/state/os-runs/**"],
-        "guard_modes": ["contract-write"],
-        "enforcement_surface": ["scope"],
+        "paths": [
+          "pilothOS/memory/state/os-runs/**"
+        ],
+        "guard_modes": [
+          "contract-write"
+        ],
+        "enforcement_surface": [
+          "scope"
+        ],
         "writes_policy": false
       }
     },
@@ -52,9 +81,13 @@
       "layer": "Tools",
       "description": "Kiem tra risk/timeout/approval + entitlement cua tool command vs contract.",
       "authority": {
-        "guard_modes": ["tool-check"],
+        "guard_modes": [
+          "tool-check"
+        ],
         "entitlements": [],
-        "enforcement_surface": ["correctness"],
+        "enforcement_surface": [
+          "correctness"
+        ],
         "writes_policy": false
       }
     },
@@ -64,8 +97,12 @@
       "layer": "Runtime",
       "description": "Emit hash seal (SHA-256) over receipt/contract/diff/changed files; --record append ledger.",
       "authority": {
-        "paths": ["pilothOS/memory/state/receipt-seals.jsonl"],
-        "guard_modes": ["receipt-seal"],
+        "paths": [
+          "pilothOS/memory/state/receipt-seals.jsonl"
+        ],
+        "guard_modes": [
+          "receipt-seal"
+        ],
         "writes_policy": false
       }
     },
@@ -75,8 +112,14 @@
       "layer": "Governance",
       "description": "Validate capability-manifest.json (shape + fail-closed defaults). Nen tang cua authority model.",
       "authority": {
-        "paths": ["pilothOS/governance/capability-manifest.json"],
-        "guard_modes": ["capability-check", "capability-list", "authority-delta"],
+        "paths": [
+          "pilothOS/governance/capability-manifest.json"
+        ],
+        "guard_modes": [
+          "capability-check",
+          "capability-list",
+          "authority-delta"
+        ],
         "writes_policy": false
       }
     },
@@ -86,9 +129,17 @@
       "layer": "Runtime",
       "description": "Mo human-review round-trip backing gate human_review.",
       "authority": {
-        "paths": ["pilothOS/memory/state/os-runs/**"],
-        "guard_modes": ["review-request", "review-feedback", "review-verify"],
-        "enforcement_surface": ["human_review"],
+        "paths": [
+          "pilothOS/memory/state/os-runs/**"
+        ],
+        "guard_modes": [
+          "review-request",
+          "review-feedback",
+          "review-verify"
+        ],
+        "enforcement_surface": [
+          "human_review"
+        ],
         "writes_policy": false
       }
     },
@@ -98,7 +149,9 @@
       "layer": "Evaluation",
       "description": "Human approved; blockers/majors resolved. Backed by review round-trip artifacts.",
       "authority": {
-        "enforcement_surface": ["human_review"],
+        "enforcement_surface": [
+          "human_review"
+        ],
         "writes_policy": false
       }
     },
@@ -108,7 +161,9 @@
       "layer": "Evaluation",
       "description": "≥2 UI options, valid method, chosen ∈ options.",
       "authority": {
-        "enforcement_surface": ["prototype"],
+        "enforcement_surface": [
+          "prototype"
+        ],
         "writes_policy": false
       }
     },
@@ -118,8 +173,12 @@
       "layer": "Evaluation",
       "description": "Browser/visual evidence bat defect nguoi dung thay duoc.",
       "authority": {
-        "entitlements": ["tool.browser"],
-        "enforcement_surface": ["ui_quality"],
+        "entitlements": [
+          "tool.browser"
+        ],
+        "enforcement_surface": [
+          "ui_quality"
+        ],
         "writes_policy": false
       }
     },
@@ -129,7 +188,9 @@
       "layer": "Evaluation",
       "description": "Da kiem code hien co, reuse DS/tools, khong duplicate.",
       "authority": {
-        "enforcement_surface": ["reuse_non_duplication"],
+        "enforcement_surface": [
+          "reuse_non_duplication"
+        ],
         "writes_policy": false
       }
     },
@@ -139,10 +200,22 @@
       "layer": "Skills",
       "description": "Designer sinh ≥2 UI options truoc code; pick qua human_review round-trip.",
       "authority": {
-        "paths": ["pilothOS/memory/state/os-runs/**/artifacts/**"],
-        "guard_modes": ["os-evidence", "review-request", "review-feedback", "review-verify"],
-        "entitlements": ["tool.browser"],
-        "enforcement_surface": ["prototype", "human_review"],
+        "paths": [
+          "pilothOS/memory/state/os-runs/**/artifacts/**"
+        ],
+        "guard_modes": [
+          "os-evidence",
+          "review-request",
+          "review-feedback",
+          "review-verify"
+        ],
+        "entitlements": [
+          "tool.browser"
+        ],
+        "enforcement_surface": [
+          "prototype",
+          "human_review"
+        ],
         "writes_policy": false
       }
     },
@@ -152,8 +225,15 @@
       "layer": "Skills",
       "description": "Front-of-phase questionnaire; decisions fold vao contract discovery_decisions.",
       "authority": {
-        "paths": ["pilothOS/memory/state/os-runs/**/artifacts/**"],
-        "guard_modes": ["os-evidence", "review-request", "review-feedback", "review-verify"],
+        "paths": [
+          "pilothOS/memory/state/os-runs/**/artifacts/**"
+        ],
+        "guard_modes": [
+          "os-evidence",
+          "review-request",
+          "review-feedback",
+          "review-verify"
+        ],
         "writes_policy": false
       }
     },
@@ -163,8 +243,16 @@
       "layer": "Skills",
       "description": "Install engine flow (preflight->detect->audit->plan->apply->verify) qua installer.",
       "authority": {
-        "paths": ["**"],
-        "guard_modes": ["preflight", "detect", "audit-assets", "registry-assets", "self-check"],
+        "paths": [
+          "**"
+        ],
+        "guard_modes": [
+          "preflight",
+          "detect",
+          "audit-assets",
+          "registry-assets",
+          "self-check"
+        ],
         "writes_policy": true
       }
     },
@@ -174,7 +262,10 @@
       "layer": "Rules",
       "description": "Discipline khi code: don gian, surgical, evidence.",
       "authority": {
-        "enforcement_surface": ["scope", "architecture"],
+        "enforcement_surface": [
+          "scope",
+          "architecture"
+        ],
         "writes_policy": true
       }
     },
@@ -184,7 +275,10 @@
       "layer": "Rules",
       "description": "Quy tac ket luan dua tren Evidence.",
       "authority": {
-        "enforcement_surface": ["correctness", "disclosure"],
+        "enforcement_surface": [
+          "correctness",
+          "disclosure"
+        ],
         "writes_policy": true
       }
     },
@@ -194,7 +288,9 @@
       "layer": "Rules",
       "description": "Dat dung responsibility/layer.",
       "authority": {
-        "enforcement_surface": ["architecture"],
+        "enforcement_surface": [
+          "architecture"
+        ],
         "writes_policy": true
       }
     },
@@ -204,7 +300,9 @@
       "layer": "Adapters",
       "description": "Claude Code adapter (base, khong go duoc): hooks, commands, settings.",
       "authority": {
-        "paths": [".claude/**"],
+        "paths": [
+          ".claude/**"
+        ],
         "writes_policy": false
       }
     },
@@ -214,7 +312,9 @@
       "layer": "Adapters",
       "description": "Codex adapter (thin bridge tro ve pilothOS/).",
       "authority": {
-        "paths": [".codex/**"],
+        "paths": [
+          ".codex/**"
+        ],
         "writes_policy": false
       }
     },
@@ -224,7 +324,9 @@
       "layer": "Adapters",
       "description": "Cursor adapter (thin bridge tro ve pilothOS/).",
       "authority": {
-        "paths": [".cursor/**"],
+        "paths": [
+          ".cursor/**"
+        ],
         "writes_policy": false
       }
     },
@@ -234,7 +336,9 @@
       "layer": "Adapters",
       "description": "Antigravity adapter (thin bridge tro ve pilothOS/).",
       "authority": {
-        "paths": [".antigravity/**"],
+        "paths": [
+          ".antigravity/**"
+        ],
         "writes_policy": false
       }
     }

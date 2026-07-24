@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.12.0 — 2026-07-24 (preview / experimental)
+
 ### Agent-OS parity (T0–T6) — **preview / experimental**
 
 Toward an inspectable, self-extending agent OS at parity with `unicity-aos/aos-ce`,

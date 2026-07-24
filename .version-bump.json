@@ -17,6 +17,10 @@
       "field": "piloth_version"
     },
     {
+      "path": "pilothOS/governance/capability-manifest.json",
+      "field": "piloth_version"
+    },
+    {
       "path": "pilothOS/scripts/pilothos_installer.py",
       "pattern": "\"pilothos_version\": \"{VER}\""
     },

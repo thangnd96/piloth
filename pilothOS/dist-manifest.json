@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
- "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T10:53:35.132727+00:00",
- "source_commit": "2ce8f29244332a095dd5e1c23d2fe2d12bd49905",
- "manifest_digest": "74594f0536d119d934015771e10153a19ddde2bff4b4c9b0e5e8fe07c4c8837a",
+ "piloth_version": "1.12.0",
+ "generated_at": "2026-07-24T10:59:30.552714+00:00",
+ "source_commit": "0c19b4ea5f23d69cbb068e09fd165a494d757110",
+ "manifest_digest": "0e6276327ebce60b13bec8588d074de89e20ea29596233fd94b0f18c0b5e80c6",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -78,7 +78,7 @@
   {
    "path": ".claude/settings.json",
    "class": "consumer-owned",
-   "sha256": "0eb4f180db75e0839f567eae44696d57349ca50bcb186c6ae981b632991ad239"
+   "sha256": "79a93b789b749d337b50506dc3282a71c1a3064a24c510542b8265d240f17307"
   },
   {
    "path": ".claude/skills/piloth-team-setup/SKILL.md",
@@ -124,7 +124,7 @@
   {
    "path": "pilothOS/CHANGELOG.md",
    "class": "verbatim",
-   "sha256": "c4f70362b4b7d556d380a01a01bc9255db92537493200b91674876c3b9f13fe9"
+   "sha256": "217590d3bfd854904f70892d92f2f09c773766cbdb1c2956ffd7616bbaf31bc4"
   },
   {
    "path": "pilothOS/LICENSE",
@@ -219,7 +219,7 @@
   {
    "path": "pilothOS/governance/capability-manifest.json",
    "class": "verbatim",
-   "sha256": "46452211cb89677e2645e379949962f78d9abea4c324428cb80fd3f90369d333"
+   "sha256": "935af915831ecd6c6113e768eb10d61702d73d44294589786fd8d9271fac93e1"
   },
   {
    "path": "pilothOS/governance/index.md",
@@ -395,7 +395,7 @@
   {
    "path": "pilothOS/scripts/pilothos_installer.py",
    "class": "verbatim",
-   "sha256": "028b0983f88d24fdb5e7d2d58d04c626c8f3c5ce5f17b299e858bb1982e6802d"
+   "sha256": "61f2260e012e68957389a2051764e74f7264ab29822d2c14d56f6f27aa06c725"
   },
   {
    "path": "pilothOS/skills/index.md",
@@ -535,7 +535,7 @@
   {
    "path": "pilothOS/skills/workflow/pilothos-init/payloads/settings.json",
    "class": "verbatim",
-   "sha256": "0eb4f180db75e0839f567eae44696d57349ca50bcb186c6ae981b632991ad239"
+   "sha256": "79a93b789b749d337b50506dc3282a71c1a3064a24c510542b8265d240f17307"
   },
   {
    "path": "pilothOS/skills/workflow/pilothos-init/payloads/startup-contract-block.md",
