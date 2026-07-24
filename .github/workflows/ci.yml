@@ -31,6 +31,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      - name: Install pytest (install + benchmark suites use pytest)
+        run: python3 -m pip install --quiet pytest
+
       - name: Full test gate (engine, install, lifecycle, evaluation, docs, benchmark)
         env:
           SUITE_TIMEOUT: "150"
@@ -67,10 +70,10 @@ jobs:
       - name: Install pytest
         run: python3 -m pip install --quiet pytest
 
-      - name: Unit tests (skipped cleanly if none present yet)
+      - name: Unit + install + benchmark tests (skipped cleanly if none present yet)
         run: |
           if [ -d tests/unit ]; then
-            python3 -m pytest tests/unit -q
+            python3 -m pytest tests/unit tests/install tests/benchmark -q
           else
             echo "no tests/unit yet — skipping"
           fi

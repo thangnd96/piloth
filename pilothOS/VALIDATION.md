@@ -144,6 +144,27 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   prompt/completion telemetry. Artifact bytes or rough token estimates are
   diagnostic only.
 
+### Agent-OS parity (T0–T6) — preview limits
+
+- **T0–T6 ở trạng thái PREVIEW/experimental**: chứng minh qua none-vs-had
+  benchmark; không phải claim "stable OS". Enforcement advisory/partial theo thiết kế.
+- **Execution broker (`broker-check`)** là enforcement THẬT chỉ trên harness có hook
+  (Claude Code); **advisory** trên Codex/Cursor/Antigravity tới khi adapter route
+  tool-call qua guard. Broker cưỡng chế tại **biên tool-call**, KHÔNG sandbox
+  token-level của model; "ask" (high-risk) dựa vào native permission prompt của host.
+  Giới hạn đã biết: command-substitution lồng nhiều lớp và fork-bomb đổi tên
+  (deny-on-doubt phủ phần lớn wrapper/`$()`/backtick).
+- **Capability/authority model** advisory/fail-soft khi `coverage=partial`; fail-closed
+  cứng chỉ khi `coverage=full` (hiện `partial`).
+- **Provenance** (per-file `sha256` + `manifest_digest`) là content-addressed,
+  tamper-evident, reproducible — KHÔNG phải code signing / Sigstore / notarization;
+  ký digest + channels stable/dev/nightly là bước CI tương lai.
+- **Multi-tenant / principal attribution** là tương lai: `principal` hiện chỉ surface
+  ở introspection (`os-inspect`), chưa gắn vào receipt/state.
+- **Forge** chỉ scaffold + verify + trình authority-delta (READ-ONLY); activation
+  (ghi file + thêm capability-manifest + cấp quyền) là bước human-approved, sealed —
+  guard không tự kích hoạt (construction ≠ activation).
+
 ## Trạng thái phân phối
 
 - `rot/review-log.md`, `memory/lessons-learned.md`, Persona/Mục tiêu trong

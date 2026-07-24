@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Agent-OS parity (T0–T6) — **preview / experimental**
+
+Toward an inspectable, self-extending agent OS at parity with `unicity-aos/aos-ce`,
+proven by none-vs-had consumer benchmarks. **Enforcement is advisory/partial by
+design** (see `pilothOS/VALIDATION.md`) — this is a preview, not a stable-OS claim.
+
+- **T0 Capability & Authority kernel** — `pilothOS/governance/capability-manifest.json`
+  (fail-closed authority SSOT) + guard modes `capability-list` / `capability-check`
+  / `authority-delta`; wired advisory into `self-check` + `control-plane-check`.
+- **T1 Execution Broker / Airlock** (`broker-check`, PreToolUse:Bash) — unconditional
+  hard-deny of catastrophic commands (fork bomb, `mkfs`, `dd`→block device,
+  `rm`→protected root, redirect→device), with recursion into wrapper argv
+  (sudo/env/xargs/nice/…), shell `-c`/`eval` payloads and `$()`/backtick
+  substitution (deny-on-doubt). High-risk → ask (host prompt).
+- **T2 Unified Introspection** (`os-inspect`) — one legible system-status report
+  (version, capability/authority map, guard-mode surface, rot, health).
+- **T3 Piloth Forge** (`forge-scaffold` / `forge-verify` / `forge-plan` + skill
+  `piloth-forge` + templates) — governed self-extension: scaffold + verify +
+  present authority-delta; construction ≠ activation (never self-grants).
+- **T4 Supply-chain provenance** (`provenance`, `provenance --files`) — content-
+  addressed dist-manifest: per-file `sha256` + reproducible `manifest_digest` +
+  `source_commit`.
+- **T5 Composability** (`skill-index`) — workspace-wins skill precedence (consumer
+  override without forking) + `principal` (caller identity from context).
+- **T6 Upgrade self-heal** (`upgrade-verify`) — verifies an upgrade preserved
+  customization/state + kernel integrity; gated by `tests/install`.
+- **Hardening** — audit-driven (3 independent audits + adversarial fuzz). Fixed a
+  CRITICAL broker wrapper/substitution bypass; the none-vs-had `tests/benchmark`
+  and `tests/install` upgrade suites now run in CI (were previously dark).
+- New runtime docs: `capability-model`, `execution-broker`, `os-services`,
+  `supply-chain`, `composability`.
+
 ## v1.11.0 — 2026-07-23
 
 Update path first-class + drift-warning (vá thiếu sót "update plugin rồi thì bản đã init nâng cấp thế nào").

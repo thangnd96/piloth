@@ -1,9 +1,9 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-24T10:25:00.421732+00:00",
- "source_commit": "7a729428e3066fd7d76d9f1053d59b476eb035a4",
- "manifest_digest": "f153d0cbeda70f60b8357e466ffe7b670280a9146072886ec0d1c052a9390adb",
+ "generated_at": "2026-07-24T10:37:37.234343+00:00",
+ "source_commit": "4784b148246939e2c7e2f18ea3e8e8592c320835",
+ "manifest_digest": "1a5e58578796c2dd752af9eb31d5b6c81a1fc45c5a6e054b10f7d14f3372d356",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -124,7 +124,7 @@
   {
    "path": "pilothOS/CHANGELOG.md",
    "class": "verbatim",
-   "sha256": "aca5a65de53b5f4ac046d2fadbf65eb46df84c931346555e8bbcb36b7ae97392"
+   "sha256": "c4f70362b4b7d556d380a01a01bc9255db92537493200b91674876c3b9f13fe9"
   },
   {
    "path": "pilothOS/LICENSE",
@@ -144,7 +144,7 @@
   {
    "path": "pilothOS/VALIDATION.md",
    "class": "verbatim",
-   "sha256": "8b699ece07af37ce87b31b62438280157932146061e48b31318720c7efc2c4cc"
+   "sha256": "1d0c378d57c34d5e850f0087cefa5a2a7afaec2be29df114d762f62083e37b63"
   },
   {
    "path": "pilothOS/agent-teams/index.md",

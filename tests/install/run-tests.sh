@@ -170,10 +170,11 @@ from pathlib import Path
 
 settings = json.loads(Path(".claude/settings.json").read_text(encoding="utf-8"))
 pre = settings["hooks"]["PreToolUse"]
-assert len(pre) == 3, pre
+assert len(pre) == 4, pre
 assert pre[0]["hooks"][0]["command"] == "echo consumer-pre", pre
-assert pre[1]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py pre-edit", pre
-assert "review-hook.sh gate" in pre[2]["hooks"][0]["command"], pre
+assert pre[1]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py broker-check", pre
+assert pre[2]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py pre-edit", pre
+assert "review-hook.sh gate" in pre[3]["hooks"][0]["command"], pre
 stop = settings["hooks"]["Stop"]
 assert len(stop) == 2, stop
 assert stop[0]["hooks"][0]["command"] == "python3 pilothOS/scripts/pilothos_guard.py stop-check", stop
@@ -255,4 +256,9 @@ pay = pathlib.Path("$REPO/pilothOS/skills/workflow/pilothos-init/payloads/identi
 assert pay.strip() in tpl, "templates/CLAUDE.md KHONG chua identity payload — drift!"
 print("sync-templates PASS")
 EOP
+echo "== upgrade self-heal (pytest) =="
+cd "$REPO"
+python3 -m pytest tests/install -q
+echo "upgrade self-heal PASS"
+
 echo "INSTALL SUITE: ALL PASS"
