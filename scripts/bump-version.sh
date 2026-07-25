@@ -45,6 +45,9 @@ for item in cfg["files"]:
         p.write_text(t, encoding="utf-8")
     print(f"bumped {p}")
 PY
+# Some bumped files are src/ fragments, so the shipped amalgamations must be
+# rebuilt or they go stale vs src/ and fail the build_bundles --check release gate.
+python3 scripts/build_bundles.py > /dev/null && echo "bundles rebuilt"
 python3 scripts/build_manifest.py . > /dev/null && echo "manifest regenerated"
 python3 - "$NEW" "$OLD" << 'PY'
 import json, sys, pathlib

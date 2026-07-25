@@ -18,7 +18,7 @@ Lưu FACT: specification, documentation, standards và domain knowledge lâu dà
 
 | Path | Scope |
 |---|---|
-| `architecture/` | Quyết định và mô tả kiến trúc |
+| `architecture/` | Quyết định và mô tả kiến trúc, gồm codebase intelligence |
 | `domain/` | Thuật ngữ và fact nghiệp vụ |
 | `standards/` | Standards được dự án chấp nhận |
 
@@ -32,4 +32,3 @@ Mỗi fact quan trọng phải có source hoặc Evidence. Documentation lệch 
 - Fact quan trọng có source hoặc Evidence truy vết được không?
 - Knowledge nào đã lỗi thời, trùng lặp hoặc mâu thuẫn?
 - Nội dung nào đang là context tạm thời và nên chuyển về Memory?
-

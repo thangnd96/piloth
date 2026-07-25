@@ -19,8 +19,15 @@ Các mode:
   asset-scan      Deterministic JSON/markdown scan of repo assets.
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
+  evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+                 Prints the acting digest; `--verbose` prints the full decision.
+  adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
   route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
   context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
+  payload-budget  Đo footprint output (bytes/token) của các command một task gọi.
+  codebase-index  Tạo local SQLite code graph theo budget explicit.
+  codebase-status Báo freshness/coverage count của code graph hiện tại.
+  codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
   rot-status      Rot signal gọn (chỉ scope quá hạn) — lazy load thay vì cả registry.
   reuse-scan      Evidence-shaped semantic reuse candidate scan.
   ds-scan         Evidence-shaped design-system candidate scan.
@@ -30,6 +37,7 @@ Các mode:
   os-start       Open an adaptive OS task run and write the scoped contract.
                  `os-start --explain` prints the request schema (no run opened).
   os-status      Show active OS task status, mode and cost ledger.
+                 `os-status --verbose` prints the full router decision too.
   os-evidence    Append sanitized command/tool/metric evidence to an OS run.
   os-close       Validate receipt, gates, truth claims and target seal.
                  `os-close --dry-run` runs the full validation without sealing.
@@ -68,10 +76,11 @@ Ghi chú thiết kế:
   Ladder: điều kiện "có thay đổi mà log chưa động" là máy móc nên hook được;
   chất lượng nội dung log vẫn cần judgment của model.
 """
-# GENERATED FILE — assembled from src/guard/*.py by scripts/build_guard.py.
+# GENERATED FILE — assembled from src/guard/*.py by scripts/build_bundles.py.
 # Edit the fragments and rebuild; hand-edits here are overwritten and caught by
 # the bundle-up-to-date gate in tests/unit.
 import sys
+import ast
 import re
 import json
 import time
@@ -81,6 +90,7 @@ import hashlib
 import datetime
 import pathlib
 import shlex
+import sqlite3
 import subprocess
 import shutil
 
@@ -91,10 +101,33 @@ REGISTRY = PILOTHOS_DIR / "rot" / "registry.md"
 CONSUMER_ASSETS = PILOTHOS_DIR / "runtime" / "consumer-assets.md"
 SELF_HOSTING_DOC = PILOTHOS_DIR / "runtime" / "self-hosting.md"
 SCHEDULER_HISTORY = PILOTHOS_DIR / "memory" / "state" / "scheduler-history.jsonl"
+EVIDENCE_ROUTER_MATRIX = PILOTHOS_DIR / "runtime" / "evidence-routing.json"
+# Embedded fallback for the Evidence Router quality floor — the ONLY place these
+# numbers are written down. evidence-routing.json overrides them at runtime and
+# every threshold decision reads the merged result via
+# evidence_router_quality_floor(); the thresholds used to be duplicated as
+# literals across the routing decisions, so editing the JSON changed the reported
+# floor without changing a single decision.
+#   route_confidence          - floor for the confidence of the route itself
+#   evidence_item_confidence  - floor for ONE evidence item before it drags the
+#                               route confidence down (a different question from
+#                               route_confidence; kept separate on purpose)
+DEFAULT_QUALITY_FLOOR = {
+    "max_non_inferiority_delta_pp": 2,
+    "route_confidence": 0.80,
+    "evidence_item_confidence": 0.80,
+    "specialist_score": 70,
+    "team_score": 60,
+}
+ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.json"
+SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"
+MODEL_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "model-capabilities.json"
 RECEIPT_SEALS = PILOTHOS_DIR / "memory" / "state" / "receipt-seals.jsonl"
 TEAM_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "team-runs"
 OS_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "os-runs"
 OS_CURRENT = OS_RUNS_DIR / "current.json"
+CODEBASE_INDEX_DIR = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
+CODEBASE_INDEX_DB = CODEBASE_INDEX_DIR / "index.sqlite3"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
@@ -175,11 +208,12 @@ REUSE_EVIDENCE_DECISIONS = {"reuse", "not_applicable", "not_enough"}
 ASSET_ROUTING_DECISIONS = {"loaded", "skipped", "approval_required", "not_applicable"}
 ASSET_ROUTING_SIGNALS = {
     "UI/component", "API/backend", "bug fix", "release/deploy",
-    "tool/MCP", "not_applicable",
+    "tool/MCP", "architecture", "security", "not_applicable",
 }
 ASSET_ROUTING_TYPES = {
     "skill", "hook", "tool", "mcp", "command", "design-system", "doc",
-    "convention", "test-runner", "build-runner", "not_applicable",
+    "convention", "test-runner", "build-runner", "agent", "specialist",
+    "not_applicable",
 }
 UI_DESIGN_SYSTEM_DECISIONS = {"reuse", "extend", "new", "not_applicable"}
 UI_RECEIPT_FIELDS = {
@@ -229,27 +263,126 @@ HIGH_RISK_COMMAND_PATTERNS = (
     r"\bgcloud\b.*\b(delete|deploy|update|create)\b",
     r"\bvercel\b.*\b--prod\b",
 )
-READ_ONLY_GUARD_MODES = {
-    "asset-health",
-    "asset-scan",
-    "artifact-janitor",
-    "state-janitor",
-    "context-budget",
-    "control-plane-check",
-    "ds-scan",
-    "rot-status",
-    "production-review",
-    "receipt-verify",
-    "review-verify",
-    "reuse-scan",
-    "route-task",
-    "scheduler-suggest",
-    "self-host-check",
-    "state-doctor",
-    "os-status",
-    "os-verify",
-    "os-report",
+# --------------------------------------------------------- guard mode registry
+# SSOT for everything the guard knows about its own modes. Four hand-maintained
+# lists used to encode this separately (dispatch table, read-only set, self-host
+# set, control-plane set) and had already drifted: `artifact-janitor --fix` was
+# advertised read-only while it removes files, and `codebase-status` was not
+# advertised read-only although it never writes. Every one of those lists is now
+# derived from here, so a new mode cannot be half-registered.
+#
+# mutates:  False        -> never writes to disk
+#           True         -> always writes
+#           (flag, ...)  -> writes only when one of these argv flags is present
+# Verified against a call-graph reachability check over the shipped bundle; the
+# test suite re-runs that check so this table cannot silently drift from code.
+def _guard_mode(arg_kind, mutates=False, self_host=False, control_plane=False):
+    return {
+        "arg_kind": arg_kind,
+        "mutates": mutates,
+        "self_host": self_host,
+        "control_plane": control_plane,
+    }
+
+
+GUARD_MODES = {
+    # hook modes (read hook JSON from stdin)
+    "session-start": _guard_mode("hook", mutates=True),
+    "prompt-check": _guard_mode("hook", mutates=True),
+    "stop-check": _guard_mode("hook"),
+    "pre-edit": _guard_mode("hook", self_host=True),
+    "post-edit": _guard_mode("hook", mutates=True, self_host=True),
+    # argv modes (JSON arg / file / stdin payload)
+    "contract-write": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "evidence-add": _guard_mode("argv", mutates=True, control_plane=True),
+    "tool-check": _guard_mode("argv", control_plane=True),
+    "receipt-write": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-start": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-status": _guard_mode("argv", self_host=True, control_plane=True),
+    "os-evidence": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "token-telemetry": _guard_mode("argv", mutates=True),
+    "os-close": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-verify": _guard_mode("argv", self_host=True, control_plane=True),
+    "os-report": _guard_mode("argv", self_host=True, control_plane=True),
+    "review-request": _guard_mode("argv", mutates=True),
+    "review-feedback": _guard_mode("argv", mutates=True),
+    "review-verify": _guard_mode("argv"),
+    "asset-scan": _guard_mode("argv", self_host=True, control_plane=True),
+    "asset-health": _guard_mode("argv", self_host=True, control_plane=True),
+    "asset-sync": _guard_mode("argv", mutates=True, self_host=True),
+    "adapter-capabilities": _guard_mode("argv", self_host=True, control_plane=True),
+    "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
+    "route-task": _guard_mode("argv", self_host=True),
+    "context-budget": _guard_mode("argv"),
+    "payload-budget": _guard_mode("argv"),
+    "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
+    "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
+    "reuse-scan": _guard_mode("argv", self_host=True),
+    "ds-scan": _guard_mode("argv", self_host=True),
+    "scheduler-suggest": _guard_mode("argv", self_host=True),
+    "scheduler-record": _guard_mode("argv", mutates=True, self_host=True),
+    "receipt-seal": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "receipt-verify": _guard_mode("argv", self_host=True, control_plane=True),
+    # --fix removes artifact dirs/files; --target aims that removal at ANOTHER
+    # repo, so it is a write even without --fix.
+    "artifact-janitor": _guard_mode(
+        "argv", mutates=("--fix", "--target"), self_host=True, control_plane=True,
+    ),
+    # --fix prunes sealed-run artifacts, truncates the scheduler tail and rotates
+    # kernel logs.
+    "state-janitor": _guard_mode("argv", mutates=("--fix",)),
+    "control-plane-check": _guard_mode("argv", self_host=True, control_plane=True),
+    "team-contract-write": _guard_mode("argv", mutates=True, self_host=True),
+    "team-receipt-write": _guard_mode("argv", mutates=True, self_host=True),
+    "log-append": _guard_mode("argv", mutates=True),
+    # no-arg modes
+    "rot-status": _guard_mode("none"),
+    "receipt-template": _guard_mode("none"),
+    "statusline": _guard_mode("none"),
+    "self-check": _guard_mode("none"),
+    "self-host-check": _guard_mode("none", self_host=True),
+    "preflight": _guard_mode("none"),
+    "detect": _guard_mode("none"),
+    "audit-assets": _guard_mode("none"),
+    "registry-assets": _guard_mode("none"),
+    "state-doctor": _guard_mode("none", self_host=True),
+    "production-review": _guard_mode("none", self_host=True, control_plane=True),
 }
+# Modes that MAY be treated as read-only: those that never write, plus the two
+# janitors whose writes are flag-gated (the flag check lives in
+# command_is_read_only_guard, which reads GUARD_MODES["mutates"] directly).
+READ_ONLY_GUARD_MODES = frozenset(
+    mode for mode, meta in GUARD_MODES.items() if meta["mutates"] is not True
+)
+SELF_HOST_REQUIRED_GUARD_MODES = tuple(
+    sorted(mode for mode, meta in GUARD_MODES.items() if meta["self_host"])
+)
+CONTROL_PLANE_REQUIRED_GUARD_MODES = frozenset(
+    mode for mode, meta in GUARD_MODES.items() if meta["control_plane"]
+)
+
+
+def mode_mutates(mode, args=()):
+    """Whether running `mode` with `args` writes to disk.
+
+    Answers straight from GUARD_MODES so no caller can disagree with the
+    registry. An unrecognised mode counts as mutating: a mode this guard does not
+    know about must never be handed a read-only exemption.
+    """
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
+        return True
+    mutates = meta["mutates"]
+    if isinstance(mutates, bool):
+        return mutates
+    return any(
+        arg == flag or arg.startswith(flag + "=")
+        for arg in args
+        for flag in mutates
+    )
+
+
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
 ENV_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -321,35 +454,6 @@ COST_CLAIM_RE = re.compile(
     re.IGNORECASE,
 )
 SUPERIORITY_PASS_RESULTS = {"consumer_value_passed", "passed", "pass", "superior", "better"}
-SELF_HOST_REQUIRED_GUARD_MODES = (
-    "contract-write",
-    "pre-edit",
-    "post-edit",
-    "receipt-write",
-    "self-host-check",
-    "asset-scan",
-    "asset-health",
-    "asset-sync",
-    "route-task",
-    "reuse-scan",
-    "ds-scan",
-    "scheduler-suggest",
-    "scheduler-record",
-    "state-doctor",
-    "receipt-seal",
-    "receipt-verify",
-    "artifact-janitor",
-    "control-plane-check",
-    "production-review",
-    "os-start",
-    "os-status",
-    "os-evidence",
-    "os-close",
-    "os-verify",
-    "os-report",
-    "team-contract-write",
-    "team-receipt-write",
-)
 PRODUCTION_FORBIDDEN_PATHS = {
     "pilothOS/scripts/pilothos_hostd.py",
     "pilothOS/runtime/host-control-plane.md",
@@ -453,6 +557,9 @@ SAFE_OS_EVIDENCE_METADATA_KEYS = {
     "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
     "total_tokens", "real_token_telemetry", "unavailable_reason",
     "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+    # `unpriced_tokens` matches SECRET_KEY_RE on "token" — it is a count, not a
+    # credential, so it needs the same exemption the other *_tokens counts have.
+    "unpriced_tokens",
     "model", "pricing_source", "window_start", "subagent_scope",
     "consumer_value_result", "all_mandatory_not_worse",
     "consumer_visible_win", "mandatory_regressions", "wins",
@@ -511,6 +618,18 @@ TASK_SIGNAL_ROUTES = {
         "load_policy": "task-routed",
         "context_layers": ("tools/index.md", "runtime/context-loading.md"),
     },
+    "architecture": {
+        "task_signal": "architecture",
+        "asset_types": ("specialist", "agent", "convention", "doc"),
+        "load_policy": "task-routed",
+        "context_layers": ("knowledge/architecture/README.md", "runtime/context-loading.md"),
+    },
+    "security": {
+        "task_signal": "security",
+        "asset_types": ("specialist", "agent", "tool", "test-runner"),
+        "load_policy": "approval-required",
+        "context_layers": ("governance/operational-controls.md", "evaluation/quality-gates.md"),
+    },
     "not_applicable": {
         "task_signal": "not_applicable",
         "asset_types": ("not_applicable",),
@@ -518,8 +637,6 @@ TASK_SIGNAL_ROUTES = {
         "context_layers": ("runtime/context-loading.md",),
     },
 }
-
-
 # -------------------------------------------------------------- small helpers
 
 def stable_slug(value):
@@ -2607,8 +2724,21 @@ def dynamic_agent_assets(rows, seen):
             continue
         for path in sorted(root.rglob("*.md")):
             rel = path.relative_to(REPO_ROOT).as_posix()
-            add_audit_row(rows, seen, rel, "doc", "agent definition",
+            add_audit_row(rows, seen, rel, "agent", "agent definition",
                           risk="medium", handling="index")
+    specialist_roots = [
+        REPO_ROOT / ".agents" / "specialists",
+        REPO_ROOT / ".claude" / "specialists",
+        REPO_ROOT / "specialists",
+    ]
+    for root in specialist_roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.md")):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            add_audit_row(rows, seen, rel, "specialist",
+                          "explicit specialist definition",
+                          risk="medium", handling="route")
 
 
 def collect_consumer_asset_rows():
@@ -2678,6 +2808,11 @@ def collect_consumer_asset_rows():
             add_audit_row(rows, seen, rel, "mcp",
                           "MCP/tool configuration", risk="medium",
                           handling="route")
+    for rel in (".piloth/specialists.json", "piloth-specialists.json"):
+        if (REPO_ROOT / rel).exists():
+            add_audit_row(rows, seen, rel, "specialist",
+                          "explicit consumer specialist registry",
+                          owner="consumer", risk="medium", handling="route")
 
     for rel in ("scripts/test.sh", "scripts/test", "scripts/build.sh",
                 "scripts/lint.sh", "Makefile"):
@@ -3154,37 +3289,13 @@ def apply_bootstrap_mode(files, mode):
     return list(files)
 
 
-def route_task_payload(payload):
-    if not isinstance(payload, dict):
-        return {"result": "route_rejected", "errors": ["route payload must be a JSON object"]}
-    key = normalize_task_signal(payload.get("task_signal"))
-    route = TASK_SIGNAL_ROUTES.get(key)
-    if not route:
-        return {
-            "result": "route_rejected",
-            "errors": [
-                "task_signal must be one of: "
-                + ", ".join(sorted(r["task_signal"] for r in TASK_SIGNAL_ROUTES.values()))
-            ],
-        }
+def route_task_asset_views(detected, route):
+    """(detected_assets, consumer_asset_routing, context_evidence) for one route.
 
-    asset_types = set(route["asset_types"])
-    all_rows = collect_consumer_asset_rows()
-    detected = [
-        row for row in all_rows
-        if row.get("type") in asset_types
-    ]
-    skipped_assets = [
-        {
-            "asset": row["asset"],
-            "type": row["type"],
-            "risk": row["risk"],
-            "decision": "skipped",
-            "reason": f"{row['type']} is not routed for {route['task_signal']}",
-        }
-        for row in all_rows
-        if row.get("type") not in asset_types
-    ]
+    Three views over the same asset set, kept together because they are derived
+    from the same per-asset health lookup. Only the last two are contract shapes
+    (validated on contract/receipt); `detected_assets` is a plain inventory view.
+    """
     asset_rows = []
     routing = []
     context_evidence = []
@@ -3192,26 +3303,30 @@ def route_task_payload(payload):
         load_when = registry_load_when(row)
         health = health_for_asset(normalize_asset_row(row))
         health_status = health.get("status")
+        # `reason` stays a non-empty string (the contract validator requires it),
+        # but it should not restate what the entry already carries structurally:
+        # the row has task_signal and asset_type, so the asset PATH is the only
+        # new information — and it is load-bearing, because a routing entry has
+        # no `asset` field to identify which asset it decided about.
         if health_status == "healthy":
             decision = "approval_required" if load_when == "approval-required" else "loaded"
-            routing_reason = f"{row['asset']} matched {route['task_signal']} routing"
+            routing_reason = f"matched {row['asset']}"
         elif health_status == "needs_approval":
             decision = "approval_required"
-            routing_reason = f"{row['asset']} matched but health requires approval: {health.get('health_reason')}"
-        elif health_status in {"missing", "stale"}:
-            decision = "skipped"
-            routing_reason = f"{row['asset']} matched but health is {health_status}: {health.get('health_reason')}"
+            routing_reason = f"{row['asset']}: approval required ({health.get('health_reason')})"
         else:
             decision = "skipped"
-            routing_reason = f"{row['asset']} matched but health is {health_status}: {health.get('health_reason')}"
+            routing_reason = f"{row['asset']}: health {health_status} ({health.get('health_reason')})"
+        # Inventory view, not a contract shape: nothing validates it and no doc
+        # specifies it. `health_reason` mostly restated the asset path, and
+        # `handling` was almost always "index" — both are available from
+        # asset-scan / asset-health when the detail is actually wanted.
         asset_rows.append({
             "asset": row["asset"],
             "type": row["type"],
             "risk": row["risk"],
-            "handling": row["handling"],
             "load_when": load_when,
             "health_status": health_status,
-            "health_reason": health.get("health_reason"),
         })
         routing.append({
             "task_signal": route["task_signal"],
@@ -3221,7 +3336,9 @@ def route_task_payload(payload):
         })
         context_evidence.append({
             "source": row["asset"],
-            "reason": f"{row['type']} matched {route['task_signal']} routing",
+            # `source` already names the asset and the paired routing entry
+            # already names the signal — the asset type is what this adds.
+            "reason": f"routed as {row['type']}",
             "finding": f"{row['capability']} (health: {health_status})",
         })
     if not routing:
@@ -3236,12 +3353,44 @@ def route_task_payload(payload):
             "reason": f"{route['task_signal']} routing lookup",
             "finding": "no matching consumer asset detected by deterministic audit",
         })
+    return asset_rows, routing, context_evidence
+
+
+def route_task_payload(payload):
+    if not isinstance(payload, dict):
+        return {"result": "route_rejected", "errors": ["route payload must be a JSON object"]}
+    key = normalize_task_signal(payload.get("task_signal"))
+    route = TASK_SIGNAL_ROUTES.get(key)
+    if not route:
+        return {
+            "result": "route_rejected",
+            "errors": [
+                "task_signal must be one of: "
+                + ", ".join(sorted(r["task_signal"] for r in TASK_SIGNAL_ROUTES.values()))
+            ],
+        }
+    asset_types = set(route["asset_types"])
+    all_rows = collect_consumer_asset_rows()
+    detected = [
+        row for row in all_rows
+        if row.get("type") in asset_types
+    ]
+    # Receipt guidance, not a validated contract shape. The rule is the same for
+    # every row, so it is stated once as `skipped_reason` instead of repeated per
+    # asset — the old per-row `reason`/`decision`/`risk` restated the row's own
+    # type plus the response's task_signal, once per asset.
+    skipped_assets = [
+        {"asset": row["asset"], "type": row["type"]}
+        for row in all_rows
+        if row.get("type") not in asset_types
+    ]
+    asset_rows, routing, context_evidence = route_task_asset_views(detected, route)
 
     mode = context_mode_from_payload(payload)
     index_first = apply_context_mode(
         ["runtime/consumer-assets.md", "runtime/context-loading.md"], mode)
     context_layers = apply_context_mode(list(route["context_layers"]), mode)
-    return {
+    result = {
         "result": "route_suggested",
         "task_signal": route["task_signal"],
         "context_mode": mode,
@@ -3251,9 +3400,29 @@ def route_task_payload(payload):
         "inspect_asset_types": list(route["asset_types"]),
         "detected_assets": asset_rows,
         "skipped_assets": skipped_assets,
+        "skipped_reason": (
+            f"asset type is not routed for {route['task_signal']}"
+            if skipped_assets else ""
+        ),
         "context_evidence": context_evidence,
         "consumer_asset_routing": routing,
     }
+    return route_task_attach_evidence_router(result, payload)
+
+
+def route_task_attach_evidence_router(result, payload):
+    """Add the canonical decision without changing any V1 wrapper field."""
+    if payload.get("_router_compat_only") is True:
+        return result
+    router_request = dict(payload)
+    router_request.setdefault("intent", payload.get("task_scope") or "")
+    # Digest, not the full decision: this wrapper is a routing hint, and the full
+    # blob was 5.8 KB of the 20 KB route-task printed. Callers that need all of
+    # it call evidence-route --verbose.
+    result["evidence_router"] = evidence_route_digest(
+        evidence_route_payload(router_request),
+    )
+    return result
 
 
 def route_task(argv):
@@ -3263,8 +3432,6 @@ def route_task(argv):
         json_print({"result": "route_rejected", "errors": [str(e)]})
         return
     json_print(route_task_payload(payload))
-
-
 # --------------------------------------------------------- context budget
 
 # The kernel files bootstrap.md prescribes as always-loaded before any task.
@@ -3295,11 +3462,51 @@ def estimate_context_tokens(num_bytes):
     return (num_bytes + 3) // 4
 
 
+# Append-only ledgers whose size tracks how long an install has been running, not
+# how big the kernel is: the auto-log gate appends to them on every session that
+# changes files. They are also staged header-only, so they are ~0 bytes for a fresh
+# consumer while the Piloth repo's own copies keep growing. Counting them would make
+# both ceilings a moving target measured against the wrong install.
+GROWING_LEDGERS = ("rot/review-log.md", "memory/lessons-learned.md")
+
+
+def kernel_md_paths():
+    """Kernel markdown docs that count toward a ceiling, newest state excluded."""
+    for path in PILOTHOS_DIR.rglob("*.md"):
+        if path.relative_to(PILOTHOS_DIR).as_posix() in GROWING_LEDGERS:
+            continue
+        yield path
+
+
 def full_kernel_footprint():
     """(file_count, total_bytes) of every kernel markdown doc — the load-all ceiling."""
     total = 0
     files = 0
-    for path in PILOTHOS_DIR.rglob("*.md"):
+    for path in kernel_md_paths():
+        try:
+            total += path.stat().st_size
+            files += 1
+        except OSError:
+            continue
+    return files, total
+
+
+# Docs that inflate the full-kernel ceiling without ever being routable context:
+# skills/ payloads are only opened while that skill executes, and README/
+# VALIDATION document the kernel to humans instead of instructing a task. Kept
+# out of the honest denominator so the savings figure is not flattered by text a
+# routed task could never have loaded.
+NON_ROUTABLE_KERNEL = ("README.md", "VALIDATION.md", "CHANGELOG.md")
+
+
+def routable_kernel_footprint():
+    """(file_count, total_bytes) of the kernel docs a routed task could load."""
+    total = 0
+    files = 0
+    for path in kernel_md_paths():
+        rel = path.relative_to(PILOTHOS_DIR)
+        if rel.parts[0] == "skills" or rel.as_posix() in NON_ROUTABLE_KERNEL:
+            continue
         try:
             total += path.stat().st_size
             files += 1
@@ -3346,6 +3553,11 @@ def context_budget_payload(payload):
     kernel_files, kernel_bytes = full_kernel_footprint()
     saved_bytes = max(kernel_bytes - loaded_bytes, 0)
     savings_pct = round(saved_bytes / kernel_bytes * 100, 1) if kernel_bytes else 0.0
+    routable_files, routable_bytes = routable_kernel_footprint()
+    routable_savings_pct = (
+        round(max(routable_bytes - loaded_bytes, 0) / routable_bytes * 100, 1)
+        if routable_bytes else 0.0
+    )
 
     return {
         "result": "context_budget",
@@ -3365,6 +3577,12 @@ def context_budget_payload(payload):
         "full_kernel_tokens_est": estimate_context_tokens(kernel_bytes),
         "saved_bytes_vs_full_kernel": saved_bytes,
         "savings_pct_vs_full_kernel": savings_pct,
+        # The honest comparison: routable docs only. Lower than the full-kernel
+        # figure by design — quote this one when claiming a saving.
+        "routable_kernel_files": routable_files,
+        "routable_kernel_bytes": routable_bytes,
+        "routable_kernel_tokens_est": estimate_context_tokens(routable_bytes),
+        "savings_pct_vs_routable_kernel": routable_savings_pct,
     }
 
 
@@ -3375,6 +3593,78 @@ def context_budget(argv):
         json_print({"result": "context_budget_rejected", "errors": [str(e)]})
         return
     json_print(context_budget_payload(payload))
+
+
+# --------------------------------------------------------- payload budget
+
+# The read-only commands a routed task actually calls, with the smallest
+# realistic argument for each. Their JSON lands in the agent's context, so it
+# costs tokens exactly like a loaded file — and context-budget never saw it.
+PER_TASK_PAYLOAD_PROBES = (
+    ("route-task", lambda signal: route_task_payload({"task_signal": signal})),
+    ("rot-status", lambda signal: rot_status_payload()),
+    ("codebase-status", lambda signal: codebase_status_payload()),
+    ("adapter-capabilities", lambda signal: adapter_capabilities_payload({})),
+    ("evidence-route", lambda signal: evidence_route_digest(
+        evidence_route_payload({
+            "task_signal": signal,
+            "task_type": "code",
+            "scope": "narrow",
+        }),
+    )),
+)
+
+
+def printed_payload_bytes(payload):
+    """Bytes a payload occupies once json_print has written it."""
+    return len(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    ) + 1
+
+
+def payload_budget_payload(payload=None):
+    """Per-command tool-output footprint for one routed task.
+
+    Sibling of context_budget: that one measures the kernel text a task pulls
+    into context, this one measures the JSON the task prints back into it. Both
+    are ~4 bytes/token estimates and neither is llm_usage telemetry.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    signal = str(payload.get("task_signal") or "bug fix")
+    commands = []
+    for name, probe in PER_TASK_PAYLOAD_PROBES:
+        try:
+            num_bytes = printed_payload_bytes(probe(signal))
+        except Exception as e:
+            # A broken probe must degrade the meter, never break the caller.
+            commands.append({"command": name, "error": str(e)})
+            continue
+        commands.append({
+            "command": name,
+            "bytes": num_bytes,
+            "tokens_est": estimate_context_tokens(num_bytes),
+        })
+    total = sum(item.get("bytes", 0) for item in commands)
+    return {
+        "result": "payload_budget",
+        "metric": "tool_output",
+        "note": "per-command output footprint (bytes/estimated tokens); not llm_usage telemetry",
+        "task_signal": signal,
+        "commands": commands,
+        "total_bytes": total,
+        "total_tokens_est": estimate_context_tokens(total),
+    }
+
+
+def payload_budget(argv):
+    payload = {}
+    if argv:
+        try:
+            payload, _ = json_arg_or_stdin(argv, "payload-budget")
+        except Exception as e:
+            json_print({"result": "payload_budget_rejected", "errors": [str(e)]})
+            return
+    json_print(payload_budget_payload(payload))
 
 
 def rot_status_payload():
@@ -3396,6 +3686,1009 @@ def rot_status():
     json_print(rot_status_payload())
 
 
+# ------------------------------------------------ codebase intelligence
+
+# This stdlib reference engine locks Piloth's adapter-neutral contract. The
+# maintained native fork can replace indexing/query execution behind the same
+# SQLite/JSON boundary without moving orchestration into adapters.
+CODEBASE_SCHEMA_VERSION = 2
+CODEBASE_CONTRACT_VERSION = 1
+CODEBASE_ENGINE_VERSION = 1
+CODEBASE_DEFAULT_MAX_FILES = 50000
+CODEBASE_DEFAULT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
+CODEBASE_MAX_FILE_BYTES = 2 * 1024 * 1024
+CODEBASE_SKIP_DIRS = {
+    ".git", ".hg", ".svn", ".venv", "venv", "__pycache__", "node_modules",
+    "vendor", "dist", "build", ".next", ".turbo", "coverage",
+}
+CODEBASE_GENERATED_MARKERS = (
+    "generated file", "do not edit", "auto-generated", "autogenerated",
+    "code generated",
+)
+CODEBASE_LANGUAGES = {
+    ".py": "Python", ".pyi": "Python", ".js": "JavaScript", ".jsx": "JavaScript",
+    ".mjs": "JavaScript", ".cjs": "JavaScript", ".ts": "TypeScript",
+    ".tsx": "TypeScript", ".go": "Go", ".rs": "Rust", ".java": "Java",
+    ".kt": "Kotlin", ".kts": "Kotlin", ".c": "C", ".h": "C/C++",
+    ".cc": "C++", ".cpp": "C++", ".cxx": "C++", ".hpp": "C++",
+    ".cs": "C#", ".php": "PHP", ".rb": "Ruby", ".swift": "Swift",
+    ".scala": "Scala", ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell",
+    ".sql": "SQL", ".html": "HTML", ".css": "CSS", ".scss": "SCSS",
+    ".vue": "Vue", ".svelte": "Svelte", ".dart": "Dart", ".ex": "Elixir",
+    ".exs": "Elixir", ".erl": "Erlang", ".hrl": "Erlang", ".hs": "Haskell",
+    ".lua": "Lua", ".r": "R", ".R": "R", ".m": "Objective-C/MATLAB",
+    ".mm": "Objective-C++", ".pl": "Perl", ".pm": "Perl", ".fs": "F#",
+    ".fsx": "F#", ".clj": "Clojure", ".cljs": "Clojure", ".zig": "Zig",
+    ".sol": "Solidity", ".tf": "HCL", ".proto": "Protobuf", ".graphql": "GraphQL",
+    ".gql": "GraphQL", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
+    ".json": "JSON", ".xml": "XML", ".md": "Markdown", ".rst": "reStructuredText",
+}
+
+
+def codebase_index_paths():
+    """Resolve state paths dynamically so controlled-target tests can rebind roots."""
+    state_dir = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
+    return state_dir, state_dir / "index.sqlite3"
+
+
+def codebase_safe_index_paths():
+    state_dir, db_path = codebase_index_paths()
+    try:
+        root = REPO_ROOT.resolve()
+        if state_dir.is_symlink() or db_path.is_symlink():
+            return None, None, "codebase index state must not use symlinks"
+        resolved_parent = state_dir.parent.resolve()
+        if os.path.commonpath((str(root), str(resolved_parent))) != str(root):
+            return None, None, "codebase index state escapes repository root"
+        if state_dir.exists():
+            resolved_state = state_dir.resolve()
+            if os.path.commonpath((str(root), str(resolved_state))) != str(root):
+                return None, None, "codebase index state escapes repository root"
+    except (OSError, ValueError) as exc:
+        return None, None, f"cannot validate codebase index state: {exc}"
+    return state_dir, db_path, None
+
+
+def codebase_repo(payload):
+    raw = str((payload or {}).get("repo_path") or REPO_ROOT)
+    try:
+        requested = pathlib.Path(raw).expanduser().resolve()
+        controlled = REPO_ROOT.resolve()
+    except OSError as exc:
+        return None, f"cannot resolve repo_path: {exc}"
+    if requested != controlled:
+        return None, "repo_path must be the Piloth-controlled consumer repository"
+    if not requested.is_dir():
+        return None, "repo_path is not a directory"
+    return requested, None
+
+
+def codebase_git(root, *args, timeout=10):
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def codebase_git_state(root):
+    head_run = codebase_git(root, "rev-parse", "HEAD")
+    head = head_run.stdout.strip() if head_run and head_run.returncode == 0 else ""
+    status_run = codebase_git(
+        root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    if not status_run or status_run.returncode != 0:
+        return {"git": False, "head": "", "worktree": "", "dirty_paths": []}
+    raw = status_run.stdout
+    dirty = []
+    for item in raw.split("\0"):
+        if len(item) >= 4:
+            rel = item[3:].strip()
+            if rel and " -> " in rel:
+                rel = rel.rsplit(" -> ", 1)[-1]
+            if rel:
+                dirty.append(rel)
+    digest = hashlib.sha256(raw.encode("utf-8", errors="replace"))
+    for rel in sorted(set(dirty)):
+        path = root / rel
+        try:
+            if path.is_file() and not path.is_symlink():
+                digest.update(rel.encode("utf-8"))
+                digest.update(hashlib.sha256(path.read_bytes()).digest())
+        except OSError:
+            digest.update(f"{rel}:missing".encode("utf-8"))
+    return {
+        "git": True,
+        "head": head,
+        "worktree": digest.hexdigest(),
+        "dirty_paths": sorted(set(dirty)),
+    }
+
+
+def codebase_fallback_paths(root):
+    paths = []
+    state_dir, _ = codebase_index_paths()
+    for current, dirs, names in os.walk(root, topdown=True, followlinks=False):
+        current_path = pathlib.Path(current)
+        dirs[:] = sorted(
+            name for name in dirs
+            if name not in CODEBASE_SKIP_DIRS
+            and not (current_path / name).is_symlink()
+        )
+        for name in sorted(names):
+            path = current_path / name
+            try:
+                if path.is_symlink() or state_dir in path.parents:
+                    continue
+                paths.append(path.relative_to(root).as_posix())
+            except (OSError, ValueError):
+                continue
+    return paths
+
+
+def codebase_discover_paths(root):
+    tracked = codebase_git(
+        root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    if tracked and tracked.returncode == 0:
+        candidates = sorted(set(filter(None, tracked.stdout.split("\0"))))
+    else:
+        candidates = codebase_fallback_paths(root)
+    state_rel = "pilothOS/memory/state/codebase-index/"
+    paths = []
+    for rel in candidates:
+        if rel.startswith(state_rel):
+            continue
+        parts = pathlib.PurePosixPath(rel).parts
+        if any(part in CODEBASE_SKIP_DIRS for part in parts[:-1]):
+            continue
+        paths.append(rel)
+    return paths
+
+
+def codebase_generated_source(data):
+    header = data[:16384].decode("utf-8", errors="ignore").lower()
+    return any(marker in header for marker in CODEBASE_GENERATED_MARKERS)
+
+
+def codebase_file_record(root, rel):
+    path = root / rel
+    try:
+        resolved = path.resolve()
+        if os.path.commonpath((str(root), str(resolved))) != str(root):
+            return None, ("excluded", "path escapes repository root")
+        if path.is_symlink() or not path.is_file():
+            return None, ("excluded", "symlink or non-file")
+        stat = path.stat()
+        if stat.st_size > CODEBASE_MAX_FILE_BYTES:
+            return None, ("skipped", f"file exceeds {CODEBASE_MAX_FILE_BYTES} bytes")
+        data = path.read_bytes()
+    except OSError as exc:
+        return None, ("skipped", f"read failed: {exc}")
+    if b"\0" in data[:8192]:
+        return None, ("excluded", "binary content")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        text = data.decode("utf-8", errors="replace")
+    suffix = path.suffix
+    language = CODEBASE_LANGUAGES.get(suffix, "Text")
+    return {
+        "path": rel,
+        "language": language,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "generated": codebase_generated_source(data),
+        "text": text,
+    }, None
+
+
+def codebase_module_name(rel):
+    path = pathlib.PurePosixPath(rel)
+    without_suffix = str(path.with_suffix("")) if path.suffix else str(path)
+    return without_suffix.replace("/", ".").replace("-", "_")
+
+
+def codebase_call_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def codebase_signature(source_lines, node):
+    if node.lineno <= 0 or node.lineno > len(source_lines):
+        return ""
+    line = source_lines[node.lineno - 1].strip()
+    return line[:500]
+
+
+class CodebasePythonVisitor(ast.NodeVisitor):
+    def __init__(self, module, source):
+        self.module = module
+        self.lines = source.splitlines()
+        self.scope = []
+        self.symbols = []
+        self.calls = []
+        self.imports = []
+
+    def current_qn(self):
+        return ".".join([self.module, *self.scope])
+
+    def record_definition(self, node, kind):
+        qn = ".".join([self.module, *self.scope, node.name])
+        self.symbols.append({
+            "kind": kind,
+            "name": node.name,
+            "qualified_name": qn,
+            "start_line": node.lineno,
+            "end_line": getattr(node, "end_lineno", node.lineno),
+            "signature": codebase_signature(self.lines, node),
+            "body_hash": hashlib.sha256(
+                ast.dump(node, annotate_fields=True, include_attributes=False).encode("utf-8")
+            ).hexdigest(),
+        })
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    def visit_ClassDef(self, node):
+        self.record_definition(node, "Class")
+
+    def visit_FunctionDef(self, node):
+        self.record_definition(node, "Function" if not self.scope else "Method")
+
+    def visit_AsyncFunctionDef(self, node):
+        self.record_definition(node, "Function" if not self.scope else "Method")
+
+    def visit_Call(self, node):
+        callee = codebase_call_name(node.func)
+        if callee:
+            self.calls.append({
+                "caller_qn": self.current_qn(),
+                "callee": callee,
+                "line": getattr(node, "lineno", 0),
+            })
+        self.generic_visit(node)
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            self.imports.append((alias.name, alias.asname or "", node.lineno))
+
+    def visit_ImportFrom(self, node):
+        module = node.module or ""
+        for alias in node.names:
+            target = f"{module}.{alias.name}".strip(".")
+            self.imports.append((target, alias.asname or alias.name, node.lineno))
+
+
+def codebase_parse_record(record):
+    module = codebase_module_name(record["path"])
+    module_symbol = {
+        "kind": "Module",
+        "name": pathlib.PurePosixPath(record["path"]).name,
+        "qualified_name": module,
+        "start_line": 1,
+        "end_line": max(len(record["text"].splitlines()), 1),
+        "signature": "",
+        "body_hash": "",
+    }
+    if record["language"] != "Python":
+        return [module_symbol], [], [], ("shallow", "no deep language adapter in reference engine")
+    try:
+        tree = ast.parse(record["text"], filename=record["path"])
+    except (SyntaxError, ValueError) as exc:
+        detail = f"{type(exc).__name__} at line {getattr(exc, 'lineno', 0) or 0}"
+        return [module_symbol], [], [], ("partial", detail)
+    visitor = CodebasePythonVisitor(module, record["text"])
+    visitor.visit(tree)
+    return [module_symbol, *visitor.symbols], visitor.calls, visitor.imports, ("deep", "")
+
+
+def codebase_create_schema(db):
+    db.executescript("""
+        PRAGMA journal_mode=OFF;
+        PRAGMA synchronous=OFF;
+        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE files (
+            id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, language TEXT NOT NULL,
+            size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, sha256 TEXT NOT NULL,
+            is_generated INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE coverage (
+            path TEXT PRIMARY KEY, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE symbols (
+            id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, kind TEXT NOT NULL,
+            name TEXT NOT NULL, qualified_name TEXT NOT NULL,
+            start_line INTEGER NOT NULL, end_line INTEGER NOT NULL,
+            signature TEXT NOT NULL DEFAULT '', body_hash TEXT NOT NULL DEFAULT '',
+            is_generated INTEGER NOT NULL DEFAULT 0, canonical_symbol_id INTEGER
+        );
+        CREATE TABLE edges (
+            id INTEGER PRIMARY KEY, source_symbol_id INTEGER NOT NULL,
+            target_symbol_id INTEGER NOT NULL, type TEXT NOT NULL,
+            confidence REAL NOT NULL, evidence TEXT NOT NULL DEFAULT '',
+            UNIQUE(source_symbol_id, target_symbol_id, type)
+        );
+        CREATE TABLE raw_calls (
+            caller_qn TEXT NOT NULL, callee TEXT NOT NULL, line INTEGER NOT NULL
+        );
+        CREATE TABLE imports (
+            file_id INTEGER NOT NULL, module TEXT NOT NULL,
+            alias TEXT NOT NULL DEFAULT '', line INTEGER NOT NULL
+        );
+        CREATE INDEX symbols_name ON symbols(name);
+        CREATE INDEX symbols_qn ON symbols(qualified_name);
+        CREATE INDEX edges_source ON edges(source_symbol_id, type);
+        CREATE INDEX edges_target ON edges(target_symbol_id, type);
+    """)
+
+
+def codebase_insert_record(db, record, symbols, calls, imports, coverage):
+    cursor = db.execute(
+        "INSERT INTO files(path,language,size,mtime_ns,sha256,is_generated) VALUES(?,?,?,?,?,?)",
+        (record["path"], record["language"], record["size"], record["mtime_ns"],
+         record["sha256"], int(record["generated"])),
+    )
+    file_id = cursor.lastrowid
+    module_id = None
+    for symbol in symbols:
+        inserted = db.execute(
+            """INSERT INTO symbols(
+                file_id,kind,name,qualified_name,start_line,end_line,signature,body_hash,is_generated
+            ) VALUES(?,?,?,?,?,?,?,?,?)""",
+            (file_id, symbol["kind"], symbol["name"], symbol["qualified_name"],
+             symbol["start_line"], symbol["end_line"], symbol["signature"],
+             symbol["body_hash"], int(record["generated"])),
+        ).lastrowid
+        if symbol["kind"] == "Module":
+            module_id = inserted
+        elif module_id:
+            db.execute(
+                "INSERT OR IGNORE INTO edges VALUES(NULL,?,?,?,?,?)",
+                (module_id, inserted, "DEFINES", 1.0, record["path"]),
+            )
+    db.executemany(
+        "INSERT INTO raw_calls(caller_qn,callee,line) VALUES(?,?,?)",
+        [(call["caller_qn"], call["callee"], call["line"]) for call in calls],
+    )
+    db.executemany(
+        "INSERT INTO imports(file_id,module,alias,line) VALUES(?,?,?,?)",
+        [(file_id, module, alias, line) for module, alias, line in imports],
+    )
+    db.execute(
+        "INSERT OR REPLACE INTO coverage(path,status,detail) VALUES(?,?,?)",
+        (record["path"], coverage[0], coverage[1]),
+    )
+
+
+def codebase_canonicalize_duplicates(db):
+    groups = db.execute(
+        """SELECT kind,name,body_hash FROM symbols
+           WHERE body_hash <> '' GROUP BY kind,name,body_hash
+           HAVING SUM(is_generated) > 0 AND SUM(is_generated) < COUNT(*)"""
+    ).fetchall()
+    aliases = 0
+    for kind, name, body_hash in groups:
+        rows = db.execute(
+            """SELECT s.id,s.is_generated,f.path FROM symbols s
+               JOIN files f ON f.id=s.file_id
+               WHERE s.kind=? AND s.name=? AND s.body_hash=?""",
+            (kind, name, body_hash),
+        ).fetchall()
+        sources = sorted(
+            (row for row in rows if not row[1]),
+            key=lambda row: (len(row[2]), row[2]),
+        )
+        canonical = sources[0][0]
+        for row in rows:
+            if not row[1]:
+                continue
+            db.execute(
+                "UPDATE symbols SET canonical_symbol_id=? WHERE id=?",
+                (canonical, row[0]),
+            )
+            aliases += 1
+    return aliases
+
+
+def codebase_resolve_calls(db):
+    resolved = 0
+    unresolved = 0
+    for caller_qn, callee, line in db.execute(
+            "SELECT caller_qn,callee,line FROM raw_calls").fetchall():
+        caller = db.execute(
+            """SELECT id,file_id FROM symbols
+               WHERE qualified_name=? AND canonical_symbol_id IS NULL
+               ORDER BY is_generated,start_line DESC,id DESC LIMIT 1""",
+            (caller_qn,),
+        ).fetchone()
+        if not caller:
+            unresolved += 1
+            continue
+        candidates = db.execute(
+            """SELECT id,file_id FROM symbols
+               WHERE name=? AND canonical_symbol_id IS NULL
+               AND kind IN ('Function','Method','Class')""",
+            (callee,),
+        ).fetchall()
+        local = [candidate for candidate in candidates if candidate[1] == caller[1]]
+        chosen = local[0] if len(local) == 1 else (
+            candidates[0] if len(candidates) == 1 else None)
+        if not chosen:
+            unresolved += 1
+            continue
+        confidence = 1.0 if chosen in local else 0.8
+        db.execute(
+            "INSERT OR IGNORE INTO edges VALUES(NULL,?,?,?,?,?)",
+            (caller[0], chosen[0], "CALLS", confidence, f"line:{line}"),
+        )
+        resolved += 1
+    return resolved, unresolved
+
+
+def codebase_write_metadata(db, values):
+    db.executemany(
+        "INSERT INTO metadata(key,value) VALUES(?,?)",
+        [(key, str(value)) for key, value in values.items()],
+    )
+
+
+def codebase_index_payload(payload):
+    if not isinstance(payload, dict):
+        return {"result": "codebase_index_rejected", "errors": ["payload must be an object"]}
+    root, error = codebase_repo(payload)
+    if error:
+        return {"result": "codebase_index_rejected", "errors": [error]}
+    try:
+        max_files = int(payload.get("max_files", CODEBASE_DEFAULT_MAX_FILES))
+        max_total_bytes = int(
+            payload.get("max_total_bytes", CODEBASE_DEFAULT_MAX_TOTAL_BYTES))
+    except (TypeError, ValueError):
+        return {
+            "result": "codebase_index_rejected",
+            "errors": ["max_files and max_total_bytes must be integers"],
+        }
+    paths = codebase_discover_paths(root)
+    if max_files < 1 or len(paths) > max_files:
+        return {
+            "result": "codebase_index_refused",
+            "file_count": len(paths),
+            "max_files": max_files,
+            "errors": ["repository exceeds the explicit indexing file budget"],
+        }
+    if max_total_bytes < 1:
+        return {
+            "result": "codebase_index_refused",
+            "max_total_bytes": max_total_bytes,
+            "errors": ["max_total_bytes must be positive"],
+        }
+    state_dir, db_path, state_error = codebase_safe_index_paths()
+    if state_error:
+        return {"result": "codebase_index_rejected", "errors": [state_error]}
+    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir, db_path, state_error = codebase_safe_index_paths()
+    if state_error:
+        return {"result": "codebase_index_rejected", "errors": [state_error]}
+    os.chmod(state_dir, 0o700)
+    tmp_path = state_dir / f".index-{os.getpid()}.sqlite3"
+    return codebase_build_index(
+        root, paths, tmp_path, db_path, max_total_bytes=max_total_bytes)
+
+
+def codebase_update_content_digest(digest, record):
+    digest.update(record["path"].encode("utf-8"))
+    digest.update(b":")
+    digest.update(record["sha256"].encode("ascii"))
+    digest.update(b"\0")
+
+
+def codebase_discard_index(db, tmp_path):
+    if db:
+        try:
+            db.close()
+        except sqlite3.Error:
+            pass
+    try:
+        tmp_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def codebase_build_index(root, paths, tmp_path, db_path, max_total_bytes):
+    git_state = codebase_git_state(root)
+    structural = hashlib.sha256("\0".join(paths).encode()).hexdigest()
+    content = hashlib.sha256()
+    total_bytes = 0
+    db = None
+    try:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        db = sqlite3.connect(tmp_path)
+        codebase_create_schema(db)
+        for rel in paths:
+            record, miss = codebase_file_record(root, rel)
+            if miss:
+                db.execute(
+                    "INSERT OR REPLACE INTO coverage(path,status,detail) VALUES(?,?,?)",
+                    (rel, miss[0], miss[1]),
+                )
+                continue
+            total_bytes += record["size"]
+            if total_bytes > max_total_bytes:
+                raise OverflowError("repository exceeds the explicit indexing byte budget")
+            codebase_update_content_digest(content, record)
+            codebase_insert_record(db, record, *codebase_parse_record(record))
+        aliases = codebase_canonicalize_duplicates(db)
+        resolved, unresolved = codebase_resolve_calls(db)
+        counts = codebase_db_counts(db)
+        codebase_write_metadata(db, {
+            "schema_version": CODEBASE_SCHEMA_VERSION,
+            "contract_version": CODEBASE_CONTRACT_VERSION,
+            "engine_version": CODEBASE_ENGINE_VERSION,
+            "engine": "piloth-stdlib-reference",
+            "repo_root": root,
+            "indexed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "git_head": git_state["head"],
+            "worktree_fingerprint": git_state["worktree"],
+            "structural_fingerprint": structural,
+            "content_fingerprint": content.hexdigest(),
+            "indexed_bytes": total_bytes,
+            "generated_aliases": aliases,
+            "resolved_calls": resolved,
+            "unresolved_calls": unresolved,
+        })
+        db.commit()
+        db.close()
+        db = None
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, db_path)
+    except OverflowError as exc:
+        codebase_discard_index(db, tmp_path)
+        return {
+            "result": "codebase_index_refused",
+            "max_total_bytes": max_total_bytes,
+            "indexed_bytes_before_refusal": total_bytes,
+            "errors": [str(exc)],
+        }
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        codebase_discard_index(db, tmp_path)
+        return {"result": "codebase_index_failed", "errors": [str(exc)]}
+    return {
+        "result": "codebase_indexed",
+        "engine": "piloth-stdlib-reference",
+        "database": str(db_path.relative_to(REPO_ROOT)),
+        "files": counts["files"],
+        "indexed_bytes": total_bytes,
+        "symbols": counts["symbols"],
+        "edges": counts["edges"],
+        "coverage_gaps": counts["coverage_gaps"],
+        "generated_aliases": aliases,
+        "resolved_calls": resolved,
+        "unresolved_calls": unresolved,
+        "freshness": "fresh",
+    }
+
+
+def codebase_db_counts(db):
+    files = db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+    symbols = db.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
+    edges = db.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+    gaps = db.execute(
+        "SELECT COUNT(*) FROM coverage WHERE status <> 'deep'").fetchone()[0]
+    return {"files": files, "symbols": symbols, "edges": edges, "coverage_gaps": gaps}
+
+
+def codebase_metadata(db):
+    return dict(db.execute("SELECT key,value FROM metadata").fetchall())
+
+
+def codebase_open():
+    _, path, error = codebase_safe_index_paths()
+    if error:
+        return None, error
+    if not path.exists():
+        return None, "missing"
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        db.row_factory = sqlite3.Row
+        return db, None
+    except sqlite3.Error as exc:
+        return None, str(exc)
+
+
+def codebase_content_fingerprint(root, paths):
+    digest = hashlib.sha256()
+    for rel in paths:
+        record, _ = codebase_file_record(root, rel)
+        if record:
+            codebase_update_content_digest(digest, record)
+    return digest.hexdigest()
+
+
+def codebase_status_payload(payload=None):
+    root, error = codebase_repo(payload or {})
+    if error:
+        return {"result": "codebase_status_rejected", "errors": [error]}
+    db, open_error = codebase_open()
+    if not db:
+        if open_error != "missing":
+            return {
+                "result": "codebase_status",
+                "status": "invalid",
+                "errors": [open_error],
+            }
+        return {
+            "result": "codebase_status",
+            "status": "missing",
+            "recommendation": "index_when_structural_context_is_needed",
+        }
+    try:
+        meta = codebase_metadata(db)
+        counts = codebase_db_counts(db)
+        git_state = codebase_git_state(root)
+        current_paths = codebase_discover_paths(root)
+        current_structural = hashlib.sha256("\0".join(current_paths).encode()).hexdigest()
+        if int(meta.get("schema_version", 0)) != CODEBASE_SCHEMA_VERSION:
+            status, reason = "invalid", "schema version does not match engine"
+        elif int(meta.get("contract_version", 0)) != CODEBASE_CONTRACT_VERSION:
+            status, reason = "invalid", "contract version does not match engine"
+        elif int(meta.get("engine_version", 0)) != CODEBASE_ENGINE_VERSION:
+            status, reason = "invalid", "engine version does not match index"
+        elif meta.get("repo_root") != str(root):
+            status, reason = "invalid", "repository root does not match index"
+        elif git_state["head"] != meta.get("git_head", ""):
+            status, reason = "stale_structural", "git HEAD changed"
+        elif current_structural != meta.get("structural_fingerprint"):
+            status, reason = "stale_structural", "indexed path set changed"
+        elif git_state["worktree"] != meta.get("worktree_fingerprint", ""):
+            status, reason = "stale_content", "working-tree content changed"
+        elif not git_state["git"] and codebase_content_fingerprint(
+                root, current_paths) != meta.get("content_fingerprint"):
+            status, reason = "stale_content", "source content changed"
+        else:
+            status, reason = "fresh", "generation matches repository state"
+    except (sqlite3.Error, ValueError) as exc:
+        db.close()
+        return {"result": "codebase_status", "status": "invalid", "errors": [str(exc)]}
+    db.close()
+    return {
+        "result": "codebase_status",
+        "status": status,
+        "reason": reason,
+        "recommendation": "use_index" if status == "fresh" else "full_rebuild",
+        "engine": meta.get("engine", "unknown"),
+        "schema_version": int(meta.get("schema_version", 0)),
+        "engine_version": int(meta.get("engine_version", 0)),
+        "indexed_at": meta.get("indexed_at", ""),
+        **counts,
+    }
+
+
+def codebase_symbol_rows(db, query, limit):
+    pattern = f"%{query.lower()}%"
+    rows = db.execute(
+        """SELECT s.id,s.kind,s.name,s.qualified_name,s.start_line,s.end_line,
+                  s.signature,s.is_generated,f.path,
+                  (SELECT COUNT(*) FROM symbols a WHERE a.canonical_symbol_id=s.id) alias_count
+           FROM symbols s JOIN files f ON f.id=s.file_id
+           WHERE s.canonical_symbol_id IS NULL
+             AND (lower(s.name) LIKE ? OR lower(s.qualified_name) LIKE ?)
+           ORDER BY CASE WHEN lower(s.name)=? THEN 0 ELSE 1 END,
+                    s.is_generated, length(s.qualified_name), s.qualified_name
+           LIMIT ?""",
+        (pattern, pattern, query.lower(), limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def codebase_resolve_symbol(db, value):
+    rows = db.execute(
+        """SELECT s.id,s.kind,s.name,s.qualified_name,s.start_line,s.end_line,
+                  s.file_id,f.path,f.sha256
+           FROM symbols s JOIN files f ON f.id=s.file_id
+           WHERE s.canonical_symbol_id IS NULL
+             AND (s.qualified_name=? OR s.name=?)
+           ORDER BY CASE WHEN s.qualified_name=? THEN 0 ELSE 1 END,
+                    s.is_generated, s.qualified_name, s.start_line DESC
+           LIMIT 25""",
+        (value, value, value),
+    ).fetchall()
+    exact = [row for row in rows if row["qualified_name"] == value]
+    if len(exact) == 1:
+        return exact[0], []
+    if exact and len({row["path"] for row in exact}) == 1:
+        return exact[0], []
+    if len(rows) == 1:
+        return rows[0], []
+    return None, [
+        {"qualified_name": row["qualified_name"], "kind": row["kind"], "path": row["path"]}
+        for row in rows
+    ]
+
+
+def codebase_query_overview(db, payload):
+    counts = codebase_db_counts(db)
+    languages = [
+        {"language": row[0], "files": row[1]}
+        for row in db.execute(
+            "SELECT language,COUNT(*) FROM files GROUP BY language ORDER BY COUNT(*) DESC,language"
+        ).fetchall()
+    ]
+    coverage = [
+        {"status": row[0], "files": row[1]}
+        for row in db.execute(
+            "SELECT status,COUNT(*) FROM coverage GROUP BY status ORDER BY status"
+        ).fetchall()
+    ]
+    return {"action": "overview", **counts, "languages": languages, "coverage": coverage}
+
+
+def codebase_query_search(db, payload):
+    query = str(payload.get("query", "")).strip()
+    if not query:
+        return {"action": "search", "errors": ["query is required"]}
+    limit = min(max(int(payload.get("limit", 20)), 1), 200)
+    rows = codebase_symbol_rows(db, query, limit)
+    return {"action": "search", "query": query, "results": rows, "returned": len(rows)}
+
+
+def codebase_trace_leg(db, seed, direction, depth, limit):
+    frontier = {seed}
+    seen = {seed}
+    results = []
+    for hop in range(1, depth + 1):
+        if not frontier or len(results) >= limit:
+            break
+        placeholders = ",".join("?" for _ in frontier)
+        if direction == "outbound":
+            sql = f"""SELECT e.source_symbol_id,e.target_symbol_id,e.confidence,
+                             s.qualified_name,s.kind,f.path
+                      FROM edges e JOIN symbols s ON s.id=e.target_symbol_id
+                      JOIN files f ON f.id=s.file_id
+                      WHERE e.type='CALLS' AND e.source_symbol_id IN ({placeholders})
+                      ORDER BY e.source_symbol_id,e.target_symbol_id"""
+        else:
+            sql = f"""SELECT e.target_symbol_id,e.source_symbol_id,e.confidence,
+                             s.qualified_name,s.kind,f.path
+                      FROM edges e JOIN symbols s ON s.id=e.source_symbol_id
+                      JOIN files f ON f.id=s.file_id
+                      WHERE e.type='CALLS' AND e.target_symbol_id IN ({placeholders})
+                      ORDER BY e.target_symbol_id,e.source_symbol_id"""
+        rows = db.execute(sql, tuple(frontier)).fetchall()
+        next_frontier = set()
+        for row in rows:
+            target_id = row[1]
+            if target_id in seen:
+                continue
+            seen.add(target_id)
+            next_frontier.add(target_id)
+            results.append({
+                "qualified_name": row[3], "kind": row[4], "path": row[5],
+                "hop": hop, "confidence": row[2],
+            })
+            if len(results) >= limit:
+                break
+        frontier = next_frontier
+    return results
+
+
+def codebase_query_trace(db, payload):
+    value = str(payload.get("symbol", "")).strip()
+    if not value:
+        return {"action": "trace", "errors": ["symbol is required"]}
+    symbol, suggestions = codebase_resolve_symbol(db, value)
+    if not symbol:
+        return {
+            "action": "trace",
+            "status": "ambiguous" if suggestions else "not_found",
+            "suggestions": suggestions,
+        }
+    direction = str(payload.get("direction", "both")).lower()
+    if direction not in {"inbound", "outbound", "both"}:
+        return {"action": "trace", "errors": ["direction must be inbound, outbound or both"]}
+    depth = min(max(int(payload.get("depth", 2)), 1), 5)
+    limit = min(max(int(payload.get("limit", 100)), 1), 1000)
+    result = {
+        "action": "trace",
+        "symbol": symbol["qualified_name"],
+        "direction": direction,
+    }
+    if direction in {"outbound", "both"}:
+        result["outbound"] = codebase_trace_leg(db, symbol["id"], "outbound", depth, limit)
+    if direction in {"inbound", "both"}:
+        result["inbound"] = codebase_trace_leg(db, symbol["id"], "inbound", depth, limit)
+    return result
+
+
+def codebase_safe_source(root, rel):
+    try:
+        candidate = root / rel
+        if candidate.is_symlink():
+            return None
+        source = candidate.resolve()
+        if os.path.commonpath((str(root), str(source))) != str(root):
+            return None
+        if not source.is_file():
+            return None
+        return source
+    except OSError:
+        return None
+
+
+def codebase_query_snippet(db, payload):
+    value = str(payload.get("symbol", "")).strip()
+    symbol, suggestions = codebase_resolve_symbol(db, value)
+    if not symbol:
+        return {
+            "action": "snippet",
+            "status": "ambiguous" if suggestions else "not_found",
+            "suggestions": suggestions,
+        }
+    source = codebase_safe_source(REPO_ROOT.resolve(), symbol["path"])
+    if not source:
+        return {"action": "snippet", "status": "source_unavailable"}
+    lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
+    neighbors = min(max(int(payload.get("neighbors", 0)), 0), 20)
+    start = max(symbol["start_line"] - neighbors, 1)
+    end = min(symbol["end_line"] + neighbors, len(lines), start + 499)
+    current_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    return {
+        "action": "snippet",
+        "qualified_name": symbol["qualified_name"],
+        "path": symbol["path"],
+        "start_line": start,
+        "end_line": end,
+        "source": "\n".join(lines[start - 1:end]),
+        "source_freshness": "metadata_match" if current_hash == symbol["sha256"] else "changed",
+    }
+
+
+def codebase_normalize_rel(value):
+    rel = pathlib.PurePosixPath(str(value).replace("\\", "/"))
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        return None
+    return rel.as_posix()
+
+
+def codebase_query_coverage(db, payload):
+    paths = payload.get("paths")
+    if not isinstance(paths, list) or not paths:
+        return {"action": "coverage", "errors": ["paths must be a non-empty array"]}
+    results = []
+    for requested in paths[:200]:
+        rel = codebase_normalize_rel(requested)
+        if not rel:
+            results.append({"path": str(requested), "status": "invalid_path"})
+            continue
+        row = db.execute(
+            "SELECT status,detail FROM coverage WHERE path=?", (rel,)).fetchone()
+        results.append({
+            "path": rel,
+            "status": row["status"] if row else "not_indexed",
+            "detail": row["detail"] if row else "",
+            "caveat": "best_effort_not_completeness_proof",
+        })
+    return {"action": "coverage", "paths": results}
+
+
+def codebase_query_impact(db, payload):
+    requested = payload.get("paths")
+    if not isinstance(requested, list) or not requested:
+        requested = codebase_git_state(REPO_ROOT.resolve())["dirty_paths"]
+    paths = [codebase_normalize_rel(item) for item in requested[:200]]
+    paths = [item for item in paths if item]
+    if not paths:
+        return {"action": "impact", "paths": [], "seeds": [], "impacted": []}
+    placeholders = ",".join("?" for _ in paths)
+    seeds = db.execute(
+        f"""SELECT s.id,s.qualified_name,f.path FROM symbols s
+            JOIN files f ON f.id=s.file_id
+            WHERE s.canonical_symbol_id IS NULL AND f.path IN ({placeholders})""",
+        tuple(paths),
+    ).fetchall()
+    impacted = []
+    for seed in seeds:
+        impacted.extend(codebase_trace_leg(db, seed["id"], "inbound", 3, 200))
+    unique = {item["qualified_name"]: item for item in impacted}
+    return {
+        "action": "impact",
+        "paths": paths,
+        "seeds": [{"qualified_name": row["qualified_name"], "path": row["path"]} for row in seeds],
+        "impacted": sorted(unique.values(), key=lambda item: (item["hop"], item["qualified_name"])),
+    }
+
+
+def codebase_query_payload(payload):
+    if not isinstance(payload, dict):
+        return {"result": "codebase_query_rejected", "errors": ["payload must be an object"]}
+    action = str(payload.get("action", "")).strip().lower()
+    handlers = {
+        "overview": codebase_query_overview,
+        "search": codebase_query_search,
+        "trace": codebase_query_trace,
+        "snippet": codebase_query_snippet,
+        "coverage": codebase_query_coverage,
+        "impact": codebase_query_impact,
+    }
+    if action not in handlers:
+        return {
+            "result": "codebase_query_rejected",
+            "errors": ["action must be overview, search, trace, snippet, coverage or impact"],
+        }
+    freshness = codebase_status_payload(payload)
+    if freshness.get("status") == "missing":
+        return {
+            "result": "codebase_query_unavailable",
+            "freshness": freshness,
+            "errors": ["index is missing; run codebase-index when structural context is needed"],
+        }
+    db, open_error = codebase_open()
+    if not db:
+        return {
+            "result": "codebase_query_unavailable",
+            "errors": [f"index is unavailable: {open_error}"],
+        }
+    try:
+        output = handlers[action](db, payload)
+    except (sqlite3.Error, OSError, ValueError, TypeError) as exc:
+        db.close()
+        return {"result": "codebase_query_failed", "action": action, "errors": [str(exc)]}
+    db.close()
+    snippet_fresh = output.get("source_freshness") == "metadata_match"
+    source_grounded = action == "snippet" and snippet_fresh
+    output.update({
+        "result": "codebase_query",
+        "freshness": freshness.get("status"),
+        "trust": "source_grounded" if source_grounded else "candidate_only",
+        "coverage_signal": "best_effort",
+        "source_fallback_required": (
+            freshness.get("status") != "fresh"
+            or (action == "snippet" and not snippet_fresh)
+        ),
+    })
+    return output
+
+
+def codebase_index(argv):
+    if not argv:
+        json_print({
+            "result": "codebase_index_rejected",
+            "errors": ["explicit JSON payload required; indexing is adaptive, never implicit"],
+        })
+        return
+    try:
+        payload, _ = json_arg_or_stdin(argv, "codebase-index")
+        json_print(codebase_index_payload(payload))
+    except Exception as exc:
+        json_print({"result": "codebase_index_rejected", "errors": [str(exc)]})
+
+
+def codebase_status(argv):
+    try:
+        payload = {}
+        if argv:
+            payload, _ = json_arg_or_stdin(argv, "codebase-status")
+        json_print(codebase_status_payload(payload))
+    except Exception as exc:
+        json_print({"result": "codebase_status_rejected", "errors": [str(exc)]})
+
+
+def codebase_query(argv):
+    if not argv:
+        json_print({
+            "result": "codebase_query_rejected",
+            "errors": ["explicit JSON payload with action is required"],
+        })
+        return
+    try:
+        payload, _ = json_arg_or_stdin(argv, "codebase-query")
+        json_print(codebase_query_payload(payload))
+    except Exception as exc:
+        json_print({"result": "codebase_query_rejected", "errors": [str(exc)]})
 # --------------------------------------------------------- semantic scan modes
 
 def scan_request(argv, label):
@@ -3753,6 +5046,1486 @@ def ds_scan(argv):
         json_print({"result": "ds_scan_rejected", "errors": [str(e)]})
 
 
+# ------------------------------------------------------- evidence router core
+
+# Evidence Router is deliberately deterministic and read-only.  It chooses the
+# smallest evidence plan that can still meet the quality floor; lifecycle
+# commands may persist the returned decision separately.
+
+EVIDENCE_ITEM_FIELDS = {
+    "type", "source", "required", "freshness", "coverage", "confidence",
+    "estimated_cost", "trust", "fallback",
+}
+ADAPTER_CAPABILITY_STATUS = {"native", "emulated", "unavailable"}
+ADAPTER_CAPABILITY_KEYS = (
+    "pre_edit_hooks",
+    "post_edit_hooks",
+    "stop_hooks",
+    "subagent_spawn",
+    "parallel_execution",
+    "role_permissions",
+    "model_pinning",
+    "token_telemetry",
+    "model_telemetry",
+    "cost_telemetry",
+    "mcp_tool_discovery",
+    "approval_controls",
+    "sandbox_controls",
+    "receipt_enforcement",
+    "seal_enforcement",
+)
+# Presence of the variable is the signal, not its value. Each maps to an adapter
+# id the capability registry must declare before detection may use it.
+#
+# Only variables the harness sets in the process that runs this guard belong here.
+# Notably absent: CURSOR_CLI, which Cursor's integrated terminal sets even when a
+# human is typing commands by hand — it says "a Cursor terminal", not "the Cursor
+# agent is driving", so using it would claim cursor's capability profile for a
+# session that never went through the agent.
+ADAPTER_ENV_SIGNALS = (
+    ("CLAUDECODE", "claude"),
+    ("CLAUDE_PROJECT_DIR", "claude"),
+    # Set by Cursor CLI while the agent runs a shell command. Cursor has an open
+    # report of it not being set consistently, so treat a miss as "unknown".
+    ("CURSOR_AGENT", "cursor"),
+    # Codex sets this ("seatbelt" on macOS) on the child process it spawns for a
+    # tool call — which is where this guard runs. Two caveats: it is undocumented
+    # (Codex points at --sandbox / config.toml instead) and it only appears when
+    # sandboxing is on, so `codex --sandbox danger-full-access` resolves to
+    # "unknown". Both directions fail closed, never toward a wrong claim.
+    ("CODEX_SANDBOX", "codex"),
+)
+EVIDENCE_ROUTER_ROLLOUT_MODES = {"off", "shadow", "advisory", "enforced"}
+EVIDENCE_ROUTER_DEFAULT_BUDGET = {
+    "max_roles": 3,
+    "max_repair_loops": 1,
+    "max_tool_calls": 40,
+    "max_files": 200,
+    "max_bytes": 2_000_000,
+    "tool_timeout_seconds": 120,
+}
+EVIDENCE_ROUTER_SECRET_KEYS = re.compile(
+    r"(secret|token|password|passwd|api[_-]?key|credential|authorization|bearer)",
+    re.IGNORECASE,
+)
+EVIDENCE_ROUTER_NEGATIVE_CLAIM = re.compile(
+    r"\b(no|none|never|without|does not|doesn't|isn't|not present|không|chưa)\b",
+    re.IGNORECASE,
+)
+EVIDENCE_ROUTER_SECURITY_TERMS = (
+    "security", "vulnerability", "cve", "auth", "authorization", "permission",
+    "secret", "credential", "xss", "csrf", "injection", "exploit",
+)
+EVIDENCE_ROUTER_DESTRUCTIVE_TERMS = (
+    "delete", "drop table", "truncate", "destroy", "overwrite", "force push",
+    "rm -rf", "production migration", "data migration",
+)
+
+
+def evidence_router_default_matrix():
+    """Fail-soft matrix used only when the distributed JSON is unavailable."""
+    matrix = {}
+    for key, route in TASK_SIGNAL_ROUTES.items():
+        matrix[key] = {
+            "task_class": {
+                "bug fix": "localized_bug",
+                "ui/component": "ui_change",
+                "api/backend": "backend_change",
+                "release/deploy": "release_change",
+                "tool/mcp": "tooling_change",
+                "architecture": "architecture_change",
+                "security": "security_change",
+            }.get(key, "small_task"),
+            "risk_base": {
+                "bug fix": 30,
+                "ui/component": 28,
+                "api/backend": 38,
+                "tool/mcp": 45,
+                "architecture": 62,
+                "release/deploy": 78,
+                "security": 82,
+            }.get(key, 10),
+            "evidence": [{
+                "type": "source",
+                "source": "affected source files",
+                "required": True,
+                "freshness": "current",
+                "coverage": "affected_paths",
+                "estimated_cost": "low",
+                "trust": "source",
+                "fallback": "read affected source directly",
+            }],
+            "context": list(route.get("context_layers", [])),
+            "tools": [],
+            "verification": ["targeted verification"],
+        }
+    return {
+        "schema_version": 1,
+        "quality_floor": dict(DEFAULT_QUALITY_FLOOR),
+        "task_matrix": matrix,
+    }
+
+
+def load_evidence_router_matrix():
+    data = load_json_file(EVIDENCE_ROUTER_MATRIX)
+    if (
+        isinstance(data, dict)
+        and isinstance(data.get("task_matrix"), dict)
+        and isinstance(data.get("quality_floor"), dict)
+    ):
+        return data, "registry"
+    return evidence_router_default_matrix(), "embedded_fallback"
+
+
+def evidence_router_quality_floor(matrix=None):
+    """The quality floor in force: registry values layered over the embedded
+    defaults, so a partial or malformed `quality_floor` block cannot drop a
+    threshold. Every routing decision reads its thresholds from here — that is
+    what makes evidence-routing.json actually govern policy instead of merely
+    reporting it."""
+    floor = dict(DEFAULT_QUALITY_FLOOR)
+    if matrix is None:
+        matrix, _ = load_evidence_router_matrix()
+    declared = matrix.get("quality_floor") if isinstance(matrix, dict) else None
+    if isinstance(declared, dict):
+        for key, value in declared.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                floor[key] = value
+    return floor
+
+
+def evidence_router_schema_payload():
+    return {
+        "result": "evidence_route_schema",
+        "read_only": True,
+        "input": {
+            "intent": "string",
+            "locale": "BCP-47 language tag; schema and IDs remain English",
+            "task_signal": sorted(ASSET_ROUTING_SIGNALS),
+            "affected_paths": ["relative/path"],
+            "constraints": ["string"],
+            "adapter": ["claude", "codex", "cursor", "antigravity"],
+            "adapter_capabilities": {
+                key: sorted(ADAPTER_CAPABILITY_STATUS)
+                for key in ADAPTER_CAPABILITY_KEYS
+            },
+            "budget": "object",
+            "user_overrides": {
+                "rollout": sorted(EVIDENCE_ROUTER_ROLLOUT_MODES),
+                "execution_mode": ["single", "team"],
+                "kill_switch": "boolean",
+            },
+        },
+        "output_required": [
+            "decision_id", "task_class", "risk", "confidence",
+            "evidence_plan", "context_plan", "execution_plan", "tool_plan",
+            "verification_plan", "budgets", "fallbacks", "limitations",
+            "decision_reasons",
+        ],
+        # Same key names as evidence-routing.json / DEFAULT_QUALITY_FLOOR: this
+        # block used to report `minimum_route_confidence`, a name that appears
+        # nowhere else, so a consumer reading the schema could not match it to the
+        # registry key it describes.
+        "quality_floor": evidence_router_quality_floor(),
+    }
+
+
+def load_adapter_capability_registry():
+    data = load_json_file(ADAPTER_CAPABILITY_REGISTRY)
+    if not isinstance(data, dict):
+        data = {}
+    adapters = data.get("adapters")
+    return adapters if isinstance(adapters, dict) else {}
+
+
+def resolve_adapter(payload):
+    """``(adapter_id, source)`` for a capability request.
+
+    Precedence: explicit request > ``PILOTHOS_ADAPTER`` > harness env signal >
+    ``"unknown"``.  Without this every caller defaults to ``unknown``, which is
+    the worst path available: all 15 capabilities resolve to ``unavailable``, so
+    an ``enforced`` rollout silently degrades to ``advisory`` even on a harness
+    that does support hooks and seals.
+
+    An explicit request keeps whatever id it names — declaring an unregistered
+    harness is legitimate and simply resolves every capability to
+    ``unavailable``.  Env detection is stricter and only yields ids the registry
+    declares, so Piloth never invents a capability profile from a stray
+    variable.  ``adapter_source`` travels with the answer so the resolution
+    stays auditable instead of looking like a claim.
+    """
+    requested = str(payload.get("adapter") or "").strip().lower()
+    if requested:
+        return requested, "request"
+    registry = load_adapter_capability_registry()
+    declared = str(os.environ.get("PILOTHOS_ADAPTER") or "").strip().lower()
+    if declared:
+        # An explicit override that names nothing we know stays conservative
+        # rather than falling through to detection behind the user's back.
+        return (declared, "env") if declared in registry else ("unknown", "default")
+    for var, adapter in ADAPTER_ENV_SIGNALS:
+        if os.environ.get(var) and adapter in registry:
+            return adapter, "detected"
+    return "unknown", "default"
+
+
+def adapter_capabilities_payload(payload):
+    if not isinstance(payload, dict):
+        return {
+            "result": "adapter_capabilities_rejected",
+            "errors": ["capabilities request must be a JSON object"],
+        }
+    if payload.get("explain") is True:
+        return {
+            "result": "adapter_capabilities_schema",
+            "read_only": True,
+            "statuses": sorted(ADAPTER_CAPABILITY_STATUS),
+            "capabilities": list(ADAPTER_CAPABILITY_KEYS),
+        }
+    adapter, adapter_source = resolve_adapter(payload)
+    registry = load_adapter_capability_registry()
+    declared = registry.get(adapter)
+    if not isinstance(declared, dict):
+        declared = {}
+    supplied = payload.get("adapter_capabilities")
+    if supplied is None:
+        supplied = payload.get("capabilities")
+    if supplied is None:
+        supplied = {
+            key: payload[key]
+            for key in ADAPTER_CAPABILITY_KEYS
+            if key in payload
+        }
+    if not isinstance(supplied, dict):
+        return {
+            "result": "adapter_capabilities_rejected",
+            "adapter": adapter,
+            "errors": ["adapter_capabilities must be an object"],
+        }
+    errors = []
+    unknown = sorted(set(supplied) - set(ADAPTER_CAPABILITY_KEYS))
+    if unknown:
+        errors.append("unknown capabilities: " + ", ".join(unknown))
+    for key, value in supplied.items():
+        if key in ADAPTER_CAPABILITY_KEYS and value not in ADAPTER_CAPABILITY_STATUS:
+            errors.append(
+                f"{key} must be one of: "
+                + ", ".join(sorted(ADAPTER_CAPABILITY_STATUS))
+            )
+    if errors:
+        return {
+            "result": "adapter_capabilities_rejected",
+            "adapter": adapter,
+            "errors": errors,
+        }
+    normalized = {}
+    sources = {}
+    for key in ADAPTER_CAPABILITY_KEYS:
+        if key in supplied:
+            normalized[key] = supplied[key]
+            sources[key] = "request"
+        elif declared.get(key) in ADAPTER_CAPABILITY_STATUS:
+            normalized[key] = declared[key]
+            sources[key] = "registry"
+        else:
+            normalized[key] = "unavailable"
+            sources[key] = "missing"
+    # One aggregate line, not one line per key: the per-key statuses are already
+    # in `capabilities`, and 15 boilerplate sentences both cost tokens and dilute
+    # the limitations that carry real signal.
+    unavailable = [
+        key for key, status in normalized.items() if status == "unavailable"
+    ]
+    limitations = []
+    if unavailable:
+        limitations.append(
+            f"{len(unavailable)} capability(ies) unavailable; no native path is "
+            "claimed: " + ", ".join(unavailable)
+        )
+    # Emulated stays itemised — an emulated path is a decision input, not noise.
+    degraded = [
+        f"{key} uses an emulated adapter path"
+        for key, status in normalized.items()
+        if status == "emulated"
+    ]
+    return {
+        "result": "adapter_capabilities",
+        "read_only": True,
+        "adapter": adapter,
+        "adapter_source": adapter_source,
+        "capabilities": normalized,
+        # Only provenance that says something: "missing" is the default and is
+        # recoverable from `capabilities` plus `sources_summary`.
+        "sources": {
+            key: value for key, value in sources.items() if value != "missing"
+        },
+        "sources_summary": {
+            name: sum(1 for value in sources.values() if value == name)
+            for name in ("request", "registry", "missing")
+        },
+        "complete": len(normalized) == len(ADAPTER_CAPABILITY_KEYS),
+        "limitations": limitations,
+        "degraded": degraded,
+    }
+
+
+def adapter_capabilities(argv):
+    if "--explain" in list(argv):
+        json_print(adapter_capabilities_payload({"explain": True}))
+        return
+    try:
+        payload, _ = json_arg_or_stdin(argv, "adapter-capabilities")
+    except Exception as e:
+        json_print({
+            "result": "adapter_capabilities_rejected",
+            "errors": [str(e)],
+        })
+        return
+    json_print(adapter_capabilities_payload(payload))
+
+
+def evidence_router_intent_blob(request):
+    parts = [
+        str(request.get("intent") or ""),
+        " ".join(str(x) for x in request.get("constraints", []) if isinstance(x, str)),
+        " ".join(request_paths(request)),
+    ]
+    return " ".join(parts).strip().lower()
+
+
+def classify_evidence_task(request, matrix):
+    raw = request.get("task_signal")
+    normalized = normalize_task_signal(raw)
+    known = set(matrix.get("task_matrix", {}))
+    reasons = []
+    if raw is not None and str(raw).strip():
+        if normalized not in known:
+            return None, 0.0, [], [
+                "task_signal must be one of: "
+                + ", ".join(sorted(
+                    TASK_SIGNAL_ROUTES[k]["task_signal"]
+                    for k in known if k in TASK_SIGNAL_ROUTES
+                ))
+            ]
+        reasons.append(f"explicit task_signal={TASK_SIGNAL_ROUTES.get(normalized, {}).get('task_signal', normalized)}")
+        return normalized, 0.96, reasons, []
+
+    blob = evidence_router_intent_blob(request)
+    inference = (
+        ("security", EVIDENCE_ROUTER_SECURITY_TERMS),
+        ("release/deploy", ("release", "deploy", "production rollout", "publish")),
+        ("architecture", ("architecture", "boundary", "refactor system", "design system topology")),
+        ("ui/component", ("component", "frontend", "visual", "css", "design token", "ui ")),
+        ("api/backend", ("api", "backend", "endpoint", "database", "migration")),
+        ("bug fix", ("bug", "fix", "regression", "crash", "incorrect")),
+        ("tool/mcp", ("mcp", "tool", "cli", "command")),
+    )
+    for signal, terms in inference:
+        if any(term in blob for term in terms):
+            reasons.append(f"inferred {signal} from intent/path signal")
+            return signal, 0.84, reasons, []
+    reasons.append("no class signal found; conservative small-task fallback")
+    return "not_applicable", 0.72, reasons, []
+
+
+def evidence_router_risk(request, signal, task_row):
+    score = int(task_row.get("risk_base", 10))
+    reasons = [f"{signal} base risk={score}"]
+    paths = request_paths(request)
+    blob = evidence_router_intent_blob(request)
+    if not paths or any(path_pattern_is_broad(path) for path in paths):
+        score += 12
+        reasons.append("broad or unresolved path coverage +12")
+    elif len(paths) > 6:
+        score += 10
+        reasons.append("more than six affected paths +10")
+    roots = {
+        normalize_relative_path_text(path).split("/", 1)[0]
+        for path in paths if path and not path_pattern_is_broad(path)
+    }
+    if len(roots) >= 3:
+        score += 8
+        reasons.append("cross-area change +8")
+    if any(term in blob for term in EVIDENCE_ROUTER_SECURITY_TERMS) and signal != "security":
+        score += 22
+        reasons.append("security-sensitive intent +22")
+    if any(term in blob for term in EVIDENCE_ROUTER_DESTRUCTIVE_TERMS):
+        score += 20
+        reasons.append("destructive or migration workflow +20")
+    constraints = request.get("constraints")
+    if isinstance(constraints, list) and any(
+        "no test" in str(item).lower() or "skip test" in str(item).lower()
+        for item in constraints
+    ):
+        score += 10
+        reasons.append("verification constraint +10")
+    return {"score": max(0, min(score, 100)), "reasons": reasons}
+
+
+def evidence_router_graph_state(request):
+    graph = request.get("codebase_graph")
+    if graph is None and isinstance(request.get("evidence_state"), dict):
+        graph = request["evidence_state"].get("codebase_graph")
+    return graph if isinstance(graph, dict) else {}
+
+
+def evidence_cost_estimate(cost_class, evidence_type):
+    cost_class = str(cost_class or "low").lower()
+    relative = {"low": 1, "medium": 3, "high": 6}.get(cost_class, 3)
+    tool_calls = relative
+    if evidence_type in {"source", "manifest", "consumer_asset"}:
+        tool_calls = max(1, relative - 1)
+    return {
+        "class": cost_class if cost_class in {"low", "medium", "high"} else "medium",
+        "relative_units": relative,
+        "tool_calls": tool_calls,
+        "telemetry": "estimate_not_real_usage",
+    }
+
+
+def build_evidence_plan(request, task_row, classification_confidence):
+    plan = []
+    limitations = []
+    fallbacks = []
+    paths = request_paths(request)
+    for raw in task_row.get("evidence", []):
+        if not isinstance(raw, dict):
+            continue
+        item = {
+            "type": str(raw.get("type") or "source"),
+            "source": str(raw.get("source") or "affected source files"),
+            "required": bool(raw.get("required", True)),
+            "freshness": str(raw.get("freshness") or "current"),
+            "coverage": str(raw.get("coverage") or "affected_paths"),
+            "confidence": round(
+                min(classification_confidence, 0.95 if paths else 0.76),
+                2,
+            ),
+            "estimated_cost": evidence_cost_estimate(
+                raw.get("estimated_cost"), raw.get("type"),
+            ),
+            "trust": str(raw.get("trust") or "source"),
+            "fallback": str(raw.get("fallback") or "read affected source directly"),
+        }
+        plan.append(item)
+        if item["fallback"] not in fallbacks:
+            fallbacks.append(item["fallback"])
+
+    graph = evidence_router_graph_state(request)
+    if graph:
+        freshness = str(graph.get("freshness") or graph.get("status") or "unknown").lower()
+        coverage = str(graph.get("coverage") or "unknown").lower()
+        graph_ok = freshness in {"fresh", "current", "loaded"} and coverage in {
+            "full", "complete", "affected_paths",
+        }
+        plan.append({
+            "type": "code_graph",
+            "source": "repo-local codebase index",
+            "required": False,
+            "freshness": freshness,
+            "coverage": coverage,
+            "confidence": 0.90 if graph_ok else 0.45,
+            "estimated_cost": evidence_cost_estimate("low", "code_graph"),
+            "trust": "derived_index" if graph_ok else "untrusted_index",
+            "fallback": "read source directly and run an independent verification",
+        })
+        if not graph_ok:
+            limitations.append(
+                "codebase graph is stale, partial, or ambiguous; it is not source-grounded evidence"
+            )
+            fallbacks.append("read source directly and run an independent verification")
+
+    blob = evidence_router_intent_blob(request)
+    if EVIDENCE_ROUTER_NEGATIVE_CLAIM.search(blob):
+        plan.append({
+            "type": "coverage_search",
+            "source": "source tree and manifests",
+            "required": True,
+            "freshness": "current",
+            "coverage": "complete_claim_scope",
+            "confidence": 0.75,
+            "estimated_cost": evidence_cost_estimate("medium", "coverage_search"),
+            "trust": "source",
+            "fallback": "ask the user to narrow the negative claim or verify every claimed surface",
+        })
+        limitations.append(
+            "negative claim requires explicit coverage before it can be accepted"
+        )
+        fallbacks.append(
+            "ask the user to narrow the negative claim or verify every claimed surface"
+        )
+
+    conflicts = request.get("evidence_conflicts")
+    if isinstance(conflicts, list) and conflicts:
+        limitations.append("evidence conflicts require source-first resolution")
+        fallbacks.append("read source and run an independent verification before execution")
+    return plan, sorted(set(fallbacks)), limitations
+
+
+def evidence_router_context_plan(task_row, request):
+    context = []
+    for source in task_row.get("context", []):
+        if not non_empty_string(source):
+            continue
+        context.append({
+            "source": source,
+            "reason": "declarative task/evidence matrix",
+            "required": True,
+            "estimated_cost": "low",
+        })
+    paths = request_paths(request)
+    if paths:
+        context.append({
+            "source": paths,
+            "reason": "affected source scope",
+            "required": True,
+            "estimated_cost": "bounded_by_budget",
+        })
+    return context
+
+
+def evidence_router_tool_plan(task_row, capability_result):
+    caps = capability_result.get("capabilities", {})
+    plan = []
+    for tool in task_row.get("tools", []):
+        if not non_empty_string(tool):
+            continue
+        discovery = caps.get("mcp_tool_discovery", "unavailable")
+        plan.append({
+            "tool": tool,
+            "required": False,
+            "mode": discovery,
+            "reason": "selected by task/evidence matrix",
+            "fallback": "use the source or repository CLI directly",
+        })
+    return plan
+
+
+def evidence_router_verification_plan(task_row, evidence_plan, mandatory_review):
+    plan = []
+    for method in task_row.get("verification", []):
+        if not non_empty_string(method):
+            continue
+        plan.append({
+            "method": method,
+            "required": True,
+            "evidence_types": sorted({
+                item["type"] for item in evidence_plan if item.get("required")
+            }),
+        })
+    if mandatory_review and not any("review" in str(x.get("method", "")).lower() for x in plan):
+        plan.append({
+            "method": "independent safety review",
+            "required": True,
+            "evidence_types": ["review"],
+        })
+    return plan
+
+
+def evidence_router_budget(request, capability_result):
+    supplied = request.get("budget")
+    if not isinstance(supplied, dict):
+        supplied = {}
+    budget = dict(EVIDENCE_ROUTER_DEFAULT_BUDGET)
+    for key in budget:
+        value = supplied.get(key)
+        if isinstance(value, int) and value >= 0:
+            budget[key] = value
+    budget["max_roles"] = min(budget["max_roles"], 3)
+    budget["max_repair_loops"] = min(budget["max_repair_loops"], 1)
+    for key in ("max_usd", "remaining_tool_calls", "remaining_seconds"):
+        value = supplied.get(key)
+        if isinstance(value, (int, float)) and value >= 0:
+            budget[key] = value
+    exhausted = bool(supplied.get("exhausted"))
+    if budget.get("max_tool_calls") == 0 or budget.get("remaining_tool_calls") == 0:
+        exhausted = True
+    caps = capability_result.get("capabilities", {})
+    budget["model_cost"] = (
+        "measured"
+        if caps.get("cost_telemetry") == "native"
+        and caps.get("token_telemetry") == "native"
+        else "advisory"
+    )
+    budget["hard_limits"] = [
+        "max_roles", "max_repair_loops", "max_tool_calls", "max_files",
+        "max_bytes", "tool_timeout_seconds",
+    ]
+    budget["exhausted"] = exhausted
+    return budget
+
+
+def load_specialist_candidates(request):
+    registry = load_json_file(SPECIALIST_REGISTRY)
+    candidates = []
+    if isinstance(registry, dict) and isinstance(registry.get("specialists"), list):
+        candidates.extend(registry["specialists"])
+    for rel in (".piloth/specialists.json", "piloth-specialists.json"):
+        consumer_registry = load_json_file(REPO_ROOT / rel)
+        rows = (
+            consumer_registry.get("specialists")
+            if isinstance(consumer_registry, dict)
+            else None
+        )
+        if isinstance(rows, list):
+            candidates = rows[:100] + candidates
+    supplied = request.get("specialists")
+    if isinstance(supplied, list):
+        candidates = supplied[:100] + candidates
+    deduped = []
+    seen = set()
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        candidate_id = str(item.get("id") or "").strip()
+        if not candidate_id or candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        deduped.append(item)
+    return deduped
+
+
+def specialist_score_candidate(candidate, request, signal, task_class, evidence_types, floor=None):
+    reasons = []
+    disqualified = []
+    owner = str(candidate.get("owner") or "consumer").strip().lower()
+    domains = {
+        normalize_task_signal(x) for x in candidate.get("domains", [])
+        if isinstance(x, str)
+    }
+    task_types = {
+        str(x).strip() for x in candidate.get("task_types", [])
+        if isinstance(x, str)
+    }
+    domain_score = 35 if signal in domains or task_class in task_types else 0
+    reasons.append(f"domain_match={domain_score}/35")
+
+    supported_evidence = {
+        str(x).strip() for x in candidate.get("evidence_types", [])
+        if isinstance(x, str)
+    }
+    intersection = supported_evidence & evidence_types
+    evidence_score = round(
+        25 * len(intersection) / max(1, len(evidence_types)),
+        2,
+    )
+    reasons.append(f"evidence_capability={evidence_score}/25")
+
+    required_tools = {
+        str(x).strip() for x in candidate.get("tools", [])
+        if isinstance(x, str) and str(x).strip()
+    }
+    available_tools = {
+        str(x).strip() for x in request.get("available_tools", [])
+        if isinstance(x, str) and str(x).strip()
+    }
+    missing_tools = sorted(required_tools - available_tools)
+    tool_score = 15 if not missing_tools else 0
+    reasons.append(f"tool_readiness={tool_score}/15")
+    if missing_tools:
+        disqualified.append("missing tools: " + ", ".join(missing_tools))
+
+    try:
+        confidence = float(candidate.get("confidence", 0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(confidence, 1.0))
+    historical_score = round(confidence * 15, 2)
+    reasons.append(f"historical_quality={historical_score}/15")
+
+    cost_score = {"low": 10, "cheap": 10, "standard": 7, "high": 3, "premium": 3}.get(
+        str(candidate.get("cost_class") or "").lower(),
+        0,
+    )
+    reasons.append(f"cost={cost_score}/10")
+
+    health = str(candidate.get("health") or "unknown").lower()
+    if health not in {"healthy", "ready"}:
+        disqualified.append(f"health={health}")
+    adapter, _ = resolve_adapter(request)
+    support = {
+        str(x).lower() for x in candidate.get("adapter_support", [])
+        if isinstance(x, str)
+    }
+    if support and adapter not in support:
+        disqualified.append(f"adapter {adapter} unsupported")
+    mandatory_review = evidence_router_requires_independent_review(request, signal)
+    required_permission = "review" if mandatory_review else "edit"
+    permissions = {
+        str(x).lower() for x in candidate.get("permissions", [])
+        if isinstance(x, str)
+    }
+    if required_permission not in permissions:
+        disqualified.append(f"missing {required_permission} permission")
+
+    score = round(domain_score + evidence_score + tool_score + historical_score + cost_score, 2)
+    if floor is None:
+        floor = evidence_router_quality_floor()
+    return {
+        "id": str(candidate.get("id") or ""),
+        "owner": owner,
+        "score": score,
+        "qualified": score >= floor["specialist_score"] and not disqualified,
+        "reasons": reasons,
+        "disqualified_reasons": disqualified,
+        "permissions": sorted(permissions),
+    }
+
+
+def select_specialist(request, signal, task_class, evidence_plan, floor=None):
+    evidence_types = {
+        item.get("type") for item in evidence_plan
+        if isinstance(item, dict) and item.get("required")
+    }
+    if floor is None:
+        floor = evidence_router_quality_floor()
+    ranked = [
+        specialist_score_candidate(
+            item, request, signal, task_class, evidence_types, floor,
+        )
+        for item in load_specialist_candidates(request)
+    ]
+    ranked.sort(key=lambda item: (item["score"], item["id"]), reverse=True)
+    qualified_consumers = [
+        item for item in ranked
+        if item["qualified"] and item["owner"] == "consumer"
+    ]
+    qualified_piloth = [
+        item for item in ranked
+        if item["qualified"] and item["owner"] == "piloth"
+    ]
+    selected = (
+        qualified_consumers[0] if qualified_consumers
+        else qualified_piloth[0] if qualified_piloth
+        else None
+    )
+    return selected, ranked[:20]
+
+
+def evidence_router_requires_independent_review(request, signal):
+    blob = evidence_router_intent_blob(request)
+    return (
+        signal in {"security", "release/deploy"}
+        or "data migration" in blob
+        or any(term in blob for term in EVIDENCE_ROUTER_DESTRUCTIVE_TERMS)
+    )
+
+
+def evidence_router_work_packages(request):
+    supplied = request.get("work_packages")
+    packages = []
+    if isinstance(supplied, list):
+        for index, item in enumerate(supplied[:10]):
+            if isinstance(item, str) and item.strip():
+                packages.append({
+                    "id": f"wp-{index + 1}",
+                    "scope": item.strip(),
+                    "independent": True,
+                })
+            elif isinstance(item, dict) and non_empty_string(item.get("scope") or item.get("id")):
+                packages.append({
+                    "id": safe_evidence_id(item.get("id")) or f"wp-{index + 1}",
+                    "scope": str(item.get("scope") or item.get("id")).strip(),
+                    "independent": item.get("independent") is True,
+                })
+    return packages
+
+
+def evidence_router_team_score(request, risk, specialist, mandatory_review):
+    paths = request_paths(request)
+    packages = evidence_router_work_packages(request)
+    independent_count = len([item for item in packages if item.get("independent")])
+    complexity = min(
+        20,
+        (8 if len(paths) > 3 else 3 if paths else 5)
+        + (7 if len({
+            normalize_relative_path_text(p).split("/", 1)[0]
+            for p in paths if p and not path_pattern_is_broad(p)
+        }) >= 2 else 0)
+        + (5 if len(paths) > 8 else 0),
+    )
+    components = {
+        "risk": round(min(25, risk.get("score", 0) * 0.25), 2),
+        "complexity": complexity,
+        "specialist_need": 20 if specialist else (15 if mandatory_review else 5),
+        "independent_review_value": 20 if mandatory_review else (12 if risk.get("score", 0) >= 55 else 4),
+        "parallelism_value": min(15, independent_count * 7.5),
+        "coordination_cost": 8 if independent_count >= 2 else 22,
+    }
+    score = round(
+        components["risk"]
+        + components["complexity"]
+        + components["specialist_need"]
+        + components["independent_review_value"]
+        + components["parallelism_value"]
+        - components["coordination_cost"],
+        2,
+    )
+    return max(0, min(score, 100)), components, packages, independent_count
+
+
+def load_model_tiers():
+    registry = load_json_file(MODEL_CAPABILITY_REGISTRY)
+    tiers = registry.get("tiers") if isinstance(registry, dict) else None
+    if not isinstance(tiers, list):
+        tiers = [
+            {"id": "economy", "cost_order": 1, "max_risk": 35, "min_route_confidence": 0.9, "benchmarked": True},
+            {"id": "standard", "cost_order": 2, "max_risk": 70, "min_route_confidence": 0.8, "benchmarked": True},
+            {"id": "premium", "cost_order": 3, "max_risk": 100, "min_route_confidence": 0.0, "benchmarked": True},
+        ]
+    return sorted(
+        [item for item in tiers if isinstance(item, dict)],
+        key=lambda item: item.get("cost_order", 999),
+    )
+
+
+def select_model_tier(risk_score, confidence, request):
+    failed_repairs = request.get("failed_repairs", 0)
+    if isinstance(failed_repairs, int) and failed_repairs >= 1:
+        return "premium", "raised after a failed repair"
+    signal = normalize_task_signal(request.get("_classified_signal"))
+    for tier in load_model_tiers():
+        if tier.get("benchmarked") is not True:
+            continue
+        if risk_score > int(tier.get("max_risk", 0)):
+            continue
+        if confidence < float(tier.get("min_route_confidence", 1.0)):
+            continue
+        domains = {
+            normalize_task_signal(item)
+            for item in tier.get("domains", [])
+            if isinstance(item, str)
+        }
+        if domains and signal not in domains:
+            continue
+        return str(tier.get("id") or "premium"), "cheapest benchmarked tier meeting risk/confidence floor"
+    return "premium", "raised because no cheaper benchmarked tier meets the floor"
+
+
+def evidence_router_execution_roles(
+    team, mode, mandatory_review, specialist, max_roles, limitations,
+):
+    roles = []
+    if team:
+        roles = [
+            {"id": "lead", "permissions": ["plan", "review"], "read_only": True},
+            {"id": "executor", "permissions": ["edit"], "read_only": False},
+            {"id": "reviewer", "permissions": ["review", "qa"], "read_only": True},
+        ][:max_roles]
+        if len(roles) < 3:
+            team = False
+            mode = "single_with_external_review" if mandatory_review else "single"
+            limitations.append(
+                "max_roles budget cannot preserve the three-role team contract"
+            )
+            roles = []
+    if not team and mandatory_review and not roles:
+        roles = [{
+            "id": "external_reviewer",
+            "permissions": ["review", "qa"],
+            "read_only": True,
+            "required": True,
+        }]
+    if specialist:
+        target_role = "reviewer" if mandatory_review else "executor"
+        for role in roles:
+            if role.get("id") == target_role:
+                role["specialist_id"] = specialist.get("id")
+    return roles, team, mode
+
+
+def evidence_router_execution_plan(
+    request, risk, confidence, specialist, ranked, capability_result, budget, floor=None,
+):
+    if floor is None:
+        floor = evidence_router_quality_floor()
+    signal = request.get("_classified_signal", "not_applicable")
+    mandatory_review = evidence_router_requires_independent_review(request, signal)
+    team_score, components, packages, independent_count = evidence_router_team_score(
+        request, risk, specialist, mandatory_review,
+    )
+    caps = capability_result.get("capabilities", {})
+    overrides = request.get("user_overrides")
+    if not isinstance(overrides, dict):
+        overrides = {}
+    forced = str(
+        overrides.get("execution_mode")
+        or ("team" if overrides.get("force_team") is True else "")
+        or ("single" if overrides.get("force_single") is True else "")
+    ).lower()
+    team_capable = (
+        caps.get("subagent_spawn") in {"native", "emulated"}
+        and caps.get("role_permissions") in {"native", "emulated"}
+    )
+    team_floor = floor["team_score"]
+    team_eligible = team_score >= team_floor and independent_count >= 2 and not budget["exhausted"]
+    reasons = [
+        f"team score={team_score} (threshold {team_floor})",
+        f"independent work packages={independent_count}",
+    ]
+    limitations = []
+    if forced == "team":
+        team_eligible = independent_count >= 2 and not budget["exhausted"]
+        reasons.append("user forced team mode")
+    elif forced == "single":
+        team_eligible = False
+        reasons.append("user forced single mode")
+
+    if mandatory_review and forced == "single":
+        reasons.append("safety reviewer overrides forced single acceptance")
+    if mandatory_review and not team_capable:
+        limitations.append(
+            "adapter cannot spawn an independent reviewer; external independent review is required"
+        )
+        team = False
+        mode = "single_with_external_review"
+    elif mandatory_review:
+        team = True
+        mode = "team"
+    elif team_eligible and team_capable:
+        team = True
+        mode = "team"
+    else:
+        team = False
+        mode = "single"
+        if team_eligible and not team_capable:
+            limitations.append(
+                "team score passed but adapter subagent spawn is unavailable; using single-agent fallback"
+            )
+    if budget["exhausted"]:
+        team = False
+        mode = "single_source_first"
+        reasons.append("budget exhausted: parallelism disabled")
+
+    roles, team, mode = evidence_router_execution_roles(
+        team, mode, mandatory_review, specialist, budget["max_roles"], limitations,
+    )
+    for role in roles:
+        role["allowed_paths"] = (
+            request_paths(request) if role.get("id") == "executor" else []
+        )
+    if team and caps.get("parallel_execution") == "unavailable":
+        limitations.append(
+            "parallel execution unavailable; independent roles must run sequentially"
+        )
+
+    tier, tier_reason = select_model_tier(risk.get("score", 0), confidence, request)
+    model_roles = [role["id"] for role in roles] or ["executor"]
+    model_tiers = {role: tier for role in model_roles}
+    if caps.get("model_pinning") == "unavailable":
+        limitations.append("model tier is advisory because adapter model pinning is unavailable")
+    return {
+        "mode": mode,
+        "team": team,
+        "roles": roles,
+        "model_tiers": model_tiers,
+        "model_tier_reason": tier_reason,
+        "specialist": specialist,
+        "specialist_candidates": ranked,
+        "team_score": team_score,
+        "team_score_components": components,
+        "work_packages": packages,
+        "max_repair_loops": budget["max_repair_loops"],
+        "mandatory_independent_review": mandatory_review,
+        "decision_reasons": reasons,
+    }, limitations
+
+
+def evidence_router_rollout(request):
+    overrides = request.get("user_overrides")
+    if not isinstance(overrides, dict):
+        overrides = {}
+    kill_switch = overrides.get("kill_switch") is True or os.environ.get(
+        "PILOTHOS_EVIDENCE_ROUTER_KILL_SWITCH", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if kill_switch:
+        return "off", True
+    raw = str(
+        overrides.get("rollout")
+        or request.get("router_mode")
+        or os.environ.get("PILOTHOS_EVIDENCE_ROUTER_MODE", "advisory")
+    ).strip().lower()
+    return (raw if raw in EVIDENCE_ROUTER_ROLLOUT_MODES else "advisory"), False
+
+
+def evidence_router_enforcement_capability_gaps(capability_result):
+    caps = capability_result.get("capabilities", {})
+    required = (
+        "pre_edit_hooks", "post_edit_hooks", "stop_hooks",
+        "approval_controls", "sandbox_controls",
+        "receipt_enforcement", "seal_enforcement",
+    )
+    return [
+        key for key in required
+        if caps.get(key) not in {"native", "emulated"}
+    ]
+
+
+def evidence_route_rejected(errors):
+    return {
+        "result": "evidence_route_rejected",
+        "decision_id": "",
+        "task_class": "",
+        "risk": {"score": 0, "reasons": []},
+        "confidence": 0.0,
+        "evidence_plan": [],
+        "context_plan": [],
+        "execution_plan": {
+            "mode": "single",
+            "team": False,
+            "roles": [],
+            "model_tiers": {},
+        },
+        "tool_plan": [],
+        "verification_plan": [],
+        "budgets": {},
+        "fallbacks": [],
+        "limitations": [],
+        "decision_reasons": [],
+        "errors": errors,
+    }
+
+
+def evidence_route_request_errors(request):
+    errors = []
+    if "intent" in request and not isinstance(request.get("intent"), str):
+        errors.append("intent must be a string")
+    elif len(request.get("intent") or "") > 10_000:
+        errors.append("intent exceeds 10000 characters")
+    if "locale" in request and not isinstance(request.get("locale"), str):
+        errors.append("locale must be a string")
+    for field in ("affected_paths", "changed_paths", "allowed_paths", "target_paths"):
+        if field not in request:
+            continue
+        value = request.get(field)
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            errors.append(f"{field} must be a list of strings")
+            continue
+        if len(value) > 1000:
+            errors.append(f"{field} exceeds 1000 entries")
+            continue
+        for path in value:
+            if not path_pattern_is_safe(path):
+                errors.append(f"{field} contains unsafe pattern: {path}")
+    constraints = request.get("constraints")
+    if constraints is not None and (
+        not isinstance(constraints, list)
+        or any(not isinstance(item, str) for item in constraints)
+    ):
+        errors.append("constraints must be a list of strings")
+    elif isinstance(constraints, list) and len(constraints) > 100:
+        errors.append("constraints exceeds 100 entries")
+    for field in ("budget", "user_overrides"):
+        if field in request and not isinstance(request.get(field), dict):
+            errors.append(f"{field} must be an object")
+    specialists = request.get("specialists")
+    if specialists is not None and (
+        not isinstance(specialists, list)
+        or any(not isinstance(item, dict) for item in specialists)
+    ):
+        errors.append("specialists must be a list of objects")
+    elif isinstance(specialists, list) and len(specialists) > 100:
+        errors.append("specialists exceeds 100 entries")
+    return errors
+
+
+def evidence_router_localized_summary(request, task_class, execution_plan):
+    locale = str(request.get("locale") or request.get("language") or "en").lower()
+    language = locale.split("-", 1)[0].split("_", 1)[0]
+    mode = execution_plan.get("mode", "single")
+    if language == "vi":
+        summary = (
+            f"Đã phân loại {task_class}; chọn chế độ {mode} với bằng chứng "
+            "tối thiểu đáp ứng quality floor."
+        )
+    else:
+        summary = (
+            f"Classified {task_class}; selected {mode} with the smallest "
+            "evidence set meeting the quality floor."
+        )
+    return locale, summary
+
+
+def evidence_route_output(
+    request, matrix, matrix_source, signal, task_class, class_reasons, risk,
+    confidence, evidence_plan, context_plan, execution_plan, tool_plan,
+    verification_plan, budget, capability_result, specialist, fallbacks,
+    limitations, rollout, requested_rollout, kill_switch,
+):
+    decision_basis = {
+        "request": sanitize_state_value(request, limit=1000),
+        "signal": signal,
+        "task_class": task_class,
+        "risk": risk,
+        "confidence": confidence,
+        "rollout": rollout,
+        "matrix_sha256": sha256_json(matrix),
+        "evidence_plan": evidence_plan,
+        "execution_plan": execution_plan,
+        "adapter_capabilities": capability_result.get("capabilities", {}),
+    }
+    floor = evidence_router_quality_floor(matrix)
+    reasons = class_reasons + [
+        f"matrix_source={matrix_source}",
+        f"rollout={rollout}",
+        f"selected smallest declared evidence set for {task_class}",
+    ] + execution_plan.pop("decision_reasons", [])
+    if specialist:
+        reasons.append(
+            f"selected {specialist['owner']} specialist {specialist['id']} score={specialist['score']}"
+        )
+    else:
+        reasons.append(
+            f"no specialist met the {floor['specialist_score']}/100 "
+            "health/tool/permission floor"
+        )
+    locale, localized_summary = evidence_router_localized_summary(
+        request, task_class, execution_plan,
+    )
+    return {
+        "result": "evidence_route",
+        "schema_version": 1,
+        "read_only": True,
+        "locale": locale,
+        "decision_summary": localized_summary,
+        "decision_id": "er-" + sha256_json(decision_basis)[:16],
+        "task_signal": TASK_SIGNAL_ROUTES.get(signal, {}).get("task_signal", signal),
+        "task_class": task_class,
+        "risk": risk,
+        "confidence": confidence,
+        "evidence_plan": evidence_plan,
+        "context_plan": context_plan,
+        "execution_plan": execution_plan,
+        "tool_plan": tool_plan,
+        "verification_plan": verification_plan,
+        "budgets": budget,
+        "fallbacks": sorted(set(fallbacks)),
+        "limitations": sorted(set(limitations)),
+        "decision_reasons": reasons,
+        "adapter_capabilities": capability_result,
+        "rollout": {
+            "mode": rollout,
+            "requested_mode": requested_rollout,
+            "kill_switch": kill_switch,
+            # The merged floor, i.e. the thresholds that actually governed this
+            # decision — not the raw registry block, which may omit keys.
+            "quality_floor": floor,
+        },
+    }
+
+
+def evidence_route_digest(decision):
+    """The acting half of a route decision; `--verbose` and state keep the rest.
+
+    A full decision is ~1.8-2.3k tokens, and `os-start` plus every `os-status`
+    reprinted it even though the same blob is already persisted to
+    `contract.json` and the run state. The digest keeps what changes what the
+    agent does next — plan, gates, budgets, limitations — and drops the
+    provenance that gate logic reads from state rather than from stdout.
+    """
+    if not isinstance(decision, dict) or decision.get("result") != "evidence_route":
+        return decision
+    execution = decision.get("execution_plan") or {}
+    capabilities = decision.get("adapter_capabilities") or {}
+    rollout = decision.get("rollout") or {}
+    specialist = execution.get("specialist") or {}
+
+    def items(key):
+        return [x for x in (decision.get(key) or []) if isinstance(x, dict)]
+
+    return {
+        "result": decision.get("result"),
+        "schema_version": decision.get("schema_version"),
+        "digest": True,
+        "decision_id": decision.get("decision_id"),
+        "decision_summary": decision.get("decision_summary"),
+        "task_signal": decision.get("task_signal"),
+        "task_class": decision.get("task_class"),
+        "risk": decision.get("risk"),
+        "confidence": decision.get("confidence"),
+        "adapter": {
+            "adapter": capabilities.get("adapter"),
+            "source": capabilities.get("adapter_source"),
+            "degraded": capabilities.get("degraded", []),
+        },
+        "rollout": {
+            "mode": rollout.get("mode"),
+            "kill_switch": rollout.get("kill_switch"),
+        },
+        "execution": {
+            "mode": execution.get("mode"),
+            "controls_execution": execution.get("controls_execution"),
+            "team": execution.get("team"),
+            "roles": execution.get("roles", []),
+            "mandatory_independent_review": execution.get(
+                "mandatory_independent_review",
+            ),
+            "max_repair_loops": execution.get("max_repair_loops"),
+            "model_tiers": execution.get("model_tiers", {}),
+            "specialist": specialist.get("id", ""),
+        },
+        "evidence_plan": [
+            {
+                "type": item.get("type"),
+                "source": item.get("source"),
+                "required": item.get("required"),
+            }
+            for item in items("evidence_plan")
+        ],
+        "verification_plan": [
+            {"method": item.get("method"), "required": item.get("required")}
+            for item in items("verification_plan")
+        ],
+        "context_plan": [item.get("source") for item in items("context_plan")],
+        "tool_plan": [item.get("tool") for item in items("tool_plan")],
+        # hard_limits only names keys that are already present alongside it.
+        "budgets": {
+            key: value
+            for key, value in (decision.get("budgets") or {}).items()
+            if key != "hard_limits"
+        },
+        "limitations": decision.get("limitations", []),
+        "fallbacks": decision.get("fallbacks", []),
+        "verbose_with": "--verbose (evidence-route/os-status) or the run's contract.json",
+    }
+
+
+def finalize_evidence_route(
+    request, matrix, matrix_source, signal, task_class, class_reasons, risk, confidence, evidence_plan, context_plan,
+    execution_plan, tool_plan, verification_plan, budget, capability_result, specialist, evidence_fallbacks, evidence_limitations, execution_limitations,
+):
+    rollout, kill_switch = evidence_router_rollout(request)
+    requested_rollout = rollout
+    limitations = (
+        evidence_limitations
+        + execution_limitations
+        + capability_result.get("limitations", [])
+    )
+    fallbacks = list(evidence_fallbacks)
+    floor = evidence_router_quality_floor(matrix)
+    if confidence < floor["route_confidence"]:
+        fallbacks.append(
+            "read source, run another verification, or ask the user before relying on the route"
+        )
+    if budget["exhausted"]:
+        fallbacks.extend([
+            "stop parallelism and use single-agent source-first execution",
+            "ask the user when the quality floor still cannot be demonstrated",
+        ])
+    if kill_switch or rollout == "off":
+        execution_plan["mode"] = "legacy_source_only"
+        execution_plan["team"] = False
+        execution_plan["roles"] = []
+        execution_plan["model_tiers"] = {}
+        fallbacks.append("legacy scheduler and source-only routing")
+    elif rollout == "shadow":
+        execution_plan["controls_execution"] = False
+    elif rollout == "advisory":
+        execution_plan["controls_execution"] = False
+        execution_plan["override_requires_reason"] = True
+    elif rollout == "enforced":
+        enforcement_gaps = evidence_router_enforcement_capability_gaps(
+            capability_result,
+        )
+        if enforcement_gaps:
+            rollout = "advisory"
+            execution_plan["controls_execution"] = False
+            execution_plan["override_requires_reason"] = True
+            limitations.append(
+                "enforced rollout unavailable; adapter capability gaps: "
+                + ", ".join(enforcement_gaps)
+            )
+            fallbacks.append("use advisory routing until the adapter passes the capability contract")
+        else:
+            execution_plan["controls_execution"] = True
+    else:
+        execution_plan["controls_execution"] = False
+    return evidence_route_output(
+        request, matrix, matrix_source, signal, task_class, class_reasons, risk,
+        confidence, evidence_plan, context_plan, execution_plan, tool_plan,
+        verification_plan, budget, capability_result, specialist, fallbacks,
+        limitations, rollout, requested_rollout, kill_switch,
+    )
+
+
+def evidence_router_review_evidence_present(receipt, os_evidence):
+    review = receipt.get("independent_review")
+    if isinstance(review, dict):
+        result = str(review.get("result") or review.get("status") or "").upper()
+        if result == "PASS" and non_empty_string(review.get("evidence")):
+            return True
+    for item in os_evidence or []:
+        if not isinstance(item, dict):
+            continue
+        gate = str(item.get("quality_gate") or item.get("gate") or "").lower()
+        result = str(item.get("result") or item.get("status") or "").lower()
+        if "review" in gate and result in {"pass", "passed", "approve", "approved"}:
+            return True
+    return False
+
+
+def evidence_router_receipt_errors(contract, receipt, os_evidence=None, floor=None):
+    if not isinstance(contract, dict) or not isinstance(receipt, dict):
+        return []
+    router = contract.get("evidence_router")
+    if not isinstance(router, dict):
+        return []
+    rollout = router.get("rollout")
+    rollout_mode = rollout.get("mode") if isinstance(rollout, dict) else "advisory"
+    if floor is None:
+        # Judge the receipt against the floor that was in force when the route was
+        # decided — the decision records it — rather than whatever the registry
+        # says now. Editing the registry mid-task must not retroactively change
+        # what an already-issued route demanded.
+        recorded = rollout.get("quality_floor") if isinstance(rollout, dict) else None
+        floor = evidence_router_quality_floor(
+            {"quality_floor": recorded} if isinstance(recorded, dict) else None
+        )
+    execution = router.get("execution_plan")
+    if not isinstance(execution, dict):
+        execution = {}
+    errors = []
+    receipt_decision = receipt.get("decision_id")
+    if receipt_decision and receipt_decision != router.get("decision_id"):
+        errors.append("receipt decision_id does not match the active Evidence Router decision")
+    actual_mode = receipt.get("execution_mode")
+    planned_mode = execution.get("mode")
+    if (
+        non_empty_string(actual_mode)
+        and actual_mode != planned_mode
+        and not non_empty_string(receipt.get("router_override_reason"))
+    ):
+        errors.append("router_override_reason is required when execution_mode overrides the route")
+    if rollout_mode != "enforced":
+        return errors
+    if not non_empty_string(receipt_decision):
+        errors.append("decision_id is required by enforced Evidence Router rollout")
+    if float(router.get("confidence", 0)) < floor["route_confidence"] and not non_empty_string(
+        receipt.get("router_low_confidence_resolution")
+    ):
+        errors.append(
+            "router_low_confidence_resolution is required before accepting an enforced low-confidence route"
+        )
+    required_types = {
+        item.get("type")
+        for item in router.get("evidence_plan", [])
+        if isinstance(item, dict) and item.get("required") is True
+    }
+    context_used = receipt.get("context_used")
+    if required_types & {"source", "manifest"} and not (
+        isinstance(context_used, list) and context_used
+    ):
+        errors.append("enforced source/manifest evidence requires receipt context_used")
+    command = str(receipt.get("verification_command") or "").lower()
+    if "test" in required_types and (
+        not command or any(term in command for term in ("not run", "skipped", "failed"))
+    ):
+        errors.append("enforced test evidence requires a clean verification_command")
+    if "review" in required_types and not evidence_router_review_evidence_present(
+        receipt, os_evidence or [],
+    ):
+        errors.append("enforced review evidence requires an independent PASS with evidence")
+    if "consumer_asset" in required_types and not receipt.get("consumer_asset_routing"):
+        errors.append("enforced consumer asset evidence requires consumer_asset_routing")
+    if "coverage_search" in required_types and not receipt.get("coverage_evidence"):
+        errors.append("enforced negative-claim evidence requires coverage_evidence")
+    if "visual" in required_types:
+        gates = receipt.get("quality_gates")
+        ui = gates.get("ui_quality") if isinstance(gates, dict) else None
+        if not isinstance(ui, dict) or ui.get("result") != "PASS":
+            errors.append("enforced visual evidence requires quality_gates.ui_quality PASS")
+    return errors
+
+
+def evidence_route_payload(request):
+    if not isinstance(request, dict):
+        return evidence_route_rejected(["request must be a JSON object"])
+    request_errors = evidence_route_request_errors(request)
+    if request_errors:
+        return evidence_route_rejected(request_errors)
+    matrix, matrix_source = load_evidence_router_matrix()
+    floor = evidence_router_quality_floor(matrix)
+    signal, class_confidence, class_reasons, errors = classify_evidence_task(
+        request, matrix,
+    )
+    if errors:
+        return evidence_route_rejected(errors)
+    task_row = matrix["task_matrix"].get(signal, {})
+    task_class = str(task_row.get("task_class") or "small_task")
+    risk = evidence_router_risk(request, signal, task_row)
+    # Pass the request's adapter through untouched (absent stays absent) so
+    # resolve_adapter can fall back to env detection instead of being pinned to
+    # "unknown" before it ever runs.
+    capability_request = {
+        "adapter": request.get("adapter"),
+        "adapter_capabilities": request.get("adapter_capabilities") or {},
+    }
+    capability_result = adapter_capabilities_payload(capability_request)
+    if capability_result.get("result") == "adapter_capabilities_rejected":
+        return evidence_route_rejected(capability_result.get("errors", []))
+    evidence_plan, evidence_fallbacks, evidence_limitations = build_evidence_plan(
+        request, task_row, class_confidence,
+    )
+    confidence = class_confidence
+    if not request_paths(request):
+        confidence -= 0.08
+    # Per-evidence-item floor, a different question from route_confidence: one weak
+    # item caps the route's confidence just below the route floor.
+    if any(item.get("confidence", 1.0) < floor["evidence_item_confidence"] for item in evidence_plan):
+        confidence = min(confidence, 0.78)
+    conflicts = request.get("evidence_conflicts")
+    if isinstance(conflicts, list) and conflicts:
+        confidence = min(confidence, 0.65)
+    confidence = round(max(0.0, min(confidence, 1.0)), 2)
+
+    budget = evidence_router_budget(request, capability_result)
+    specialist, ranked = select_specialist(
+        request, signal, task_class, evidence_plan, floor,
+    )
+    execution_request = dict(request)
+    execution_request["_classified_signal"] = signal
+    execution_plan, execution_limitations = evidence_router_execution_plan(
+        execution_request,
+        risk,
+        confidence,
+        specialist,
+        ranked,
+        capability_result,
+        budget,
+        floor,
+    )
+    mandatory_review = execution_plan.get("mandatory_independent_review", False)
+    context_plan = evidence_router_context_plan(task_row, request)
+    tool_plan = evidence_router_tool_plan(task_row, capability_result)
+    verification_plan = evidence_router_verification_plan(
+        task_row, evidence_plan, mandatory_review,
+    )
+    return finalize_evidence_route(
+        request, matrix, matrix_source, signal, task_class, class_reasons,
+        risk, confidence, evidence_plan, context_plan, execution_plan,
+        tool_plan, verification_plan, budget, capability_result, specialist,
+        evidence_fallbacks, evidence_limitations, execution_limitations,
+    )
+
+
+def evidence_route(argv):
+    argv = list(argv)
+    if "--explain" in argv:
+        json_print(evidence_router_schema_payload())
+        return
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if a != "--verbose"]
+    try:
+        request, _ = json_arg_or_stdin(argv, "evidence-route")
+    except Exception as e:
+        json_print({
+            "result": "evidence_route_rejected",
+            "errors": [str(e)],
+        })
+        return
+    decision = evidence_route_payload(request)
+    json_print(decision if verbose else evidence_route_digest(decision))
+
 # -------------------------------------------------------------- scheduler v4
 
 def scheduler_history_status():
@@ -3965,7 +6738,7 @@ def scheduler_suggest_payload(payload):
     }
     if full_suite_expected:
         skeleton["energy_budget_reason"] = suite_reason
-    return {
+    result = {
         "result": "scheduler_suggested",
         "history_status": history,
         "history_matches": history_matches,
@@ -3981,6 +6754,13 @@ def scheduler_suggest_payload(payload):
         "contract_skeleton": skeleton,
         "fallback_used": history != "loaded",
     }
+    # Compatibility wrapper for one major version. Existing scheduler fields
+    # remain unchanged; new consumers should use evidence-route directly.
+    if payload.get("_router_compat_only") is not True:
+        result["evidence_router"] = evidence_route_digest(
+            evidence_route_payload(payload),
+        )
+    return result
 
 
 def scheduler_suggest(argv):
@@ -4072,9 +6852,10 @@ def scheduler_record(argv):
     SCHEDULER_HISTORY.parent.mkdir(parents=True, exist_ok=True)
     with open(SCHEDULER_HISTORY, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
-    json_print({"result": "scheduler_recorded", "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix()})
-
-
+    json_print({
+        "result": "scheduler_recorded",
+        "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
+    })
 # --------------------------------------------------------------- team v5
 
 def team_definition_path(team):
@@ -4973,15 +7754,14 @@ def command_is_read_only_guard(command):
     if not parts[1].endswith("pilothOS/scripts/pilothos_guard.py"):
         return False
     mode = parts[2]
-    if mode not in READ_ONLY_GUARD_MODES:
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
         return False
     trailing_args = parts[3:]
     trailing_text = " ".join(trailing_args).lower()
     if any(re.search(pattern, trailing_text) for pattern in HIGH_RISK_COMMAND_PATTERNS):
         return False
-    if mode == "receipt-verify":
-        return "--record" not in trailing_args
-    return True
+    return not mode_mutates(mode, trailing_args)
 
 
 def command_looks_high_risk(command):
@@ -5468,6 +8248,47 @@ def receipt_verify(argv):
     })
 
 
+def receipt_template_router_fields(contract):
+    router = contract.get("evidence_router") if isinstance(contract, dict) else None
+    if not isinstance(router, dict) or not non_empty_string(router.get("decision_id")):
+        return {}
+    execution = router.get("execution_plan")
+    if not isinstance(execution, dict):
+        execution = {}
+    fields = {
+        "decision_id": router.get("decision_id"),
+        "execution_mode": execution.get("mode", ""),
+        "evidence_router": {
+            "decision_id": router.get("decision_id"),
+            "rollout": (router.get("rollout") or {}).get("mode", ""),
+            "execution_mode": execution.get("mode", ""),
+            "verification_methods": [
+                item.get("method")
+                for item in router.get("verification_plan", [])
+                if isinstance(item, dict) and non_empty_string(item.get("method"))
+            ],
+            "limitations": router.get("limitations", []),
+        },
+    }
+    rollout = router.get("rollout")
+    rollout_mode = rollout.get("mode") if isinstance(rollout, dict) else "advisory"
+    required_types = {
+        item.get("type")
+        for item in router.get("evidence_plan", [])
+        if isinstance(item, dict) and item.get("required") is True
+    }
+    if rollout_mode == "enforced" and float(router.get("confidence", 0)) < 0.80:
+        fields["router_low_confidence_resolution"] = "<source/verification/user resolution>"
+    if rollout_mode == "enforced" and "review" in required_types:
+        fields["independent_review"] = {
+            "result": "PASS",
+            "evidence": "<independent reviewer evidence>",
+        }
+    if rollout_mode == "enforced" and "coverage_search" in required_types:
+        fields["coverage_evidence"] = "<complete negative-claim scope evidence>"
+    return fields
+
+
 def receipt_template():
     """Emit a gate-aware receipt skeleton.
 
@@ -5504,6 +8325,7 @@ def receipt_template():
              "evidence_refs": ["<os-evidence id>", "quality_gates.correctness"]}
         ],
     }
+    template.update(receipt_template_router_fields(contract))
 
     if needs_judgment:
         template["judgment_checklist"] = dict(JUDGMENT_CHECKLIST_KEYS)
@@ -5559,9 +8381,7 @@ def receipt_template():
         template["_allowed_values"] = allowed
 
     print(json.dumps(template, ensure_ascii=False, indent=2))
-
-
-# --------------------------------------------------------- OS lifecycle modes
+# ---------------------------------------------------- OS contract construction
 
 def clean_string_list(value):
     if isinstance(value, str) and value.strip():
@@ -5938,6 +8758,7 @@ def build_os_contract(request, route, scheduler, target=None):
     return contract
 
 
+# ------------------------------------------------------------ OS quality gates
 def contract_requires_ui_quality_evidence(contract, receipt=None):
     if isinstance(contract, dict) and contract.get("evidence_profile") == "ui":
         return True
@@ -6623,6 +9444,7 @@ def sanitize_os_evidence_payload(payload):
         "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
         "total_tokens", "real_token_telemetry", "unavailable_reason",
         "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+        "cost_complete", "unpriced_models", "unpriced_tokens",
         "model", "pricing_source", "window_start", "subagent_scope",
         "consumer_value_result", "all_mandatory_not_worse",
         "consumer_visible_win", "mandatory_regressions", "wins",
@@ -6678,6 +9500,7 @@ def sanitize_os_evidence_payload(payload):
     return sanitized, []
 
 
+# ------------------------------------------------- OS cost and token telemetry
 def metric_records(os_evidence):
     return [
         item for item in os_evidence
@@ -6783,21 +9606,33 @@ TRANSCRIPT_USAGE_KEYS = (
     "input_tokens", "output_tokens",
     "cache_creation_input_tokens", "cache_read_input_tokens",
 )
+# Transcript `message.model` values that are not a model call. They carry a
+# usage block, so they would otherwise be summed as real tokens and — being
+# absent from the price map — reported as an unpriced model.
+NON_BILLABLE_TRANSCRIPT_MODELS = frozenset({"<synthetic>"})
 
 
 def sum_transcript_usage(path, since=None, pricing=None):
     """Sum real per-turn `message.usage` from a Claude Code transcript, windowed
     to records at/after `since` (a datetime). Returns a dict with summed usage,
-    per-model token totals, a summed cost (or None when any model is unpriced),
-    and record/model counts — or None if the file can't be read.
+    per-model token totals, the cost of the priced portion, and record/model
+    counts — or None if the file can't be read.
+
+    Cost is a subtotal, not all-or-nothing: an unpriced model used to void
+    `cost_usd` for the entire run, silently, so a single turn on a model missing
+    from the price map cost the caller every other turn's number too. Now the
+    priced portion is summed and the gap is declared in `cost_complete` /
+    `unpriced_models` / `unpriced_tokens`. `cost_usd` is None only when nothing
+    at all could be priced.
 
     Attribution is main-session-only: background subagent transcripts are
     separate files and are not summed here (disclosed as subagent_scope)."""
     usage = {k: 0 for k in TRANSCRIPT_USAGE_KEYS}
     per_model_tokens = {}
+    unpriced_models = {}
     records = 0
     cost_total = 0.0
-    cost_available = True
+    priced_records = 0
     pricing = pricing if isinstance(pricing, dict) else load_model_pricing()
     try:
         with open(path, encoding="utf-8") as f:
@@ -6819,17 +9654,23 @@ def sum_transcript_usage(path, since=None, pricing=None):
                 u = msg.get("usage") if isinstance(msg, dict) else None
                 if not isinstance(u, dict):
                     continue
+                model = msg.get("model") if non_empty_string(msg.get("model")) else "unknown"
+                if model in NON_BILLABLE_TRANSCRIPT_MODELS:
+                    # Harness-generated turn, not a model call. Counting it would
+                    # overstate real tokens and make the run look unpriced.
+                    continue
                 records += 1
                 row = {k: metric_int(u.get(k)) for k in TRANSCRIPT_USAGE_KEYS}
                 for k in TRANSCRIPT_USAGE_KEYS:
                     usage[k] += row[k]
-                model = msg.get("model") if non_empty_string(msg.get("model")) else "unknown"
-                per_model_tokens[model] = per_model_tokens.get(model, 0) + sum(row.values())
+                row_tokens = sum(row.values())
+                per_model_tokens[model] = per_model_tokens.get(model, 0) + row_tokens
                 c = compute_token_cost_usd(row, model, pricing)
                 if c is None:
-                    cost_available = False
+                    unpriced_models[model] = unpriced_models.get(model, 0) + row_tokens
                 else:
                     cost_total += c
+                    priced_records += 1
     except OSError:
         return None
     primary_model = max(per_model_tokens, key=per_model_tokens.get) if per_model_tokens else ""
@@ -6838,9 +9679,63 @@ def sum_transcript_usage(path, since=None, pricing=None):
         "records": records,
         "models": sorted(per_model_tokens),
         "primary_model": primary_model,
-        "cost_usd": round(cost_total, 6) if cost_available else None,
+        "cost_usd": round(cost_total, 6) if priced_records else None,
+        "cost_complete": not unpriced_models,
+        "unpriced_models": sorted(unpriced_models),
+        "unpriced_tokens": sum(unpriced_models.values()),
         "pricing_source": pricing.get("source") if isinstance(pricing, dict) else "",
     }
+
+
+def token_telemetry_payload(task_id, created_at, summed):
+    """(evidence payload, result label) for a summed transcript, or for no data.
+
+    Split out of token_telemetry so the mode function stays inside the
+    function-length ratchet; it is also the unit under test for the cost fields.
+    """
+    base = {
+        "task_id": task_id,
+        "kind": "metric",
+        "metric_type": "llm_usage",
+        "metric_name": "session-token-usage",
+        "subagent_scope": "main_session_only",
+    }
+    if not summed or summed.get("records", 0) == 0:
+        base.update({
+            "real_token_telemetry": False,
+            "unavailable_reason": "no Claude Code transcript usage found for this session (harness may not expose per-turn token telemetry)",
+            "summary": "token telemetry unavailable",
+        })
+        return base, "token_telemetry_unavailable"
+
+    usage = summed["usage"]
+    base.update({
+        "real_token_telemetry": True,
+        "input_tokens": usage["input_tokens"],
+        "output_tokens": usage["output_tokens"],
+        "cache_creation_input_tokens": usage["cache_creation_input_tokens"],
+        "cache_read_input_tokens": usage["cache_read_input_tokens"],
+        "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+        "model": summed.get("primary_model") or "",
+        "window_start": created_at or "",
+        "summary": f"session token telemetry from Claude Code transcript ({summed['records']} turns)",
+    })
+    if summed.get("cost_usd") is not None:
+        base["cost_usd"] = summed["cost_usd"]
+        # Whether the cost covers every turn travels with the number, so a
+        # subtotal is never mistaken for a complete bill.
+        base["cost_complete"] = bool(summed.get("cost_complete"))
+        if summed.get("unpriced_models"):
+            base["unpriced_models"] = summed["unpriced_models"]
+            base["unpriced_tokens"] = summed.get("unpriced_tokens", 0)
+        if non_empty_string(summed.get("pricing_source")):
+            base["pricing_source"] = summed["pricing_source"]
+    elif summed.get("unpriced_models"):
+        base["unavailable_reason"] = (
+            "no model in this session is in runtime/model-pricing.json: "
+            + ", ".join(summed["unpriced_models"])
+        )
+    return base, "token_telemetry_recorded"
 
 
 def token_telemetry(argv):
@@ -6872,41 +9767,7 @@ def token_telemetry(argv):
     transcript = resolve_transcript_path(argv)
     summed = sum_transcript_usage(transcript, since=since) if transcript else None
 
-    if not summed or summed.get("records", 0) == 0:
-        payload = {
-            "task_id": task_id,
-            "kind": "metric",
-            "metric_type": "llm_usage",
-            "metric_name": "session-token-usage",
-            "real_token_telemetry": False,
-            "unavailable_reason": "no Claude Code transcript usage found for this session (harness may not expose per-turn token telemetry)",
-            "subagent_scope": "main_session_only",
-            "summary": "token telemetry unavailable",
-        }
-        result_label = "token_telemetry_unavailable"
-    else:
-        usage = summed["usage"]
-        payload = {
-            "task_id": task_id,
-            "kind": "metric",
-            "metric_type": "llm_usage",
-            "metric_name": "session-token-usage",
-            "real_token_telemetry": True,
-            "input_tokens": usage["input_tokens"],
-            "output_tokens": usage["output_tokens"],
-            "cache_creation_input_tokens": usage["cache_creation_input_tokens"],
-            "cache_read_input_tokens": usage["cache_read_input_tokens"],
-            "total_tokens": usage["input_tokens"] + usage["output_tokens"],
-            "model": summed.get("primary_model") or "",
-            "window_start": created_at or "",
-            "subagent_scope": "main_session_only",
-            "summary": f"session token telemetry from Claude Code transcript ({summed['records']} turns)",
-        }
-        if summed.get("cost_usd") is not None:
-            payload["cost_usd"] = summed["cost_usd"]
-            if non_empty_string(summed.get("pricing_source")):
-                payload["pricing_source"] = summed["pricing_source"]
-        result_label = "token_telemetry_recorded"
+    payload, result_label = token_telemetry_payload(task_id, created_at, summed)
 
     evidence, errors = sanitize_os_evidence_payload(payload)
     if errors:
@@ -6950,6 +9811,21 @@ def cost_ledger_summary(os_evidence):
         item for item in metrics
         if item.get("metric_type") == "benchmark"
     ]
+    # `token-telemetry` reports a CUMULATIVE figure for the whole run window, so
+    # summing two of its records double-counts the same tokens — and it is safe to
+    # run twice (mid-task, then before close), which the docs invite. Records
+    # carrying `window_start` are cumulative by definition: keep the newest and
+    # treat the rest as superseded. Manually recorded per-phase llm_usage (no
+    # window_start) stays additive.
+    cumulative = [item for item in real_llm if non_empty_string(item.get("window_start"))]
+    superseded = 0
+    if len(cumulative) > 1:
+        newest = max(cumulative, key=lambda item: str(item.get("recorded_at") or ""))
+        superseded = len(cumulative) - 1
+        real_llm = [
+            item for item in real_llm
+            if item is newest or not non_empty_string(item.get("window_start"))
+        ]
     real_tokens = None
     if real_llm:
         real_tokens = {
@@ -6959,12 +9835,27 @@ def cost_ledger_summary(os_evidence):
             "cache_creation_input_tokens": sum(metric_int(item.get("cache_creation_input_tokens")) for item in real_llm),
             "cache_read_input_tokens": sum(metric_int(item.get("cache_read_input_tokens")) for item in real_llm),
             "cost_usd": round(sum(metric_float(item.get("cost_usd")) for item in real_llm), 6),
+            # Complete only if EVERY contributing record says so. A record with no
+            # cost_usd at all also leaves the total a floor, so absence counts as
+            # incomplete rather than as agreement.
+            "cost_complete": all(
+                item.get("cost_complete") is True for item in real_llm
+            ),
+            "unpriced_models": sorted({
+                str(name).strip()
+                for item in real_llm
+                for name in (item.get("unpriced_models") or [])
+                if str(name).strip()
+            }),
         }
     return {
         "schema_version": 1,
         "metric_records": len(metrics),
         "real_tokens": real_tokens if real_tokens is not None else "unavailable",
         "real_token_telemetry": bool(real_llm),
+        # Disclosed rather than silent: an earlier cumulative snapshot was dropped
+        # in favour of the newest one instead of being added to it.
+        "superseded_token_snapshots": superseded,
         "token_unavailable_reasons": sorted(set(
             str(item.get("unavailable_reason", "")).strip()
             for item in unavailable_llm
@@ -7014,14 +9905,27 @@ def budget_status(contract, os_evidence):
             "reason": "no real token telemetry / cost recorded yet (run token-telemetry)",
             "max_usd": max_usd,
         }
-    return {
+    complete = real.get("cost_complete") is True
+    status = {
         "advisory": True,
         "max_usd": max_usd,
         "spent_usd": round(float(spent), 6),
         "remaining_usd": round(max_usd - float(spent), 6),
+        # A subtotal can only prove the budget IS exceeded, never that it isn't.
         "over_budget": float(spent) > max_usd,
+        "cost_complete": complete,
         "note": "advisory only — does not block os-close",
     }
+    if not complete:
+        status["spent_is_floor"] = True
+        status["note"] = (
+            "advisory only — does not block os-close; spent_usd is a FLOOR "
+            "(some turns ran on models missing from runtime/model-pricing.json)"
+        )
+        unpriced = real.get("unpriced_models") or []
+        if unpriced:
+            status["unpriced_models"] = unpriced
+    return status
 
 
 def record_checkpoint_from_evidence(state, evidence):
@@ -7071,6 +9975,7 @@ def consumer_superiority_ok(receipt, os_evidence):
     return False
 
 
+# ---------------------------------------------------------- OS lifecycle modes
 def os_start_schema_payload():
     """Machine-readable os-start request schema (SSOT for the doc page).
 
@@ -7095,6 +10000,12 @@ def os_start_schema_payload():
             "target_footprint_policy": {"required": False, "allowed": sorted(TARGET_FOOTPRINT_POLICIES), "aliases": ["footprint_policy"], "default": "no_control_plane_files if explicit target else repo_local_state_allowed"},
             "execution_strategy": {"required": False, "default": "controlled_target if explicit target else repo_local"},
             "budget": {"required": False, "note": "object; budget.max_usd is an advisory cost ceiling"},
+            "adapter": {"required": False, "allowed": ["claude", "codex", "cursor", "antigravity"], "note": "used for capability handshake; unknown adapters degrade explicitly"},
+            "locale": {"required": False, "default": "en", "note": "localizes human-readable summary only; IDs and schema remain English"},
+            "adapter_capabilities": {"required": False, "note": "native|emulated|unavailable map; request values override the conservative adapter registry"},
+            "specialists": {"required": False, "note": "consumer specialist registry entries; healthy qualified consumer entries outrank Piloth fallbacks"},
+            "work_packages": {"required": False, "note": "independent work packages used by the scored team gate"},
+            "user_overrides": {"required": False, "note": "rollout/execution override; safety review remains mandatory"},
             "success_metrics": {"required": False},
             "requires_prototype": {"required": False, "default": False, "note": "true also forces requires_human_review"},
             "requires_human_review": {"required": False, "default": False},
@@ -7137,13 +10048,36 @@ def os_start(argv):
             })
             return
     task_signal = request.get("task_signal") or "not_applicable"
-    route = route_task_payload({"task_signal": task_signal})
+    evidence_router = evidence_route_payload(request)
+    if evidence_router.get("result") != "evidence_route":
+        json_print({
+            "result": "os_start_rejected",
+            "task_id": task_id,
+            "errors": evidence_router.get("errors", ["evidence router rejected request"]),
+        })
+        return
+    routed_signal = evidence_router.get("task_signal") or task_signal
+    route = route_task_payload({
+        "task_signal": routed_signal,
+        "intent": request_intent(request),
+        "affected_paths": paths,
+        "adapter": request.get("adapter"),
+        "adapter_capabilities": request.get("adapter_capabilities"),
+        "_router_compat_only": True,
+    })
     scheduler = scheduler_suggest_payload({
-        "task_signal": task_signal,
+        "task_signal": routed_signal,
         "affected_paths": paths,
         "intent": request_intent(request),
+        "_router_compat_only": True,
     })
     contract = build_os_contract(request, route, scheduler, target=target)
+    contract["evidence_router"] = evidence_router
+    contract["decision_id"] = evidence_router.get("decision_id")
+    contract["evidence_plan"] = evidence_router.get("evidence_plan", [])
+    contract["execution_plan"] = evidence_router.get("execution_plan", {})
+    contract["verification_plan"] = evidence_router.get("verification_plan", [])
+    contract["router_limitations"] = evidence_router.get("limitations", [])
     contract_errors = validate_task_contract(contract)
     if contract_errors:
         json_print({"result": "os_start_rejected", "task_id": task_id, "errors": contract_errors})
@@ -7196,6 +10130,7 @@ def os_start(argv):
             ][:20],
         },
         "scheduler_suggestion": scheduler,
+        "evidence_router": evidence_router,
     }
     state_path = save_os_state(state)
     write_json(os_state_path(task_id, "contract.json"), contract)
@@ -7246,10 +10181,17 @@ def os_start(argv):
             "energy_budget": scheduler.get("energy_budget") if isinstance(scheduler, dict) else "",
         },
         "asset_routing": route,
+        # The full decision is already persisted in the run state and in the
+        # contract.json named above, so stdout carries the digest rather than a
+        # second copy of the same ~2k tokens.
+        "evidence_router": evidence_route_digest(evidence_router),
     })
 
 
 def os_status(argv=None):
+    argv = list(argv or [])
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if not a.startswith("--")]
     task_id = argv[0] if argv else None
     state, path = load_os_state(task_id)
     if not state:
@@ -7263,7 +10205,15 @@ def os_status(argv=None):
         "state_path": path.relative_to(REPO_ROOT).as_posix() if path else "",
         "lifecycle": state.get("lifecycle", []),
         "affected_layers": state.get("affected_layers", []),
-        "allowed_paths": state.get("allowed_paths", []),
+        # build_os_contract assigns both from the same resolved path list, and
+        # target_paths declares allowed_paths as one of its aliases — so they are
+        # identical unless the target repo differs from the control plane. Print
+        # the alias only when it actually carries different information.
+        **(
+            {"allowed_paths": state.get("allowed_paths", [])}
+            if state.get("allowed_paths", []) != state.get("target_paths", [])
+            else {}
+        ),
         "target_paths": state.get("target_paths", []),
         "target": state.get("target", {}),
         "evidence_profile": state.get("evidence_profile", "generic"),
@@ -7279,6 +10229,10 @@ def os_status(argv=None):
         "required_gates": state.get("required_gates", []),
         "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
         "model_hints": (state.get("contract") or {}).get("model_hints", {}),
+        "evidence_router": (
+            state.get("evidence_router", {}) if verbose
+            else evidence_route_digest(state.get("evidence_router", {}))
+        ),
         "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
         "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
         "prototype": state.get("prototype", {}),
@@ -7399,6 +10353,7 @@ def os_close_result(receipt, task_id=None, dry_run=False):
         state["enforcement_advisory"] = enforcement_advisory
     os_evidence = os_evidence_records(state["task_id"])
     errors.extend(validate_deliver_receipt(receipt, contract, facts))
+    errors.extend(evidence_router_receipt_errors(contract, receipt, os_evidence))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
     required_gates = state.get("required_gates") or required_gates_for_task(contract, receipt, mode=state.get("mode"))
     if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
@@ -7830,15 +10785,20 @@ def os_report(argv):
         "target_footprint": target_footprint if isinstance(target_footprint, dict) else {},
         "target_diff": target_diff if isinstance(target_diff, dict) else {},
         "target_seal_sha256": target_seal.get("target_seal_sha256", "") if isinstance(target_seal, dict) else "",
+        # Same reason as os-status: the full decision stays in state, and the
+        # router limitations it carries are repeated under `limitations` below.
+        "evidence_router": evidence_route_digest(state.get("evidence_router", {})),
         "required_gates": state.get("required_gates", []),
         "evidence_count": len(evidence),
         "limitations": [
             "exact LLM token usage is unavailable unless llm_usage metrics record real_token_telemetry=true",
             "artifact token estimates are not LLM cost telemetry",
-        ],
+        ] + (
+            state.get("evidence_router", {}).get("limitations", [])
+            if isinstance(state.get("evidence_router"), dict)
+            else []
+        ),
     })
-
-
 # ---------------------------------------------------------------- misc modes
 
 def statusline():
@@ -7861,7 +10821,8 @@ def consumer_assets_registry_ok():
         return False, "consumer asset registry thieu header contract"
     required_terms = [
         "skill", "hook", "tool", "mcp", "command", "design-system",
-        "doc", "convention", "test-runner", "build-runner",
+        "doc", "convention", "test-runner", "build-runner", "agent",
+        "specialist",
         "low", "medium", "high",
         "always", "task-routed", "approval-required", "never-auto",
         "preserve", "index", "route", "wrap", "merge", "needs-judgment", "ignore",
@@ -7885,6 +10846,11 @@ def self_host_required_manifest_paths():
         "pilothOS/runtime/self-hosting.md",
         "pilothOS/runtime/consumer-assets.md",
         "pilothOS/runtime/os-control-plane.md",
+        "pilothOS/runtime/evidence-routing.json",
+        "pilothOS/runtime/adapter-capabilities.json",
+        "pilothOS/runtime/specialist-registry.json",
+        "pilothOS/runtime/model-capabilities.json",
+        "pilothOS/runtime/evidence-router-issues.json",
         "pilothOS/scripts/pilothos_guard.py",
         "pilothOS/scripts/pilothos_installer.py",
         "pilothOS/agent-teams/piloth-team.md",
@@ -7904,6 +10870,10 @@ def self_host_check_result():
         PILOTHOS_DIR / "runtime" / "task-lifecycle.md",
         PILOTHOS_DIR / "runtime" / "energy-token-policy.md",
         PILOTHOS_DIR / "runtime" / "os-control-plane.md",
+        PILOTHOS_DIR / "runtime" / "evidence-routing.json",
+        PILOTHOS_DIR / "runtime" / "adapter-capabilities.json",
+        PILOTHOS_DIR / "runtime" / "specialist-registry.json",
+        PILOTHOS_DIR / "runtime" / "model-capabilities.json",
         PILOTHOS_DIR / "agent-teams" / "piloth-team.md",
         PILOTHOS_DIR / "scripts" / "pilothos_guard.py",
     ]
@@ -8165,8 +11135,6 @@ def artifact_janitor(argv):
             return
         root = candidate.resolve()
     json_print(artifact_janitor_result(fix=fix, root=root))
-
-
 # ---------------------------------------------------------------------------
 # State janitor: retention/GC cho rác vòng đời task.
 #   Nhóm A (đĩa, gitignored): artifacts/ của os-run đã seal ngoài retention +
@@ -8573,6 +11541,15 @@ def receipt_seal_chain_status(items):
     return {"ok": True, "latest_seal_sha256": previous, "repo_records": len(items)}
 
 
+def manifest_path_is_runtime_state(rel):
+    return (
+        (rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl"))
+        or rel.startswith("pilothOS/memory/state/os-runs/")
+        or rel.startswith("pilothOS/memory/state/team-runs/")
+        or rel.startswith("pilothOS/memory/state/codebase-index/")
+    )
+
+
 def state_doctor_result():
     checks = []
 
@@ -8606,7 +11583,6 @@ def state_doctor_result():
         seals.get("status") == "missing" or chain.get("ok"),
         chain if seal_items else {"ok": True, "repo_records": 0},
     )
-
     os_run_checks = []
     if OS_RUNS_DIR.exists():
         for state_path in sorted(OS_RUNS_DIR.glob("*/state.json")):
@@ -8640,10 +11616,7 @@ def state_doctor_result():
     manifest = manifest_paths()
     shipped_state = sorted(
         rel for rel in manifest
-        if (
-            rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl")
-        )
-        or rel.startswith("pilothOS/memory/state/os-runs/")
+        if manifest_path_is_runtime_state(rel)
     )
     add_check(
         "repo-local state excluded from manifest",
@@ -8712,10 +11685,7 @@ def control_plane_check_result(active_policy="auto"):
     missing_manifest = sorted(self_host_required_manifest_paths() - manifest)
     shipped_state = sorted(
         rel for rel in manifest
-        if (
-            rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl")
-        )
-        or rel.startswith("pilothOS/memory/state/os-runs/")
+        if manifest_path_is_runtime_state(rel)
     )
     add_check(
         "manifest",
@@ -8729,26 +11699,7 @@ def control_plane_check_result(active_policy="auto"):
     )
 
     modes = guard_registered_modes()
-    required_modes = {
-        "contract-write",
-        "os-start",
-        "os-status",
-        "os-evidence",
-        "os-close",
-        "os-verify",
-        "os-report",
-        "asset-scan",
-        "asset-health",
-        "evidence-add",
-        "tool-check",
-        "receipt-write",
-        "receipt-seal",
-        "receipt-verify",
-        "artifact-janitor",
-        "control-plane-check",
-        "production-review",
-    }
-    missing_modes = sorted(required_modes - modes)
+    missing_modes = sorted(CONTROL_PLANE_REQUIRED_GUARD_MODES - modes)
     add_check(
         "guard control-plane modes",
         not missing_modes,
@@ -9082,72 +12033,96 @@ def self_check():
     print("SELF-CHECK " + ("PASSED" if ok else "FAILED"))
 
 
-# Command dispatch: mode -> (handler, arg_kind). One source of truth for every
-# guard mode, replacing a long if/elif chain. arg_kind selects how the handler
-# is invoked:
+# mode -> handler. The ONLY thing this table adds to GUARD_MODES (00_header) is
+# the function binding, which has to live here because the handlers are defined
+# above. Everything else about a mode — arg kind, mutability, self-host and
+# control-plane membership — comes from the registry, so a mode can never be
+# registered in one place and forgotten in another.
+GUARD_HANDLERS = {
+    "session-start": session_start,
+    "prompt-check": prompt_check,
+    "stop-check": stop_check,
+    "pre-edit": pre_edit,
+    "post-edit": post_edit,
+    "contract-write": task_contract_write,
+    "evidence-add": evidence_add,
+    "tool-check": tool_check,
+    "receipt-write": receipt_write,
+    "os-start": os_start,
+    "os-status": os_status,
+    "os-evidence": os_evidence,
+    "token-telemetry": token_telemetry,
+    "os-close": os_close,
+    "os-verify": os_verify,
+    "os-report": os_report,
+    "review-request": review_request,
+    "review-feedback": review_feedback,
+    "review-verify": review_verify,
+    "asset-scan": asset_scan,
+    "asset-health": asset_health,
+    "asset-sync": asset_sync,
+    "adapter-capabilities": adapter_capabilities,
+    "evidence-route": evidence_route,
+    "route-task": route_task,
+    "context-budget": context_budget,
+    "payload-budget": payload_budget,
+    "codebase-index": codebase_index,
+    "codebase-status": codebase_status,
+    "codebase-query": codebase_query,
+    "rot-status": rot_status,
+    "reuse-scan": reuse_scan,
+    "ds-scan": ds_scan,
+    "scheduler-suggest": scheduler_suggest,
+    "scheduler-record": scheduler_record,
+    "receipt-seal": receipt_seal,
+    "receipt-verify": receipt_verify,
+    "artifact-janitor": artifact_janitor,
+    "state-janitor": state_janitor,
+    "control-plane-check": control_plane_check,
+    "team-contract-write": team_contract_write,
+    "team-receipt-write": team_receipt_write,
+    "log-append": log_append,
+    "receipt-template": receipt_template,
+    "statusline": statusline,
+    "self-check": self_check,
+    "self-host-check": self_host_check,
+    "preflight": preflight,
+    "detect": detect,
+    "audit-assets": audit_consumer_assets,
+    "registry-assets": registry_consumer_assets,
+    "state-doctor": state_doctor,
+    "production-review": production_review,
+}
+# Command dispatch: mode -> (handler, arg_kind), derived from the registry.
+# arg_kind selects how the handler is invoked:
 #   "hook" -> handler(read_hook_input())   (only these modes read stdin)
 #   "argv" -> handler(sys.argv[2:])
 #   "none" -> handler()
+# A mode present in exactly one of GUARD_MODES/GUARD_HANDLERS is a build error,
+# not a silently missing command (pinned by tests/unit/test_guard_command_table).
 COMMAND_TABLE = {
-    # hook modes (read hook JSON from stdin)
-    "session-start": (session_start, "hook"),
-    "prompt-check": (prompt_check, "hook"),
-    "stop-check": (stop_check, "hook"),
-    "pre-edit": (pre_edit, "hook"),
-    "post-edit": (post_edit, "hook"),
-    # argv modes (JSON arg / file / stdin payload)
-    "contract-write": (task_contract_write, "argv"),
-    "evidence-add": (evidence_add, "argv"),
-    "tool-check": (tool_check, "argv"),
-    "receipt-write": (receipt_write, "argv"),
-    "os-start": (os_start, "argv"),
-    "os-status": (os_status, "argv"),
-    "os-evidence": (os_evidence, "argv"),
-    "token-telemetry": (token_telemetry, "argv"),
-    "os-close": (os_close, "argv"),
-    "os-verify": (os_verify, "argv"),
-    "os-report": (os_report, "argv"),
-    "review-request": (review_request, "argv"),
-    "review-feedback": (review_feedback, "argv"),
-    "review-verify": (review_verify, "argv"),
-    "asset-scan": (asset_scan, "argv"),
-    "asset-health": (asset_health, "argv"),
-    "asset-sync": (asset_sync, "argv"),
-    "route-task": (route_task, "argv"),
-    "context-budget": (context_budget, "argv"),
-    "rot-status": (rot_status, "none"),
-    "reuse-scan": (reuse_scan, "argv"),
-    "ds-scan": (ds_scan, "argv"),
-    "scheduler-suggest": (scheduler_suggest, "argv"),
-    "scheduler-record": (scheduler_record, "argv"),
-    "receipt-seal": (receipt_seal, "argv"),
-    "receipt-verify": (receipt_verify, "argv"),
-    "artifact-janitor": (artifact_janitor, "argv"),
-    "state-janitor": (state_janitor, "argv"),
-    "control-plane-check": (control_plane_check, "argv"),
-    "team-contract-write": (team_contract_write, "argv"),
-    "team-receipt-write": (team_receipt_write, "argv"),
-    "log-append": (log_append, "argv"),
-    # no-arg modes
-    "receipt-template": (receipt_template, "none"),
-    "statusline": (statusline, "none"),
-    "self-check": (self_check, "none"),
-    "self-host-check": (self_host_check, "none"),
-    "preflight": (preflight, "none"),
-    "detect": (detect, "none"),
-    "audit-assets": (audit_consumer_assets, "none"),
-    "registry-assets": (registry_consumer_assets, "none"),
-    "state-doctor": (state_doctor, "none"),
-    "production-review": (production_review, "none"),
+    mode: (GUARD_HANDLERS[mode], meta["arg_kind"])
+    for mode, meta in GUARD_MODES.items()
+    if mode in GUARD_HANDLERS
 }
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "check"
+    # An unregistered mode must fail LOUDLY. This guard is wired into
+    # settings.json as six entry points (five hooks + statusline); when a typo
+    # exited 0 the harness read it as success and governance silently vanished.
+    # Exit 1, not 2: for hook events only exit 2 blocks the action, so 1 surfaces
+    # a `hook error` notice without blocking the user over a config typo. Every
+    # REGISTERED mode must keep exiting 0 — Claude Code only parses hook JSON
+    # (the block_decision payload) on exit 0.
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
     entry = COMMAND_TABLE.get(mode)
     if entry is None:
-        print(f"PilothOS guard: {mode}")
-        sys.exit(0)
+        label = f"unknown mode {mode!r}" if mode else "missing mode argument"
+        print(f"PilothOS guard: {label}", file=sys.stderr)
+        print("  usage: python3 pilothos_guard.py <mode> [args]", file=sys.stderr)
+        print("  modes: " + ", ".join(sorted(COMMAND_TABLE)), file=sys.stderr)
+        sys.exit(1)
     handler, kind = entry
     if kind == "hook":
         handler(read_hook_input())

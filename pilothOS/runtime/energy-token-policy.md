@@ -88,7 +88,13 @@ python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--tran
 
 - **Attribution:** main-session transcript only; background subagent transcripts
   are separate files and are not summed (disclosed via `subagent_scope`). The
-  per-turn numbers are real; the per-task figure is a sum over the run window.
+  per-turn numbers are real; the per-task figure (`total_tokens` = input + output)
+  is a sum over the run window.
+- **Safe to run twice.** Each run re-sums the whole window, so the figure is
+  *cumulative*, not a delta — adding two of them would count the same tokens twice.
+  The ledger keeps the newest and reports how many it replaced as
+  `superseded_token_snapshots`. Hand-recorded per-phase `llm_usage` (no
+  `window_start`) is a delta and stays additive.
 - **Fail-soft:** no transcript / harness without per-turn telemetry → records
   `real_token_telemetry=false` + `unavailable_reason`.
 - **Unlocks cost claims:** with a real `llm_usage` metric present, `os-close` no
@@ -97,6 +103,13 @@ python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--tran
   alone don't prove consumer savings.
 - **Cache pricing dominates accuracy:** a long 1M-context session is mostly
   `cache_read`, so the price map must keep the cache tiers + `as_of` current.
+- **Cost is a subtotal, and says so.** A model missing from
+  `runtime/model-pricing.json` no longer voids the run's cost: the priced turns are
+  summed and the gap is declared as `cost_complete: false` + `unpriced_models` +
+  `unpriced_tokens`. `cost_usd: null` means *nothing* could be priced. Token totals
+  stay complete either way — only the money is partial. Turns whose `model` is not a
+  model call (`<synthetic>`) are excluded from both. The map has no `speed`
+  dimension, so a fast-mode session is under-priced.
 
 ## Budget (advisory)
 
@@ -105,6 +118,10 @@ An optional contract `budget.max_usd` produces a `budget_status` in
 computed from the real token cost. It is **advisory only — it never blocks
 `os-close`** (`advisory_unavailable` when no ceiling is set or no real cost is
 recorded yet). Promoting it to a hard ceiling is a deliberate future step.
+
+When the cost is a subtotal, `budget_status` adds `cost_complete: false` +
+`spent_is_floor: true` + `unpriced_models`. Read `spent_usd` as a floor then: it can
+prove the budget **is** exceeded, never that it isn't.
 
 ## State retention (advisory hygiene)
 
@@ -162,6 +179,12 @@ need.
   (bytes / estimated tokens) a routed task loads versus the full-kernel ceiling,
   so progressive-loading savings are a `context_load` evidence number rather
   than a claim. It is not `llm_usage` telemetry and cannot back a "cheaper" claim.
+  It reports both the full-kernel ceiling and the stricter `routable_kernel_*`
+  denominator, which excludes docs a routed task could never load; quote the
+  routable figure.
+- `payload-budget` measures the other half of the same bill: the bytes /
+  estimated tokens each per-task command prints back into context. Same
+  `tool_output` caveat — a footprint metric, not `llm_usage`.
 - `tool-check` requires timeout, risk and expected evidence.
 - `post-edit` records diff facts and warns on large deltas.
 - `receipt-write` requires warning checklist entries when generated warnings

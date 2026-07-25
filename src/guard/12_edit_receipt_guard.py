@@ -486,15 +486,14 @@ def command_is_read_only_guard(command):
     if not parts[1].endswith("pilothOS/scripts/pilothos_guard.py"):
         return False
     mode = parts[2]
-    if mode not in READ_ONLY_GUARD_MODES:
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
         return False
     trailing_args = parts[3:]
     trailing_text = " ".join(trailing_args).lower()
     if any(re.search(pattern, trailing_text) for pattern in HIGH_RISK_COMMAND_PATTERNS):
         return False
-    if mode == "receipt-verify":
-        return "--record" not in trailing_args
-    return True
+    return not mode_mutates(mode, trailing_args)
 
 
 def command_looks_high_risk(command):
@@ -981,6 +980,47 @@ def receipt_verify(argv):
     })
 
 
+def receipt_template_router_fields(contract):
+    router = contract.get("evidence_router") if isinstance(contract, dict) else None
+    if not isinstance(router, dict) or not non_empty_string(router.get("decision_id")):
+        return {}
+    execution = router.get("execution_plan")
+    if not isinstance(execution, dict):
+        execution = {}
+    fields = {
+        "decision_id": router.get("decision_id"),
+        "execution_mode": execution.get("mode", ""),
+        "evidence_router": {
+            "decision_id": router.get("decision_id"),
+            "rollout": (router.get("rollout") or {}).get("mode", ""),
+            "execution_mode": execution.get("mode", ""),
+            "verification_methods": [
+                item.get("method")
+                for item in router.get("verification_plan", [])
+                if isinstance(item, dict) and non_empty_string(item.get("method"))
+            ],
+            "limitations": router.get("limitations", []),
+        },
+    }
+    rollout = router.get("rollout")
+    rollout_mode = rollout.get("mode") if isinstance(rollout, dict) else "advisory"
+    required_types = {
+        item.get("type")
+        for item in router.get("evidence_plan", [])
+        if isinstance(item, dict) and item.get("required") is True
+    }
+    if rollout_mode == "enforced" and float(router.get("confidence", 0)) < 0.80:
+        fields["router_low_confidence_resolution"] = "<source/verification/user resolution>"
+    if rollout_mode == "enforced" and "review" in required_types:
+        fields["independent_review"] = {
+            "result": "PASS",
+            "evidence": "<independent reviewer evidence>",
+        }
+    if rollout_mode == "enforced" and "coverage_search" in required_types:
+        fields["coverage_evidence"] = "<complete negative-claim scope evidence>"
+    return fields
+
+
 def receipt_template():
     """Emit a gate-aware receipt skeleton.
 
@@ -1017,6 +1057,7 @@ def receipt_template():
              "evidence_refs": ["<os-evidence id>", "quality_gates.correctness"]}
         ],
     }
+    template.update(receipt_template_router_fields(contract))
 
     if needs_judgment:
         template["judgment_checklist"] = dict(JUDGMENT_CHECKLIST_KEYS)
@@ -1072,5 +1113,3 @@ def receipt_template():
         template["_allowed_values"] = allowed
 
     print(json.dumps(template, ensure_ascii=False, indent=2))
-
-

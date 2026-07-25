@@ -1,5 +1,19 @@
 {
   "fields": {
+    "adapter": {
+      "allowed": [
+        "claude",
+        "codex",
+        "cursor",
+        "antigravity"
+      ],
+      "note": "used for capability handshake; unknown adapters degrade explicitly",
+      "required": false
+    },
+    "adapter_capabilities": {
+      "note": "native|emulated|unavailable map; request values override the conservative adapter registry",
+      "required": false
+    },
     "affected_layers": {
       "default": "derived from paths",
       "note": "contract requires a non-empty list",
@@ -45,6 +59,11 @@
       "note": "becomes contract.task_scope",
       "required": false
     },
+    "locale": {
+      "default": "en",
+      "note": "localizes human-readable summary only; IDs and schema remain English",
+      "required": false
+    },
     "mode": {
       "aliases": [
         "os_mode",
@@ -84,6 +103,10 @@
     "requires_prototype": {
       "default": false,
       "note": "true also forces requires_human_review",
+      "required": false
+    },
+    "specialists": {
+      "note": "consumer specialist registry entries; healthy qualified consumer entries outrank Piloth fallbacks",
       "required": false
     },
     "success_metrics": {
@@ -138,12 +161,22 @@
       "allowed": [
         "API/backend",
         "UI/component",
+        "architecture",
         "bug fix",
         "not_applicable",
         "release/deploy",
+        "security",
         "tool/MCP"
       ],
       "default": "not_applicable",
+      "required": false
+    },
+    "user_overrides": {
+      "note": "rollout/execution override; safety review remains mandatory",
+      "required": false
+    },
+    "work_packages": {
+      "note": "independent work packages used by the scored team gate",
       "required": false
     }
   },

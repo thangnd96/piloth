@@ -61,6 +61,22 @@ Rules:
   applicable.
 - Never move, rewrite or overwrite consumer skills/hooks/tools during routing.
 
+## Structural Code Routing
+
+Khi task cần caller/callee, impact hoặc cross-file architecture, load
+`runtime/codebase-intelligence.md` rồi kiểm `codebase-status`. Graph chỉ là
+candidate route:
+
+1. search hẹp để tìm qualified symbol;
+2. kiểm coverage cho scope liên quan;
+3. trace có depth/limit;
+4. đọc live snippet/source trước khi edit hoặc kết luận;
+5. fallback về source search khi stale, partial, ambiguous hoặc cần kết luận âm.
+
+Không tự build index ở session start. Index chỉ được tạo khi expected information
+gain lớn hơn chi phí build và task contract cho phép. `candidate_only` không
+được ghi như source evidence.
+
 For non-doc/test work, contract and receipt should include:
 
 ```json
@@ -83,6 +99,7 @@ For non-doc/test work, contract and receipt should include:
 ## Guardrails
 
 - Không import toàn bộ thư mục khi index đủ để route.
+- Không dùng graph stale/partial thay cho live source.
 - Không dùng Memory thay cho Knowledge hoặc ngược lại.
 - Ghi nhận Rot nếu thường xuyên nạp thiếu hoặc thừa context.
 - Resource budget và verification scope tuân theo `energy-token-policy.md`.

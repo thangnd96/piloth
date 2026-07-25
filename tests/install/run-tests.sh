@@ -36,6 +36,7 @@ EOP
 [ ! -f pilothOS/memory/state/receipt-seals.jsonl ]
 [ ! -d pilothOS/memory/state/team-runs ]
 [ ! -d pilothOS/memory/state/os-runs ]
+grep -qx 'pilothOS/' .gitignore
 echo "C10a PASS"
 
 echo "== C10b brownfield: khong de file consumer =="
@@ -125,7 +126,7 @@ cd $W/hookmerge
 cat > .claude/settings.json <<'JSON'
 {
   "env": {
-    "PILOTHOS_VERSION": "1.11.0"
+    "PILOTHOS_VERSION": "1.12.0"
   },
   "statusLine": {
     "type": "command",
@@ -227,25 +228,49 @@ set -e
 [ "$rc" -ne 0 ]   # add tren project chua init phai fail
 echo "C10f PASS: targeted add copies only the missing adapter, kernel untouched"
 
-echo "== C10g gitignore gap: existing .gitignore gains runtime rules =="
+echo "== C10g gitignore default: existing .gitignore ignores full pilothOS =="
 mkdir -p $W/gi && cd $W/gi && printf 'node_modules/\n' > .gitignore
 bash "$REPO/scripts/stage.sh" "$W/gi" > /dev/null   # staging bo qua .gitignore consumer-owned
 ! grep -q 'pilothOS' .gitignore   # staging mot minh khong them gi
 python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude > receipt.json
 grep -q '"result": "applied"' receipt.json
+grep -qx 'pilothOS/' .gitignore
+grep -qx 'node_modules/' .gitignore   # dong consumer giu nguyen
+echo "C10g PASS: existing .gitignore ignores whole pilothOS/ by default"
+
+echo "== C10h gitignore compatibility opt-in scope=runtime =="
+mkdir -p $W/giruntime && cd $W/giruntime && printf 'node_modules/\n' > .gitignore
+bash "$REPO/scripts/stage.sh" "$W/giruntime" > /dev/null
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude --gitignore-scope runtime > receipt.json
+grep -q '"result": "applied"' receipt.json
 grep -qx 'pilothOS/.backup/' .gitignore
 grep -qx 'pilothOS/memory/state/os-runs/' .gitignore
-grep -qx 'node_modules/' .gitignore   # dong consumer giu nguyen
-! grep -qx 'pilothOS/' .gitignore     # runtime scope KHONG ignore ca cay
-echo "C10g PASS: existing .gitignore gains runtime rules"
+! grep -qx 'pilothOS/' .gitignore
+echo "C10h PASS: explicit scope=runtime keeps kernel trackable"
 
-echo "== C10h gitignore opt-in scope=all =="
-mkdir -p $W/giall && cd $W/giall && printf 'node_modules/\n' > .gitignore
-bash "$REPO/scripts/stage.sh" "$W/giall" > /dev/null
-python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude --gitignore-scope all > receipt.json
-grep -q '"result": "applied"' receipt.json
-grep -qx 'pilothOS/' .gitignore
-echo "C10h PASS: opt-in scope=all ignores whole pilothOS/"
+echo "== C10i ship-empty ledgers carry no vendor history =="
+mkdir -p $W/emptylogs && cd $W/emptylogs
+bash "$REPO/scripts/stage.sh" "$W/emptylogs" > /dev/null
+python3 - << EOP
+import json, pathlib, sys
+sys.path.insert(0, "$REPO/scripts")
+from _distribution import SHIP_EMPTY_LOGS
+manifest = json.load(open("$REPO/pilothOS/dist-manifest.json", encoding="utf-8"))
+declared = {f["path"] for f in manifest["files"] if f.get("ship_empty")}
+assert declared == SHIP_EMPTY_LOGS, f"manifest ship_empty {declared} != {SHIP_EMPTY_LOGS}"
+for rel in sorted(SHIP_EMPTY_LOGS):
+    staged = pathlib.Path("$W/emptylogs") / rel
+    text = staged.read_text(encoding="utf-8")
+    rows = [l for l in text.splitlines()
+            if l.strip().startswith("|") and not set(l.strip()) <= set("|-: ")
+            and not l.strip().startswith("| Date")]
+    assert not rows, f"{rel} staged with vendor history: {rows[:2]}"
+    assert "ship TR" in text, f"{rel} lost its header explaining why it is empty"
+    # The repo's own copy must KEEP its history — the auto-log gate writes there.
+    assert pathlib.Path("$REPO", rel).read_text(encoding="utf-8") != text, (
+        f"{rel} was blanked in the Piloth repo, not just on stage")
+print("C10i PASS: ledgers ship empty, repo keeps its history")
+EOP
 
 echo "== sync-templates guard =="
 python3 - << EOP

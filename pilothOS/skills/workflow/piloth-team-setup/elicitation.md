@@ -128,8 +128,8 @@ Validation: command name must match `^[a-z][a-z0-9-]{1,30}$`. If "Other" entered
 
 ## Stage 2.5 — Team profile (mandatory)
 
-Rationale: drive `(Recommended)` markers across Stages 4 and 6. Pinned single source of truth — see [recommendations.md](recommendations.md).
-Auto-suggest based on `command_name` from Stage 2 (recommendations.md §1).
+Rationale: drive `(Recommended)` markers across Stages 4 and 6. Pinned single source of truth — see [recommendation-matrix.md](recommendation-matrix.md).
+Auto-suggest based on `command_name` from Stage 2 (recommendation-matrix.md §1).
 Call: `AskUserQuestion` with 1 question.
 
 ```json
@@ -151,7 +151,7 @@ Call: `AskUserQuestion` with 1 question.
 }
 ```
 
-Apply rules per recommendations.md §1:
+Apply rules per recommendation-matrix.md §1:
 - cmd starts `team-frontend` → reorder so `team-frontend` is first + suffix `(Recommended)`
 - cmd starts `team-backend` → `team-backend` first + `(Recommended)`
 - cmd ∈ {`team-fullstack`, `piloth-team`} → `team-fullstack` first + `(Recommended)`
@@ -238,7 +238,7 @@ Repeat for each of N members. Per member: Sub-A `AskUserQuestion` (3q) → colli
 }
 ```
 
-Recommendation reorder (per recommendations.md §2): top-N options based on `(team_profile, archetype)` get suffix `(Recommended)` and sort to top.
+Recommendation reorder (per recommendation-matrix.md §2): top-N options based on `(team_profile, archetype)` get suffix `(Recommended)` and sort to top.
 
 Examples:
 - profile=team-frontend, archetype=Executor → reorder `[frontend (Recommended), a11y (Recommended), perf (Recommended), backend, db, security, general, Other]`
@@ -441,7 +441,7 @@ Follow-up (based on answers):
 - "Other" stack → enter description via free text
 - "Other" test/lint → enter framework + lint tool names
 - "Other" MCP → enter MCP names comma-separated (max 5 entries)
-- Recommendation reorder per recommendations.md §5: Atlassian universal `(Recommended)`; profile=frontend → Figma + Playwright also `(Recommended)`; profile=backend → Database/SQL + GitHub also `(Recommended)`; profile=fullstack → all 5 `(Recommended)`
+- Recommendation reorder per recommendation-matrix.md §5: Atlassian universal `(Recommended)`; profile=frontend → Figma + Playwright also `(Recommended)`; profile=backend → Database/SQL + GitHub also `(Recommended)`; profile=fullstack → all 5 `(Recommended)`
 - "Custom thresholds" → enter values for each criterion (architectural, code quality, test coverage)
 - "+ Performance budget" → enter budget string (e.g. `<200ms p95`, `Lighthouse >90`)
 

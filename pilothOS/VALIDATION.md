@@ -100,6 +100,16 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   project-local OS work. `scheduler-record` appends sanitized repo-local history
   only, infers missing task signals from asset routing and does not preserve
   deprecated cleanup paths in new learning summaries.
+- **Evidence Router**: `evidence-route` and `adapter-capabilities` are read-only
+  canonical contracts. Golden/unit/property fixtures pin task/risk
+  classification, complete evidence item fields, stale/partial graph fallback,
+  negative-claim coverage, specialist rank/disqualification, team score and
+  independence, model escalation, rollout downgrade, budget exhaustion and
+  hostile input containment. `os-start` persists the decision; `os-close`
+  enforces required evidence only in effective `enforced` mode.
+- **Router statelessness**: read-only routing and OS lifecycle commands never
+  create a learning database. Optional `scheduler-record` compatibility history
+  remains sanitized, repo-local and unable to mutate router policy.
 - **State doctor**: `state-doctor` checks repo-local scheduler history, OS run
   state, receipt seal JSONL shape, receipt seal chain continuity and confirms
   generated runtime state is excluded from the distribution manifest.
@@ -143,6 +153,14 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
 - Exact token totals are unavailable unless the adapter records real
   prompt/completion telemetry. Artifact bytes or rough token estimates are
   diagnostic only.
+- Codebase graph results are structural candidates unless the response reads a
+  live source snippet. The reference engine has deep Python and universal
+  shallow coverage only; it does not prove full language/tool parity. Retrieval
+  byte benchmarks cannot support token or end-to-end speed claims.
+- The deterministic Evidence Router corpus proves policy invariants, not the
+  30% token or 20% latency resource targets. Those claims remain unavailable
+  until external `none-piloth`/single/routed runs record quality results and
+  `real_token_telemetry=true`.
 
 ## Trạng thái phân phối
 

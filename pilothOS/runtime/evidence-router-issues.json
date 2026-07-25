@@ -1,0 +1,75 @@
+{
+  "schema_version": 2,
+  "contract": "Constraints that bind the Evidence Router in YOUR project, stated in the present tense. This is not a development changelog: entries describe what the router does and does not guarantee right now. Vendor-side history lives in the Piloth source repo, so no entry is ever carried here as 'closed'.",
+  "kinds": {
+    "known_limitation": "Something the router cannot do yet; plan around it.",
+    "invariant": "A behaviour guarantee you may rely on.",
+    "regression_owner": "A contract that must not break, and who owns it.",
+    "merge_gate": "A condition that blocks a change from being accepted."
+  },
+  "issues": [
+    {
+      "id": "ER-001",
+      "kind": "known_limitation",
+      "status": "open",
+      "owner": "adapter-capabilities",
+      "summary": "Codex, Cursor, and Antigravity team/model/telemetry capabilities remain unavailable unless the consumer handshake overrides the conservative registry."
+    },
+    {
+      "id": "ER-002",
+      "kind": "known_limitation",
+      "status": "open",
+      "owner": "router-benchmarks",
+      "summary": "Resource-win claims are forbidden until corpus benchmarks include real token telemetry."
+    },
+    {
+      "id": "ER-003",
+      "kind": "regression_owner",
+      "status": "active",
+      "owner": "evidence-router-core",
+      "summary": "Compatibility fields for route-task and scheduler-suggest must remain stable for one major version."
+    },
+    {
+      "id": "ER-004",
+      "kind": "merge_gate",
+      "status": "active",
+      "owner": "codebase-memory",
+      "summary": "Stale or partial codebase graph evidence cannot be treated as source-grounded and codebase-memory retains its full-parity gate."
+    },
+    {
+      "id": "ER-005",
+      "kind": "invariant",
+      "status": "active",
+      "owner": "evidence-router-core",
+      "summary": "Stale, partial, conflicting, and negative-claim evidence lowers route confidence and emits source-first fallbacks."
+    },
+    {
+      "id": "ER-006",
+      "kind": "invariant",
+      "status": "active",
+      "owner": "evidence-router-core",
+      "summary": "Routing is stateless: optional scheduler history cannot mutate routing policy or promote lessons."
+    },
+    {
+      "id": "ER-007",
+      "kind": "invariant",
+      "status": "active",
+      "owner": "specialist-routing",
+      "summary": "Unhealthy specialists and candidates missing tools, permissions, or adapter support are disqualified before selection."
+    },
+    {
+      "id": "ER-008",
+      "kind": "invariant",
+      "status": "active",
+      "owner": "adapter-capabilities",
+      "summary": "Enforced rollout degrades to advisory when the adapter cannot satisfy the enforcement capability contract."
+    },
+    {
+      "id": "ER-009",
+      "kind": "invariant",
+      "status": "active",
+      "owner": "evidence-router-core",
+      "summary": "Every routing threshold is read from quality_floor in evidence-routing.json, layered over the embedded defaults; editing that block changes routing decisions, not just what the decision reports."
+    }
+  ]
+}

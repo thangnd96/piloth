@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "quality_floor": {
+    "max_non_inferiority_delta_pp": 2,
+    "route_confidence": 0.8,
+    "evidence_item_confidence": 0.8,
+    "specialist_score": 70,
+    "team_score": 60
+  },
+  "task_matrix": {
+    "not_applicable": {
+      "task_class": "small_task",
+      "risk_base": 10,
+      "evidence": [
+        {
+          "type": "source",
+          "source": "affected source files",
+          "required": true,
+          "freshness": "current",
+          "coverage": "affected_paths",
+          "estimated_cost": "low",
+          "trust": "source",
+          "fallback": "ask the user for the exact target when no path can be resolved"
+        }
+      ],
+      "context": ["runtime/context-loading.md"],
+      "tools": [],
+      "verification": ["targeted verification when files change"]
+    },
+    "bug fix": {
+      "task_class": "localized_bug",
+      "risk_base": 30,
+      "evidence": [
+        {
+          "type": "source",
+          "source": "affected implementation and callers",
+          "required": true,
+          "freshness": "current",
+          "coverage": "affected_paths_and_callers",
+          "estimated_cost": "low",
+          "trust": "source",
+          "fallback": "read source directly when graph coverage is stale or partial"
+        },
+        {
+          "type": "test",
+          "source": "smallest regression test",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "reported_failure",
+          "estimated_cost": "low",
+          "trust": "verified",
+          "fallback": "reproduce manually and record the limitation"
+        }
+      ],
+      "context": ["rules/coding-behavior.md", "evaluation/quality-gates.md"],
+      "tools": ["codebase-query", "test-runner"],
+      "verification": ["regression test", "affected suite"]
+    },
+    "ui/component": {
+      "task_class": "ui_change",
+      "risk_base": 28,
+      "evidence": [
+        {
+          "type": "consumer_asset",
+          "source": "consumer design system and component registry",
+          "required": true,
+          "freshness": "current",
+          "coverage": "affected_components",
+          "estimated_cost": "low",
+          "trust": "consumer",
+          "fallback": "inspect existing components and tokens directly"
+        },
+        {
+          "type": "visual",
+          "source": "rendered UI verification",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "changed_states_and_viewports",
+          "estimated_cost": "medium",
+          "trust": "verified",
+          "fallback": "record an explicit visual-verification limitation"
+        }
+      ],
+      "context": ["rules/ui-design-system.md", "runtime/consumer-assets.md"],
+      "tools": ["asset-scan", "visual-review"],
+      "verification": ["component tests", "visual quality gate"]
+    },
+    "api/backend": {
+      "task_class": "backend_change",
+      "risk_base": 38,
+      "evidence": [
+        {
+          "type": "source",
+          "source": "API contract, implementation, and callers",
+          "required": true,
+          "freshness": "current",
+          "coverage": "affected_paths_and_consumers",
+          "estimated_cost": "medium",
+          "trust": "source",
+          "fallback": "read contract and affected source directly"
+        },
+        {
+          "type": "test",
+          "source": "contract or integration test",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "changed_contract",
+          "estimated_cost": "medium",
+          "trust": "verified",
+          "fallback": "run a focused smoke test and record missing integration coverage"
+        }
+      ],
+      "context": ["runtime/context-loading.md", "tools/index.md"],
+      "tools": ["codebase-query", "test-runner"],
+      "verification": ["contract tests", "affected integration suite"]
+    },
+    "architecture": {
+      "task_class": "architecture_change",
+      "risk_base": 62,
+      "evidence": [
+        {
+          "type": "source",
+          "source": "current architecture, boundaries, and dependency graph",
+          "required": true,
+          "freshness": "current",
+          "coverage": "affected_boundaries",
+          "estimated_cost": "high",
+          "trust": "source",
+          "fallback": "inspect boundary source and manifests directly"
+        },
+        {
+          "type": "review",
+          "source": "independent architecture review",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "tradeoffs_and_failure_modes",
+          "estimated_cost": "medium",
+          "trust": "independent_review",
+          "fallback": "request an external reviewer before acceptance"
+        }
+      ],
+      "context": ["knowledge/architecture/README.md", "runtime/context-loading.md"],
+      "tools": ["codebase-query", "test-runner"],
+      "verification": ["boundary tests", "independent review"]
+    },
+    "security": {
+      "task_class": "security_change",
+      "risk_base": 82,
+      "evidence": [
+        {
+          "type": "source",
+          "source": "security-sensitive source and trust boundaries",
+          "required": true,
+          "freshness": "current",
+          "coverage": "complete_trust_boundary",
+          "estimated_cost": "high",
+          "trust": "source",
+          "fallback": "block acceptance until the trust boundary is inspectable"
+        },
+        {
+          "type": "review",
+          "source": "independent security reviewer",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "changed_attack_surface",
+          "estimated_cost": "medium",
+          "trust": "independent_review",
+          "fallback": "obtain external independent review"
+        },
+        {
+          "type": "test",
+          "source": "security regression verification",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "exploit_or_control",
+          "estimated_cost": "medium",
+          "trust": "verified",
+          "fallback": "record the task as blocked, not verified"
+        }
+      ],
+      "context": ["governance/operational-controls.md", "evaluation/quality-gates.md"],
+      "tools": ["codebase-query", "test-runner"],
+      "verification": ["security regression test", "independent review"]
+    },
+    "release/deploy": {
+      "task_class": "release_change",
+      "risk_base": 78,
+      "evidence": [
+        {
+          "type": "manifest",
+          "source": "release manifest and exact target",
+          "required": true,
+          "freshness": "current",
+          "coverage": "release_artifacts",
+          "estimated_cost": "medium",
+          "trust": "source",
+          "fallback": "stop before deployment when artifact identity is ambiguous"
+        },
+        {
+          "type": "test",
+          "source": "release verification suite",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "release_target",
+          "estimated_cost": "high",
+          "trust": "verified",
+          "fallback": "do not promote the release"
+        },
+        {
+          "type": "review",
+          "source": "independent release reviewer",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "rollback_and_blast_radius",
+          "estimated_cost": "medium",
+          "trust": "independent_review",
+          "fallback": "require explicit human approval"
+        }
+      ],
+      "context": ["governance/operational-controls.md", "tools/index.md"],
+      "tools": ["build-runner", "test-runner"],
+      "verification": ["full release suite", "rollback check", "independent review"]
+    },
+    "tool/mcp": {
+      "task_class": "tooling_change",
+      "risk_base": 45,
+      "evidence": [
+        {
+          "type": "capability",
+          "source": "tool schema and adapter capability handshake",
+          "required": true,
+          "freshness": "current_session",
+          "coverage": "used_tools",
+          "estimated_cost": "low",
+          "trust": "declared_capability",
+          "fallback": "use the source/CLI transport and disclose unavailable capabilities"
+        },
+        {
+          "type": "test",
+          "source": "tool contract test",
+          "required": true,
+          "freshness": "current_run",
+          "coverage": "changed_commands",
+          "estimated_cost": "medium",
+          "trust": "verified",
+          "fallback": "run the smallest CLI smoke test"
+        }
+      ],
+      "context": ["tools/index.md", "runtime/context-loading.md"],
+      "tools": ["tool-check", "test-runner"],
+      "verification": ["tool schema test", "CLI smoke test"]
+    }
+  }
+}

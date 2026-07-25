@@ -58,7 +58,8 @@ AGENTS.md                  # Entry point chung cho Codex/Cursor-compatible agent
 pilothOS/
 ├── bootstrap.md           # Entry point và context routing
 ├── PilothOS.md            # Hiến pháp kiến trúc
-├── adapters/              # Mapping giữa PilothOS và native tools
+├── VALIDATION.md          # Giới hạn đã biết và điều kiện của mọi claim
+├── dist-manifest.json     # SSOT về tính đầy đủ của bản phân phối
 ├── agent-teams/           # Team contracts đã validate hoặc được tạo từ task thật
 ├── rot/                   # Registry và lịch sử review
 ├── rules/                 # POLICY
@@ -68,11 +69,16 @@ pilothOS/
 ├── runtime/               # ORCHESTRATION
 ├── agents/                # EXECUTION
 ├── tools/                 # INTEGRATION
+├── scripts/               # Guard engine và installer engine
 ├── governance/            # Kiểm soát vận hành cắt ngang
 ├── evaluation/            # Quality gates và evidence
 ├── templates/             # Contract mẫu
 └── examples/              # Ví dụ áp dụng
 ```
+
+Mapping giữa PilothOS và từng native tool nằm ở adapter directory tại root của
+project (`.claude/`, `.cursor/`, `.codex/`, `.antigravity/`), không nằm trong
+`pilothOS/`.
 
 ## Layer Index Contract
 

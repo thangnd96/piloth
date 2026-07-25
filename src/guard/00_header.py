@@ -19,8 +19,15 @@ Các mode:
   asset-scan      Deterministic JSON/markdown scan of repo assets.
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
+  evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+                 Prints the acting digest; `--verbose` prints the full decision.
+  adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
   route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
   context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
+  payload-budget  Đo footprint output (bytes/token) của các command một task gọi.
+  codebase-index  Tạo local SQLite code graph theo budget explicit.
+  codebase-status Báo freshness/coverage count của code graph hiện tại.
+  codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
   rot-status      Rot signal gọn (chỉ scope quá hạn) — lazy load thay vì cả registry.
   reuse-scan      Evidence-shaped semantic reuse candidate scan.
   ds-scan         Evidence-shaped design-system candidate scan.
@@ -30,6 +37,7 @@ Các mode:
   os-start       Open an adaptive OS task run and write the scoped contract.
                  `os-start --explain` prints the request schema (no run opened).
   os-status      Show active OS task status, mode and cost ledger.
+                 `os-status --verbose` prints the full router decision too.
   os-evidence    Append sanitized command/tool/metric evidence to an OS run.
   os-close       Validate receipt, gates, truth claims and target seal.
                  `os-close --dry-run` runs the full validation without sealing.
@@ -68,10 +76,11 @@ Ghi chú thiết kế:
   Ladder: điều kiện "có thay đổi mà log chưa động" là máy móc nên hook được;
   chất lượng nội dung log vẫn cần judgment của model.
 """
-# GENERATED FILE — assembled from src/guard/*.py by scripts/build_guard.py.
+# GENERATED FILE — assembled from src/guard/*.py by scripts/build_bundles.py.
 # Edit the fragments and rebuild; hand-edits here are overwritten and caught by
 # the bundle-up-to-date gate in tests/unit.
 import sys
+import ast
 import re
 import json
 import time
@@ -81,6 +90,7 @@ import hashlib
 import datetime
 import pathlib
 import shlex
+import sqlite3
 import subprocess
 import shutil
 
@@ -91,10 +101,33 @@ REGISTRY = PILOTHOS_DIR / "rot" / "registry.md"
 CONSUMER_ASSETS = PILOTHOS_DIR / "runtime" / "consumer-assets.md"
 SELF_HOSTING_DOC = PILOTHOS_DIR / "runtime" / "self-hosting.md"
 SCHEDULER_HISTORY = PILOTHOS_DIR / "memory" / "state" / "scheduler-history.jsonl"
+EVIDENCE_ROUTER_MATRIX = PILOTHOS_DIR / "runtime" / "evidence-routing.json"
+# Embedded fallback for the Evidence Router quality floor — the ONLY place these
+# numbers are written down. evidence-routing.json overrides them at runtime and
+# every threshold decision reads the merged result via
+# evidence_router_quality_floor(); the thresholds used to be duplicated as
+# literals across the routing decisions, so editing the JSON changed the reported
+# floor without changing a single decision.
+#   route_confidence          - floor for the confidence of the route itself
+#   evidence_item_confidence  - floor for ONE evidence item before it drags the
+#                               route confidence down (a different question from
+#                               route_confidence; kept separate on purpose)
+DEFAULT_QUALITY_FLOOR = {
+    "max_non_inferiority_delta_pp": 2,
+    "route_confidence": 0.80,
+    "evidence_item_confidence": 0.80,
+    "specialist_score": 70,
+    "team_score": 60,
+}
+ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.json"
+SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"
+MODEL_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "model-capabilities.json"
 RECEIPT_SEALS = PILOTHOS_DIR / "memory" / "state" / "receipt-seals.jsonl"
 TEAM_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "team-runs"
 OS_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "os-runs"
 OS_CURRENT = OS_RUNS_DIR / "current.json"
+CODEBASE_INDEX_DIR = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
+CODEBASE_INDEX_DB = CODEBASE_INDEX_DIR / "index.sqlite3"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
@@ -175,11 +208,12 @@ REUSE_EVIDENCE_DECISIONS = {"reuse", "not_applicable", "not_enough"}
 ASSET_ROUTING_DECISIONS = {"loaded", "skipped", "approval_required", "not_applicable"}
 ASSET_ROUTING_SIGNALS = {
     "UI/component", "API/backend", "bug fix", "release/deploy",
-    "tool/MCP", "not_applicable",
+    "tool/MCP", "architecture", "security", "not_applicable",
 }
 ASSET_ROUTING_TYPES = {
     "skill", "hook", "tool", "mcp", "command", "design-system", "doc",
-    "convention", "test-runner", "build-runner", "not_applicable",
+    "convention", "test-runner", "build-runner", "agent", "specialist",
+    "not_applicable",
 }
 UI_DESIGN_SYSTEM_DECISIONS = {"reuse", "extend", "new", "not_applicable"}
 UI_RECEIPT_FIELDS = {
@@ -229,27 +263,126 @@ HIGH_RISK_COMMAND_PATTERNS = (
     r"\bgcloud\b.*\b(delete|deploy|update|create)\b",
     r"\bvercel\b.*\b--prod\b",
 )
-READ_ONLY_GUARD_MODES = {
-    "asset-health",
-    "asset-scan",
-    "artifact-janitor",
-    "state-janitor",
-    "context-budget",
-    "control-plane-check",
-    "ds-scan",
-    "rot-status",
-    "production-review",
-    "receipt-verify",
-    "review-verify",
-    "reuse-scan",
-    "route-task",
-    "scheduler-suggest",
-    "self-host-check",
-    "state-doctor",
-    "os-status",
-    "os-verify",
-    "os-report",
+# --------------------------------------------------------- guard mode registry
+# SSOT for everything the guard knows about its own modes. Four hand-maintained
+# lists used to encode this separately (dispatch table, read-only set, self-host
+# set, control-plane set) and had already drifted: `artifact-janitor --fix` was
+# advertised read-only while it removes files, and `codebase-status` was not
+# advertised read-only although it never writes. Every one of those lists is now
+# derived from here, so a new mode cannot be half-registered.
+#
+# mutates:  False        -> never writes to disk
+#           True         -> always writes
+#           (flag, ...)  -> writes only when one of these argv flags is present
+# Verified against a call-graph reachability check over the shipped bundle; the
+# test suite re-runs that check so this table cannot silently drift from code.
+def _guard_mode(arg_kind, mutates=False, self_host=False, control_plane=False):
+    return {
+        "arg_kind": arg_kind,
+        "mutates": mutates,
+        "self_host": self_host,
+        "control_plane": control_plane,
+    }
+
+
+GUARD_MODES = {
+    # hook modes (read hook JSON from stdin)
+    "session-start": _guard_mode("hook", mutates=True),
+    "prompt-check": _guard_mode("hook", mutates=True),
+    "stop-check": _guard_mode("hook"),
+    "pre-edit": _guard_mode("hook", self_host=True),
+    "post-edit": _guard_mode("hook", mutates=True, self_host=True),
+    # argv modes (JSON arg / file / stdin payload)
+    "contract-write": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "evidence-add": _guard_mode("argv", mutates=True, control_plane=True),
+    "tool-check": _guard_mode("argv", control_plane=True),
+    "receipt-write": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-start": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-status": _guard_mode("argv", self_host=True, control_plane=True),
+    "os-evidence": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "token-telemetry": _guard_mode("argv", mutates=True),
+    "os-close": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-verify": _guard_mode("argv", self_host=True, control_plane=True),
+    "os-report": _guard_mode("argv", self_host=True, control_plane=True),
+    "review-request": _guard_mode("argv", mutates=True),
+    "review-feedback": _guard_mode("argv", mutates=True),
+    "review-verify": _guard_mode("argv"),
+    "asset-scan": _guard_mode("argv", self_host=True, control_plane=True),
+    "asset-health": _guard_mode("argv", self_host=True, control_plane=True),
+    "asset-sync": _guard_mode("argv", mutates=True, self_host=True),
+    "adapter-capabilities": _guard_mode("argv", self_host=True, control_plane=True),
+    "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
+    "route-task": _guard_mode("argv", self_host=True),
+    "context-budget": _guard_mode("argv"),
+    "payload-budget": _guard_mode("argv"),
+    "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
+    "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
+    "reuse-scan": _guard_mode("argv", self_host=True),
+    "ds-scan": _guard_mode("argv", self_host=True),
+    "scheduler-suggest": _guard_mode("argv", self_host=True),
+    "scheduler-record": _guard_mode("argv", mutates=True, self_host=True),
+    "receipt-seal": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "receipt-verify": _guard_mode("argv", self_host=True, control_plane=True),
+    # --fix removes artifact dirs/files; --target aims that removal at ANOTHER
+    # repo, so it is a write even without --fix.
+    "artifact-janitor": _guard_mode(
+        "argv", mutates=("--fix", "--target"), self_host=True, control_plane=True,
+    ),
+    # --fix prunes sealed-run artifacts, truncates the scheduler tail and rotates
+    # kernel logs.
+    "state-janitor": _guard_mode("argv", mutates=("--fix",)),
+    "control-plane-check": _guard_mode("argv", self_host=True, control_plane=True),
+    "team-contract-write": _guard_mode("argv", mutates=True, self_host=True),
+    "team-receipt-write": _guard_mode("argv", mutates=True, self_host=True),
+    "log-append": _guard_mode("argv", mutates=True),
+    # no-arg modes
+    "rot-status": _guard_mode("none"),
+    "receipt-template": _guard_mode("none"),
+    "statusline": _guard_mode("none"),
+    "self-check": _guard_mode("none"),
+    "self-host-check": _guard_mode("none", self_host=True),
+    "preflight": _guard_mode("none"),
+    "detect": _guard_mode("none"),
+    "audit-assets": _guard_mode("none"),
+    "registry-assets": _guard_mode("none"),
+    "state-doctor": _guard_mode("none", self_host=True),
+    "production-review": _guard_mode("none", self_host=True, control_plane=True),
 }
+# Modes that MAY be treated as read-only: those that never write, plus the two
+# janitors whose writes are flag-gated (the flag check lives in
+# command_is_read_only_guard, which reads GUARD_MODES["mutates"] directly).
+READ_ONLY_GUARD_MODES = frozenset(
+    mode for mode, meta in GUARD_MODES.items() if meta["mutates"] is not True
+)
+SELF_HOST_REQUIRED_GUARD_MODES = tuple(
+    sorted(mode for mode, meta in GUARD_MODES.items() if meta["self_host"])
+)
+CONTROL_PLANE_REQUIRED_GUARD_MODES = frozenset(
+    mode for mode, meta in GUARD_MODES.items() if meta["control_plane"]
+)
+
+
+def mode_mutates(mode, args=()):
+    """Whether running `mode` with `args` writes to disk.
+
+    Answers straight from GUARD_MODES so no caller can disagree with the
+    registry. An unrecognised mode counts as mutating: a mode this guard does not
+    know about must never be handed a read-only exemption.
+    """
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
+        return True
+    mutates = meta["mutates"]
+    if isinstance(mutates, bool):
+        return mutates
+    return any(
+        arg == flag or arg.startswith(flag + "=")
+        for arg in args
+        for flag in mutates
+    )
+
+
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
 ENV_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -321,35 +454,6 @@ COST_CLAIM_RE = re.compile(
     re.IGNORECASE,
 )
 SUPERIORITY_PASS_RESULTS = {"consumer_value_passed", "passed", "pass", "superior", "better"}
-SELF_HOST_REQUIRED_GUARD_MODES = (
-    "contract-write",
-    "pre-edit",
-    "post-edit",
-    "receipt-write",
-    "self-host-check",
-    "asset-scan",
-    "asset-health",
-    "asset-sync",
-    "route-task",
-    "reuse-scan",
-    "ds-scan",
-    "scheduler-suggest",
-    "scheduler-record",
-    "state-doctor",
-    "receipt-seal",
-    "receipt-verify",
-    "artifact-janitor",
-    "control-plane-check",
-    "production-review",
-    "os-start",
-    "os-status",
-    "os-evidence",
-    "os-close",
-    "os-verify",
-    "os-report",
-    "team-contract-write",
-    "team-receipt-write",
-)
 PRODUCTION_FORBIDDEN_PATHS = {
     "pilothOS/scripts/pilothos_hostd.py",
     "pilothOS/runtime/host-control-plane.md",
@@ -453,6 +557,9 @@ SAFE_OS_EVIDENCE_METADATA_KEYS = {
     "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
     "total_tokens", "real_token_telemetry", "unavailable_reason",
     "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+    # `unpriced_tokens` matches SECRET_KEY_RE on "token" — it is a count, not a
+    # credential, so it needs the same exemption the other *_tokens counts have.
+    "unpriced_tokens",
     "model", "pricing_source", "window_start", "subagent_scope",
     "consumer_value_result", "all_mandatory_not_worse",
     "consumer_visible_win", "mandatory_regressions", "wins",
@@ -511,6 +618,18 @@ TASK_SIGNAL_ROUTES = {
         "load_policy": "task-routed",
         "context_layers": ("tools/index.md", "runtime/context-loading.md"),
     },
+    "architecture": {
+        "task_signal": "architecture",
+        "asset_types": ("specialist", "agent", "convention", "doc"),
+        "load_policy": "task-routed",
+        "context_layers": ("knowledge/architecture/README.md", "runtime/context-loading.md"),
+    },
+    "security": {
+        "task_signal": "security",
+        "asset_types": ("specialist", "agent", "tool", "test-runner"),
+        "load_policy": "approval-required",
+        "context_layers": ("governance/operational-controls.md", "evaluation/quality-gates.md"),
+    },
     "not_applicable": {
         "task_signal": "not_applicable",
         "asset_types": ("not_applicable",),
@@ -518,5 +637,3 @@ TASK_SIGNAL_ROUTES = {
         "context_layers": ("runtime/context-loading.md",),
     },
 }
-
-

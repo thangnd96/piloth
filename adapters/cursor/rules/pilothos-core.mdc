@@ -18,3 +18,6 @@ Read `AGENTS.md` and `pilothOS/bootstrap.md` before non-trivial work.
   `python3 pilothOS/scripts/pilothos_guard.py receipt-write <receipt.json>`.
 - Do not bypass consumer skills/hooks/tools/design systems.
 - Do not fork PilothOS policy in Cursor rules.
+- Route through `os-start`/`evidence-route`; declare hook, team, model and
+  telemetry gaps as unavailable unless the current harness handshake proves
+  native or emulated support.

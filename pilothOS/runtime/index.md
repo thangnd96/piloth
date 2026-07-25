@@ -13,6 +13,7 @@ Intake → Plan → Execute → Review → Repair → Deliver
 
 - Xác định state, transition, retry và completion.
 - Chọn Skills, Agents, Tools và context cần nạp.
+- Chọn bằng chứng nhỏ nhất đủ tin cậy trước khi chọn execution mode.
 - Yêu cầu Evidence trước khi chuyển state.
 - Giữ controlled target sạch khỏi control-plane runtime/state.
 
@@ -28,7 +29,13 @@ Intake → Plan → Execute → Review → Repair → Deliver
 |---|---|
 | `task-lifecycle.md` | State machine và exit criteria |
 | `context-loading.md` | Progressive context loading |
+| `codebase-intelligence.md` | Adaptive code graph, freshness, coverage and source fallback |
 | `consumer-assets.md` | Registry và routing policy cho tài sản consumer |
+| `evidence-router.md` | Canonical evidence planning, adapter handshake, specialist/team/model selection, rollout and state boundary |
+| `evidence-routing.json` | Declarative task/evidence matrix and quality floor |
+| `adapter-capabilities.json` | Conservative native/emulated/unavailable adapter declarations |
+| `specialist-registry.json` | Explicit Piloth fallback specialist registry |
+| `model-capabilities.json` | Adapter-neutral benchmarked model-tier capability registry |
 | `energy-token-policy.md` | Resource budget cho context, search, build/test, target footprint và tool runtime |
 | `os-control-plane.md` | Project-local OS lifecycle, controlled-target governor, UI quality evidence, real cost ledger, benchmark value policy, entitlement profile, truth-in-seal and receipt seal mechanics |
 | `self-hosting.md` | Dogfood contract for operating the Piloth repo through PilothOS |

@@ -8,9 +8,9 @@
    `claude` luôn giữ. Kết quả → field `adapters` trong plan (list adapter giữ lại,
    GỒM `claude`). Engine tự sinh `remove_path` cho adapter KHÔNG chọn — Claude
    KHÔNG gõ tay từng step remove.
-4. .gitignore scope: **runtime** (mặc định — chỉ ignore state; `pilothOS/` vẫn
-   commit để team share) hay **all** (ignore toàn bộ `pilothOS/` — chỉ chọn nếu
-   consumer coi PilothOS là tooling cục bộ). `all` → `options.gitignore_scope="all"`.
+4. .gitignore scope: **all** (mặc định — ignore toàn bộ `pilothOS/`, coi kernel
+   là tooling cục bộ) hay **runtime** (compatibility opt-in — chỉ ignore state để
+   team có thể commit kernel). `runtime` → `options.gitignore_scope="runtime"`.
 
 ## Plan mẫu (đã validate qua engine)
 

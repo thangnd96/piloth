@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "tiers": [
+    {
+      "id": "economy",
+      "cost_order": 1,
+      "max_risk": 35,
+      "min_route_confidence": 0.9,
+      "domains": ["not_applicable", "bug fix", "ui/component"],
+      "phases": ["classification", "source_lookup", "targeted_verification"],
+      "benchmarked": true
+    },
+    {
+      "id": "standard",
+      "cost_order": 2,
+      "max_risk": 70,
+      "min_route_confidence": 0.8,
+      "domains": ["not_applicable", "bug fix", "ui/component", "api/backend", "tool/mcp", "architecture"],
+      "phases": ["classification", "planning", "implementation", "review", "verification"],
+      "benchmarked": true
+    },
+    {
+      "id": "premium",
+      "cost_order": 3,
+      "max_risk": 100,
+      "min_route_confidence": 0.0,
+      "domains": ["not_applicable", "bug fix", "ui/component", "api/backend", "tool/mcp", "architecture", "security", "release/deploy"],
+      "phases": ["classification", "planning", "implementation", "review", "verification", "repair"],
+      "benchmarked": true
+    }
+  ],
+  "notes": "Tier IDs are adapter-neutral. An adapter may pin a concrete model only when model_pinning is declared native or emulated."
+}

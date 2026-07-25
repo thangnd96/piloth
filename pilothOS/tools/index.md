@@ -19,7 +19,16 @@ Quản lý INTEGRATION với thế giới bên ngoài.
 
 | Tool | Type | Capability | Config | Risk | Health Check | Approval | Timeout | Evidence Output |
 |---|---|---|---|---|---|---|---|---|
-| Không có Tool bắt buộc | N/A | PilothOS hoạt động độc lập với tool cụ thể | N/A | low | N/A | N/A | N/A | N/A |
+| `codebase-index` | Internal CLI | Explicit local code graph build | JSON payload | medium | `codebase-status` | task contract | repo-size dependent | index counts, coverage gaps, freshness |
+| `codebase-status` | Internal CLI | Read-only index freshness | JSON payload | low | command result | task contract | short | status, reason, counts |
+| `codebase-query` | Internal CLI | Read-only structural candidate retrieval | JSON payload | low | focused query | task contract | short | candidate/source trust, coverage, fallback |
+| `evidence-route` | Internal CLI | Read-only task/risk/evidence/specialist/team/model decision | JSON payload | low | schema + router corpus | none | short | canonical route decision and fallbacks |
+| `adapter-capabilities` | Internal CLI | Read-only native/emulated/unavailable handshake | JSON payload | low | complete vocabulary test | none | short | normalized capabilities, sources and limitations |
+
+Codebase CLI contract và adaptive policy:
+`pilothOS/runtime/codebase-intelligence.md`. PilothOS vẫn không phụ thuộc external
+tool cụ thể; reference engine dùng Python standard library và local SQLite.
+Evidence Router contract: `pilothOS/runtime/evidence-router.md`.
 
 Consumer Asset Registry liên quan: `pilothOS/runtime/consumer-assets.md`.
 Consumer assets có type `tool`, `mcp`, `command`, `test-runner` hoặc

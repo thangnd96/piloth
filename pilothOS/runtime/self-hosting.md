@@ -46,6 +46,17 @@ applicable:
 only when the receipt states the limitation or when the scheduler selected a
 narrow suite for a narrow change.
 
+### Shipped Engines Are Amalgamations
+
+`pilothos_guard.py` (~12k dòng) và `pilothos_installer.py` là file amalgamated.
+
+- Đừng `Read`/`grep` nguyên file để hiểu behavior — nạp cả `pilothos_guard.py`
+  tốn ~120k token. Dùng `<command> --explain` hoặc `selfcheck` trước.
+- Trong Piloth source repo: không sửa file shipped: sửa fragment `src/guard/*.py`
+  / `src/installer/*.py` rồi chạy `python3 scripts/build_bundles.py`
+  (`--check` là release gate). Line budget của hai engine được gate ở
+  `tests/unit/test_repo_hygiene.py` trong source repo.
+
 ## Discovery And Routing
 
 Piloth source assets are consumer assets for self-hosting. Use:

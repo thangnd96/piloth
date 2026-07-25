@@ -17,8 +17,13 @@
       "field": "piloth_version"
     },
     {
-      "path": "pilothOS/scripts/pilothos_installer.py",
+      "_note": "SSOT is the src/ fragment, not the shipped amalgamation — bump-version.sh rebuilds bundles after editing so pilothos_installer.py picks this up. Editing the shipped file directly makes it stale vs src/ and fails build_bundles --check.",
+      "path": "src/installer/04_apply.py",
       "pattern": "\"pilothos_version\": \"{VER}\""
+    },
+    {
+      "path": "tests/install/run-tests.sh",
+      "pattern": "\"PILOTHOS_VERSION\": \"{VER}\""
     },
     {
       "path": "docs/workflow.md",

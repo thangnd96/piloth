@@ -20,7 +20,8 @@ def consumer_assets_registry_ok():
         return False, "consumer asset registry thieu header contract"
     required_terms = [
         "skill", "hook", "tool", "mcp", "command", "design-system",
-        "doc", "convention", "test-runner", "build-runner",
+        "doc", "convention", "test-runner", "build-runner", "agent",
+        "specialist",
         "low", "medium", "high",
         "always", "task-routed", "approval-required", "never-auto",
         "preserve", "index", "route", "wrap", "merge", "needs-judgment", "ignore",
@@ -44,6 +45,11 @@ def self_host_required_manifest_paths():
         "pilothOS/runtime/self-hosting.md",
         "pilothOS/runtime/consumer-assets.md",
         "pilothOS/runtime/os-control-plane.md",
+        "pilothOS/runtime/evidence-routing.json",
+        "pilothOS/runtime/adapter-capabilities.json",
+        "pilothOS/runtime/specialist-registry.json",
+        "pilothOS/runtime/model-capabilities.json",
+        "pilothOS/runtime/evidence-router-issues.json",
         "pilothOS/scripts/pilothos_guard.py",
         "pilothOS/scripts/pilothos_installer.py",
         "pilothOS/agent-teams/piloth-team.md",
@@ -63,6 +69,10 @@ def self_host_check_result():
         PILOTHOS_DIR / "runtime" / "task-lifecycle.md",
         PILOTHOS_DIR / "runtime" / "energy-token-policy.md",
         PILOTHOS_DIR / "runtime" / "os-control-plane.md",
+        PILOTHOS_DIR / "runtime" / "evidence-routing.json",
+        PILOTHOS_DIR / "runtime" / "adapter-capabilities.json",
+        PILOTHOS_DIR / "runtime" / "specialist-registry.json",
+        PILOTHOS_DIR / "runtime" / "model-capabilities.json",
         PILOTHOS_DIR / "agent-teams" / "piloth-team.md",
         PILOTHOS_DIR / "scripts" / "pilothos_guard.py",
     ]
@@ -324,5 +334,3 @@ def artifact_janitor(argv):
             return
         root = candidate.resolve()
     json_print(artifact_janitor_result(fix=fix, root=root))
-
-

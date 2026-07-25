@@ -196,8 +196,21 @@ def dynamic_agent_assets(rows, seen):
             continue
         for path in sorted(root.rglob("*.md")):
             rel = path.relative_to(REPO_ROOT).as_posix()
-            add_audit_row(rows, seen, rel, "doc", "agent definition",
+            add_audit_row(rows, seen, rel, "agent", "agent definition",
                           risk="medium", handling="index")
+    specialist_roots = [
+        REPO_ROOT / ".agents" / "specialists",
+        REPO_ROOT / ".claude" / "specialists",
+        REPO_ROOT / "specialists",
+    ]
+    for root in specialist_roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.md")):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            add_audit_row(rows, seen, rel, "specialist",
+                          "explicit specialist definition",
+                          risk="medium", handling="route")
 
 
 def collect_consumer_asset_rows():
@@ -267,6 +280,11 @@ def collect_consumer_asset_rows():
             add_audit_row(rows, seen, rel, "mcp",
                           "MCP/tool configuration", risk="medium",
                           handling="route")
+    for rel in (".piloth/specialists.json", "piloth-specialists.json"):
+        if (REPO_ROOT / rel).exists():
+            add_audit_row(rows, seen, rel, "specialist",
+                          "explicit consumer specialist registry",
+                          owner="consumer", risk="medium", handling="route")
 
     for rel in ("scripts/test.sh", "scripts/test", "scripts/build.sh",
                 "scripts/lint.sh", "Makefile"):
@@ -743,37 +761,13 @@ def apply_bootstrap_mode(files, mode):
     return list(files)
 
 
-def route_task_payload(payload):
-    if not isinstance(payload, dict):
-        return {"result": "route_rejected", "errors": ["route payload must be a JSON object"]}
-    key = normalize_task_signal(payload.get("task_signal"))
-    route = TASK_SIGNAL_ROUTES.get(key)
-    if not route:
-        return {
-            "result": "route_rejected",
-            "errors": [
-                "task_signal must be one of: "
-                + ", ".join(sorted(r["task_signal"] for r in TASK_SIGNAL_ROUTES.values()))
-            ],
-        }
+def route_task_asset_views(detected, route):
+    """(detected_assets, consumer_asset_routing, context_evidence) for one route.
 
-    asset_types = set(route["asset_types"])
-    all_rows = collect_consumer_asset_rows()
-    detected = [
-        row for row in all_rows
-        if row.get("type") in asset_types
-    ]
-    skipped_assets = [
-        {
-            "asset": row["asset"],
-            "type": row["type"],
-            "risk": row["risk"],
-            "decision": "skipped",
-            "reason": f"{row['type']} is not routed for {route['task_signal']}",
-        }
-        for row in all_rows
-        if row.get("type") not in asset_types
-    ]
+    Three views over the same asset set, kept together because they are derived
+    from the same per-asset health lookup. Only the last two are contract shapes
+    (validated on contract/receipt); `detected_assets` is a plain inventory view.
+    """
     asset_rows = []
     routing = []
     context_evidence = []
@@ -781,26 +775,30 @@ def route_task_payload(payload):
         load_when = registry_load_when(row)
         health = health_for_asset(normalize_asset_row(row))
         health_status = health.get("status")
+        # `reason` stays a non-empty string (the contract validator requires it),
+        # but it should not restate what the entry already carries structurally:
+        # the row has task_signal and asset_type, so the asset PATH is the only
+        # new information — and it is load-bearing, because a routing entry has
+        # no `asset` field to identify which asset it decided about.
         if health_status == "healthy":
             decision = "approval_required" if load_when == "approval-required" else "loaded"
-            routing_reason = f"{row['asset']} matched {route['task_signal']} routing"
+            routing_reason = f"matched {row['asset']}"
         elif health_status == "needs_approval":
             decision = "approval_required"
-            routing_reason = f"{row['asset']} matched but health requires approval: {health.get('health_reason')}"
-        elif health_status in {"missing", "stale"}:
-            decision = "skipped"
-            routing_reason = f"{row['asset']} matched but health is {health_status}: {health.get('health_reason')}"
+            routing_reason = f"{row['asset']}: approval required ({health.get('health_reason')})"
         else:
             decision = "skipped"
-            routing_reason = f"{row['asset']} matched but health is {health_status}: {health.get('health_reason')}"
+            routing_reason = f"{row['asset']}: health {health_status} ({health.get('health_reason')})"
+        # Inventory view, not a contract shape: nothing validates it and no doc
+        # specifies it. `health_reason` mostly restated the asset path, and
+        # `handling` was almost always "index" — both are available from
+        # asset-scan / asset-health when the detail is actually wanted.
         asset_rows.append({
             "asset": row["asset"],
             "type": row["type"],
             "risk": row["risk"],
-            "handling": row["handling"],
             "load_when": load_when,
             "health_status": health_status,
-            "health_reason": health.get("health_reason"),
         })
         routing.append({
             "task_signal": route["task_signal"],
@@ -810,7 +808,9 @@ def route_task_payload(payload):
         })
         context_evidence.append({
             "source": row["asset"],
-            "reason": f"{row['type']} matched {route['task_signal']} routing",
+            # `source` already names the asset and the paired routing entry
+            # already names the signal — the asset type is what this adds.
+            "reason": f"routed as {row['type']}",
             "finding": f"{row['capability']} (health: {health_status})",
         })
     if not routing:
@@ -825,12 +825,44 @@ def route_task_payload(payload):
             "reason": f"{route['task_signal']} routing lookup",
             "finding": "no matching consumer asset detected by deterministic audit",
         })
+    return asset_rows, routing, context_evidence
+
+
+def route_task_payload(payload):
+    if not isinstance(payload, dict):
+        return {"result": "route_rejected", "errors": ["route payload must be a JSON object"]}
+    key = normalize_task_signal(payload.get("task_signal"))
+    route = TASK_SIGNAL_ROUTES.get(key)
+    if not route:
+        return {
+            "result": "route_rejected",
+            "errors": [
+                "task_signal must be one of: "
+                + ", ".join(sorted(r["task_signal"] for r in TASK_SIGNAL_ROUTES.values()))
+            ],
+        }
+    asset_types = set(route["asset_types"])
+    all_rows = collect_consumer_asset_rows()
+    detected = [
+        row for row in all_rows
+        if row.get("type") in asset_types
+    ]
+    # Receipt guidance, not a validated contract shape. The rule is the same for
+    # every row, so it is stated once as `skipped_reason` instead of repeated per
+    # asset — the old per-row `reason`/`decision`/`risk` restated the row's own
+    # type plus the response's task_signal, once per asset.
+    skipped_assets = [
+        {"asset": row["asset"], "type": row["type"]}
+        for row in all_rows
+        if row.get("type") not in asset_types
+    ]
+    asset_rows, routing, context_evidence = route_task_asset_views(detected, route)
 
     mode = context_mode_from_payload(payload)
     index_first = apply_context_mode(
         ["runtime/consumer-assets.md", "runtime/context-loading.md"], mode)
     context_layers = apply_context_mode(list(route["context_layers"]), mode)
-    return {
+    result = {
         "result": "route_suggested",
         "task_signal": route["task_signal"],
         "context_mode": mode,
@@ -840,9 +872,29 @@ def route_task_payload(payload):
         "inspect_asset_types": list(route["asset_types"]),
         "detected_assets": asset_rows,
         "skipped_assets": skipped_assets,
+        "skipped_reason": (
+            f"asset type is not routed for {route['task_signal']}"
+            if skipped_assets else ""
+        ),
         "context_evidence": context_evidence,
         "consumer_asset_routing": routing,
     }
+    return route_task_attach_evidence_router(result, payload)
+
+
+def route_task_attach_evidence_router(result, payload):
+    """Add the canonical decision without changing any V1 wrapper field."""
+    if payload.get("_router_compat_only") is True:
+        return result
+    router_request = dict(payload)
+    router_request.setdefault("intent", payload.get("task_scope") or "")
+    # Digest, not the full decision: this wrapper is a routing hint, and the full
+    # blob was 5.8 KB of the 20 KB route-task printed. Callers that need all of
+    # it call evidence-route --verbose.
+    result["evidence_router"] = evidence_route_digest(
+        evidence_route_payload(router_request),
+    )
+    return result
 
 
 def route_task(argv):
@@ -852,5 +904,3 @@ def route_task(argv):
         json_print({"result": "route_rejected", "errors": [str(e)]})
         return
     json_print(route_task_payload(payload))
-
-
