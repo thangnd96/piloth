@@ -4,7 +4,12 @@ Distribution model (MAP + ignore rules) dung chung voi stage.py qua _distributio
 linh gac = completeness check (C10)."""
 import pathlib, json, sys, datetime
 
-from _distribution import CONSUMER_OWNED, MAP, ignored_distribution_artifact
+from _distribution import (
+    CONSUMER_OWNED,
+    MAP,
+    SHIP_EMPTY_LOGS,
+    ignored_distribution_artifact,
+)
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path(__file__).resolve().parent.parent)
 FACADE = {".claude/commands/pilothos-init.md",".claude/skills/pilothos-init/SKILL.md",
@@ -31,6 +36,9 @@ for path in sorted(entries):
     cls = "installer-facade" if path in FACADE else "consumer-owned" if path in CONSUMER_OWNED else "verbatim"
     e = {"path": path, "class": cls}
     if path in PERSONALIZE: e["personalize"] = True
+    # Declared, not hidden: stage.py strips the vendor's rows from these ledgers,
+    # so the manifest says the staged bytes differ from the repo's on purpose.
+    if path in SHIP_EMPTY_LOGS: e["ship_empty"] = True
     files.append(e)
 out = ROOT / "pilothOS" / "dist-manifest.json"
 version = json.load(open(ROOT / ".claude-plugin" / "plugin.json", encoding="utf-8"))["version"]

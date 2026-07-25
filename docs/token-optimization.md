@@ -61,19 +61,23 @@ Kết quả trả về `loaded_bytes`, `loaded_tokens_est`, `full_kernel_tokens_
 
 Hai denominator, **cùng báo cáo** để không tự khen:
 
-- `full_kernel_*` — **77 file, ~74.7k token**: mọi `.md` dưới `pilothOS/`, tức
+- `full_kernel_*` — **75 file, ~74.2k token**: mọi `.md` dưới `pilothOS/`, tức
   trần "nạp tất cả" một cách ngây thơ.
-- `routable_kernel_*` — **52 file, ~36.7k token**: bỏ `skills/**` (chỉ mở khi
+- `routable_kernel_*` — **50 file, ~36.2k token**: bỏ `skills/**` (chỉ mở khi
   chính skill đó chạy, chiếm 45% trần) và `README`/`VALIDATION` (tài liệu cho
   người, không phải instruction cho task). **Đây là con số nên trích dẫn.**
+- Cả hai trần đều **loại** `rot/review-log.md` + `memory/lessons-learned.md`: kích
+  thước của chúng phản ánh install chạy bao lâu (auto-log gate append mỗi session),
+  không phản ánh kernel to bao nhiêu — và chúng **ship trống**, nên với consumer mới
+  chúng gần như 0 byte. Tính vào sẽ làm trần thành mục tiêu di động đo trên sai install.
 
 | task_signal      | files | bytes  | est tokens | vs full-kernel | vs routable |
 |------------------|:-----:|:------:|:----------:|:--------------:|:-----------:|
-| not_applicable   |   7   | 22,084 |    5,521   |     92.6%      |    85.0%    |
-| UI/component     |   8   | 23,809 |    5,953   |     92.0%      |    83.8%    |
-| API/backend      |   8   | 26,669 |    6,668   |     91.1%      |    81.8%    |
-| release/deploy   |   9   | 28,995 |    7,249   |     90.3%      |    80.3%    |
-| bug fix          |   9   | 32,276 |    8,069   |     89.2%      |    78.0%    |
+| not_applicable   |   7   | 22,084 |    5,521   |     92.6%      |    84.8%    |
+| UI/component     |   8   | 23,809 |    5,953   |     92.0%      |    83.6%    |
+| API/backend      |   8   | 26,669 |    6,668   |     91.0%      |    81.6%    |
+| release/deploy   |   9   | 28,995 |    7,249   |     90.2%      |    80.0%    |
+| bug fix          |   9   | 32,276 |    8,069   |     89.1%      |    77.7%    |
 
 Nói cách khác: một task được route kéo **~15-22%** routable kernel vào context
 thay vì 100%.

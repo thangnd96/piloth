@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.12.0",
- "generated_at": "2026-07-25T19:15:44.709150+00:00",
+ "generated_at": "2026-07-25T20:18:55.190669+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -206,7 +206,8 @@
   },
   {
    "path": "pilothOS/memory/lessons-learned.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "ship_empty": true
   },
   {
    "path": "pilothOS/memory/state/README.md",
@@ -227,7 +228,8 @@
   },
   {
    "path": "pilothOS/rot/review-log.md",
-   "class": "verbatim"
+   "class": "verbatim",
+   "ship_empty": true
   },
   {
    "path": "pilothOS/rules/coding-behavior.md",

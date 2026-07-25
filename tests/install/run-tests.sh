@@ -248,6 +248,30 @@ grep -qx 'pilothOS/memory/state/os-runs/' .gitignore
 ! grep -qx 'pilothOS/' .gitignore
 echo "C10h PASS: explicit scope=runtime keeps kernel trackable"
 
+echo "== C10i ship-empty ledgers carry no vendor history =="
+mkdir -p $W/emptylogs && cd $W/emptylogs
+bash "$REPO/scripts/stage.sh" "$W/emptylogs" > /dev/null
+python3 - << EOP
+import json, pathlib, sys
+sys.path.insert(0, "$REPO/scripts")
+from _distribution import SHIP_EMPTY_LOGS
+manifest = json.load(open("$REPO/pilothOS/dist-manifest.json", encoding="utf-8"))
+declared = {f["path"] for f in manifest["files"] if f.get("ship_empty")}
+assert declared == SHIP_EMPTY_LOGS, f"manifest ship_empty {declared} != {SHIP_EMPTY_LOGS}"
+for rel in sorted(SHIP_EMPTY_LOGS):
+    staged = pathlib.Path("$W/emptylogs") / rel
+    text = staged.read_text(encoding="utf-8")
+    rows = [l for l in text.splitlines()
+            if l.strip().startswith("|") and not set(l.strip()) <= set("|-: ")
+            and not l.strip().startswith("| Date")]
+    assert not rows, f"{rel} staged with vendor history: {rows[:2]}"
+    assert "ship TR" in text, f"{rel} lost its header explaining why it is empty"
+    # The repo's own copy must KEEP its history — the auto-log gate writes there.
+    assert pathlib.Path("$REPO", rel).read_text(encoding="utf-8") != text, (
+        f"{rel} was blanked in the Piloth repo, not just on stage")
+print("C10i PASS: ledgers ship empty, repo keeps its history")
+EOP
+
 echo "== sync-templates guard =="
 python3 - << EOP
 import pathlib

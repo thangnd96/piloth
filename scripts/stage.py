@@ -19,7 +19,13 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from _distribution import CONSUMER_OWNED, MAP, ignored_distribution_artifact
+from _distribution import (
+    CONSUMER_OWNED,
+    MAP,
+    SHIP_EMPTY_LOGS,
+    ignored_distribution_artifact,
+    log_header_only,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO = Path(os.environ.get("CLAUDE_PLUGIN_ROOT", SCRIPT_DIR.parent)).resolve()
@@ -113,6 +119,22 @@ def backup_existing(dest: Path, rel_dest: str, backup_root: Path) -> None:
     shutil.copy2(dest, backup)
 
 
+def place_one(src: Path, dest: Path, rel_dest: str) -> None:
+    """Put one staged file in place: byte copy, or header-only for ship-empty logs.
+
+    The vendor's own review-log / lessons-learned rows are its operational
+    history, not seed content for a new install — each file says so in its own
+    header. Stripping the rows here keeps that promise without deleting the
+    history from the Piloth repo, where the auto-log gate keeps appending to it.
+    """
+    if rel_dest in SHIP_EMPTY_LOGS:
+        dest.write_text(
+            log_header_only(src.read_text(encoding="utf-8")), encoding="utf-8",
+        )
+        return
+    shutil.copy2(src, dest)
+
+
 def copy_one(src: Path, rel_dest: str, counts: dict[str, int],
              target: Path, upgrade: bool, backup_root: Optional[Path],
              requested_adapters: Optional[set[str]]) -> None:
@@ -130,13 +152,13 @@ def copy_one(src: Path, rel_dest: str, counts: dict[str, int],
             if backup_root is not None:
                 backup_existing(dest, rel_dest, backup_root)
                 counts["backed_up"] += 1
-            shutil.copy2(src, dest)
+            place_one(src, dest, rel_dest)
             counts["updated"] += 1
         else:
             counts["skipped"] += 1
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
+    place_one(src, dest, rel_dest)
     counts["copied"] += 1
 
 

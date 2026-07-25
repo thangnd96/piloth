@@ -3462,11 +3462,27 @@ def estimate_context_tokens(num_bytes):
     return (num_bytes + 3) // 4
 
 
+# Append-only ledgers whose size tracks how long an install has been running, not
+# how big the kernel is: the auto-log gate appends to them on every session that
+# changes files. They are also staged header-only, so they are ~0 bytes for a fresh
+# consumer while the Piloth repo's own copies keep growing. Counting them would make
+# both ceilings a moving target measured against the wrong install.
+GROWING_LEDGERS = ("rot/review-log.md", "memory/lessons-learned.md")
+
+
+def kernel_md_paths():
+    """Kernel markdown docs that count toward a ceiling, newest state excluded."""
+    for path in PILOTHOS_DIR.rglob("*.md"):
+        if path.relative_to(PILOTHOS_DIR).as_posix() in GROWING_LEDGERS:
+            continue
+        yield path
+
+
 def full_kernel_footprint():
     """(file_count, total_bytes) of every kernel markdown doc — the load-all ceiling."""
     total = 0
     files = 0
-    for path in PILOTHOS_DIR.rglob("*.md"):
+    for path in kernel_md_paths():
         try:
             total += path.stat().st_size
             files += 1
@@ -3487,7 +3503,7 @@ def routable_kernel_footprint():
     """(file_count, total_bytes) of the kernel docs a routed task could load."""
     total = 0
     files = 0
-    for path in PILOTHOS_DIR.rglob("*.md"):
+    for path in kernel_md_paths():
         rel = path.relative_to(PILOTHOS_DIR)
         if rel.parts[0] == "skills" or rel.as_posix() in NON_ROUTABLE_KERNEL:
             continue

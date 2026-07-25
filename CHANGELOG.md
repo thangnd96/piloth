@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v1.12.0 — 2026-07-26
+
+Cắt footprint tool-output + mở khóa cost evidence.
+
+> **Breaking cho ai parse stdout của guard.** Sáu command giờ in **digest** thay vì
+> quyết định đầy đủ: `evidence-route`, `os-start`, `os-status`, `os-report`,
+> `route-task`, `scheduler-suggest`. Lấy lại blob cũ bằng `--verbose`
+> (`evidence-route`, `os-status`) hoặc đọc `contract.json`/OS state — blob đầy đủ
+> luôn còn trên đĩa. Shape **contract/receipt** (cái có validator, consumer viết)
+> **không đổi**, và không adapter/hook/skill/template nào bị ảnh hưởng.
+
 - **Vá hai lỗ quy trình lộ ra khi dogfood v1.12.0** (không đổi surface consumer):
   - Field consumer thấy nhưng chỉ được doc ở `docs/` — mà `docs/` **không nằm trong
     `dist-manifest`**, nên consumer không bao giờ đọc được. Đã doc
@@ -20,18 +31,16 @@
     kia), theo đúng convention `PYTHONPYCACHEPREFIX` mà các suite khác đã dùng. Test
     `test_every_pytest_call_site_keeps_its_caches_out_of_the_repo` **quét** thay vì
     hardcode, nên call site pytest mới cũng bị soi.
-
-## v1.12.0 — 2026-07-26
-
-Cắt footprint tool-output + mở khóa cost evidence.
-
-> **Breaking cho ai parse stdout của guard.** Sáu command giờ in **digest** thay vì
-> quyết định đầy đủ: `evidence-route`, `os-start`, `os-status`, `os-report`,
-> `route-task`, `scheduler-suggest`. Lấy lại blob cũ bằng `--verbose`
-> (`evidence-route`, `os-status`) hoặc đọc `contract.json`/OS state — blob đầy đủ
-> luôn còn trên đĩa. Shape **contract/receipt** (cái có validator, consumer viết)
-> **không đổi**, và không adapter/hook/skill/template nào bị ảnh hưởng.
-
+- **Hai ledger append-only thôi ship kèm lịch sử của vendor**:
+  `rot/review-log.md` và `memory/lessons-learned.md` tự khai trong header rằng chúng
+  "ship **TRỐNG** có chủ đích", nhưng lại ship `verbatim` kèm dòng lịch sử vận hành
+  của repo Piloth — nên consumer cài mới nhận review log của vendor làm state khởi
+  tạo. Tệ hơn: auto-log gate **buộc** append vào chúng mỗi session có thay đổi file,
+  nên payload consumer phình thêm sau mỗi lần dogfood, độc lập với version. Nay
+  `stage.py` strip data row khi copy (`SHIP_EMPTY_LOGS` + `log_header_only` ở
+  `scripts/_distribution.py`), repo vendor giữ nguyên lịch sử của nó; manifest khai
+  `ship_empty: true` để transform là tường minh chứ không ẩn; gate `C10i` khẳng định
+  bản staged không có dòng dữ liệu nào **và** bản trong repo không bị làm trống.
 - **Mở khóa cost evidence: định giá `claude-opus-5` + cost khai được một phần**:
   `cost_usd` từng là all-or-nothing và **im lặng** — một turn có model không nằm
   trong `runtime/model-pricing.json` là mất số cost của **cả run**, không nói model
@@ -52,11 +61,12 @@ Cắt footprint tool-output + mở khóa cost evidence.
   đúng đường chính + ba giới hạn thật: cần benchmark `had-piloth` vs `none-piloth`
   cho claim so sánh, `subagent_scope=main_session_only`, và cost phụ thuộc price map
   (không phủ fast mode $10/$50 vì map chưa có chiều `speed`).
-- **Sửa hai env signal detect adapter đã đoán sai**: `CURSOR_TRACE_ID` **không tồn
-  tại** → `CURSOR_AGENT`; `CURSOR_CLI` cố tình **không** dùng vì integrated terminal
-  set nó cả khi người thật gõ tay (sẽ claim sai capability profile).
-  `CODEX_SANDBOX` giữ lại kèm ghi chú undocumented + chỉ có khi sandbox bật. Thêm
-  test: mọi signal phải map tới adapter mà registry khai.
+- **Env signal detect adapter chỉ gồm biến đã kiểm chứng**: `CURSOR_CLI` cố tình
+  **không** dùng — integrated terminal set nó cả khi người thật gõ tay, nên nó nghĩa
+  là "một terminal Cursor" chứ không phải "Cursor agent đang chạy", dùng nó sẽ claim
+  sai capability profile. `CODEX_SANDBOX` có thật nhưng undocumented và chỉ xuất hiện
+  khi sandbox bật, nên detect là best-effort và fail-closed về `unknown`. Thêm test:
+  mọi signal phải map tới một adapter mà `adapter-capabilities.json` khai.
 - **Nén cả bốn view asset trong `route-task`** (20.591→**11.860 B**, −42%):
   `detected_assets` 2.971→2.094 B (bỏ `health_reason` lặp lại đường dẫn, `handling`
   gần như luôn `index`), `skipped_assets` 2.148→830 B (lý do giống nhau mọi row → nêu
@@ -81,7 +91,7 @@ Cắt footprint tool-output + mở khóa cost evidence.
   `missing` + `sources_summary`).
 - **Adapter auto-detect** (`resolve_adapter`): `adapter` trong request →
   `PILOTHOS_ADAPTER` → env harness (`CLAUDECODE`, `CLAUDE_PROJECT_DIR`,
-  `CURSOR_TRACE_ID`, `CODEX_SANDBOX`) → `unknown`, kèm `adapter_source` để
+  `CURSOR_AGENT`, `CODEX_SANDBOX`) → `unknown`, kèm `adapter_source` để
   auditable. Trước đó không caller nào truyền `adapter` nên mọi consumer chạy
   đường `unknown`: 15/15 capability `unavailable`, `enforced` tự hạ thành
   `advisory` và specialist có `adapter_support` bị disqualify. Đây là fix
