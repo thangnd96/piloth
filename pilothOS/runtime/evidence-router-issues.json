@@ -1,5 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "contract": "Constraints that bind the Evidence Router in YOUR project, stated in the present tense. This is not a development changelog: entries describe what the router does and does not guarantee right now. Vendor-side history lives in the Piloth source repo, so no entry is ever carried here as 'closed'.",
+  "kinds": {
+    "known_limitation": "Something the router cannot do yet; plan around it.",
+    "invariant": "A behaviour guarantee you may rely on.",
+    "regression_owner": "A contract that must not break, and who owns it.",
+    "merge_gate": "A condition that blocks a change from being accepted."
+  },
   "issues": [
     {
       "id": "ER-001",
@@ -31,31 +38,38 @@
     },
     {
       "id": "ER-005",
-      "kind": "fixed_bug",
-      "status": "closed",
+      "kind": "invariant",
+      "status": "active",
       "owner": "evidence-router-core",
-      "summary": "Stale, partial, conflicting, and negative-claim evidence now lowers route confidence and emits source-first fallbacks."
+      "summary": "Stale, partial, conflicting, and negative-claim evidence lowers route confidence and emits source-first fallbacks."
     },
     {
       "id": "ER-006",
-      "kind": "removed_scope",
-      "status": "closed",
+      "kind": "invariant",
+      "status": "active",
       "owner": "evidence-router-core",
-      "summary": "The SQLite learning layer was removed; optional scheduler history cannot mutate routing policy or promote lessons."
+      "summary": "Routing is stateless: optional scheduler history cannot mutate routing policy or promote lessons."
     },
     {
       "id": "ER-007",
-      "kind": "fixed_bug",
-      "status": "closed",
+      "kind": "invariant",
+      "status": "active",
       "owner": "specialist-routing",
       "summary": "Unhealthy specialists and candidates missing tools, permissions, or adapter support are disqualified before selection."
     },
     {
       "id": "ER-008",
-      "kind": "fixed_bug",
-      "status": "closed",
+      "kind": "invariant",
+      "status": "active",
       "owner": "adapter-capabilities",
-      "summary": "Enforced rollout now degrades to advisory when the adapter cannot satisfy the enforcement capability contract."
+      "summary": "Enforced rollout degrades to advisory when the adapter cannot satisfy the enforcement capability contract."
+    },
+    {
+      "id": "ER-009",
+      "kind": "invariant",
+      "status": "active",
+      "owner": "evidence-router-core",
+      "summary": "Every routing threshold is read from quality_floor in evidence-routing.json, layered over the embedded defaults; editing that block changes routing decisions, not just what the decision reports."
     }
   ]
 }

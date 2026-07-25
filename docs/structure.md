@@ -28,9 +28,10 @@ piloth/
 ├── commands/                 # Plugin commands: init, update, adapter, uninstall
 ├── docs/                     # Tài liệu workflow và cấu trúc phân phối
 ├── pilothOS/                 # Kernel, runtime, rules và installer SSOT
-├── scripts/                  # Staging, manifest và version tooling
+├── scripts/                  # Staging, manifest, bundle build và version tooling
+├── src/                      # Source fragment của các bundle được ship
 ├── templates/                # Root files được merge vào consumer project
-├── tests/                    # Engine, install và lifecycle test suites
+├── tests/                    # 9 suite tạo thành release gate
 ├── CHANGELOG.md              # Lịch sử release
 ├── LICENSE                   # MIT License của Piloth
 └── README.md                 # Entry point của repository
@@ -85,7 +86,29 @@ Tooling cấp distribution:
 | `stage.sh` | Wrapper gọi staging engine |
 | `stage.py` | Copy distribution vào consumer project theo cách deterministic, không ghi đè file đã có |
 | `build_manifest.py` | Tạo `pilothOS/dist-manifest.json` |
+| `build_bundles.py` | Amalgamate `src/<name>/*.py` thành các single-file engine trong `pilothOS/scripts/` |
+| `sync_docs.py` | Regenerate các block doc dẫn xuất từ SSOT |
 | `bump-version.sh` | Bump version, regenerate manifest và audit version |
+
+### `src/`
+
+Source thật của hai engine được ship. Mỗi engine ship dưới dạng MỘT file vì nó
+được copy vào repo bất kỳ rồi gọi trực tiếp (guard làm Claude Code hook,
+installer làm executor của install-plan) — không thể phụ thuộc import path hay
+package layout ở phía consumer. Nên code sống ở đây theo fragment có thứ tự, và
+`scripts/build_bundles.py` nối chúng lại (SQLite-style amalgamation).
+
+```text
+src/
+├── guard/                    # → pilothOS/scripts/pilothos_guard.py
+└── installer/                # → pilothOS/scripts/pilothos_installer.py
+```
+
+Quy tắc: **sửa fragment, không bao giờ sửa tay bundle đã ship.**
+`build_bundles.py --check` fail nếu bundle lệch khỏi `src/`, và
+`tests/unit/test_guard_characterization.py` chạy check đó trong release gate.
+Fragment dùng chung một namespace mỗi bundle (import + constant nằm ở
+`00_header`) nên chúng không phải module import độc lập được.
 
 ### `templates/`
 
@@ -100,11 +123,18 @@ templates/
 
 ### `tests/`
 
+Danh sách suite ở đây phải khớp biến `SUITES` trong `run_all.sh` — `tests/docs`
+kiểm tra điều đó.
+
 ```text
 tests/
 ├── engine/                   # Unit/contract tests cho installer engine
 ├── install/                  # Staging và installation tests
-├── lifecycle/               # E2E: apply, receipt, rollback, prune, uninstall, guard
+├── lifecycle/                # E2E: apply, receipt, rollback, prune, uninstall, guard
+├── unit/                     # Pytest cho các decision function của guard
+├── evaluation/               # Đánh giá hành vi guard đầu-cuối
+├── docs/                     # Docs/release smoke: link, bump, structure drift
+├── benchmark/                # figma-ui, codebase-memory, evidence-router
 ├── bin/                      # Test utilities, timeout runner
 └── run_all.sh                # Gate tổng của release
 ```

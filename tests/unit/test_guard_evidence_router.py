@@ -35,6 +35,14 @@ REQUIRED_EVIDENCE_FIELDS = {
 }
 
 
+@pytest.fixture()
+def floor(guard):
+    """The quality floor in force. Assertions read thresholds from here instead of
+    repeating literals, so the tests move with the registry rather than pinning a
+    second copy of the policy."""
+    return guard.evidence_router_quality_floor()
+
+
 def route(guard, **overrides):
     payload = {
         "intent": "fix localized parser regression",
@@ -146,20 +154,20 @@ def test_invalid_capability_status_and_unknown_key_are_rejected(guard):
     assert any("subagent_spawn" in error for error in out["errors"])
 
 
-def test_stale_partial_graph_never_becomes_source_grounded(guard):
+def test_stale_partial_graph_never_becomes_source_grounded(guard, floor):
     out = route(
         guard,
         codebase_graph={"freshness": "stale", "coverage": "partial"},
     )
     graph = next(item for item in out["evidence_plan"] if item["type"] == "code_graph")
     assert graph["trust"] == "untrusted_index"
-    assert graph["confidence"] < 0.8
-    assert out["confidence"] < 0.8
+    assert graph["confidence"] < floor["evidence_item_confidence"]
+    assert out["confidence"] < floor["route_confidence"]
     assert any("not source-grounded" in item for item in out["limitations"])
     assert any(item["type"] == "source" and item["required"] for item in out["evidence_plan"])
 
 
-def test_negative_claim_forces_complete_coverage_and_low_confidence_fallback(guard):
+def test_negative_claim_forces_complete_coverage_and_low_confidence_fallback(guard, floor):
     out = route(
         guard,
         intent="prove there is no other parser implementation",
@@ -170,13 +178,13 @@ def test_negative_claim_forces_complete_coverage_and_low_confidence_fallback(gua
     ]
     assert coverage and coverage[0]["coverage"] == "complete_claim_scope"
     assert coverage[0]["required"] is True
-    assert out["confidence"] < 0.8
+    assert out["confidence"] < floor["route_confidence"]
     assert any("ask the user" in fallback for fallback in out["fallbacks"])
 
 
-def test_conflicting_evidence_requires_source_first_resolution(guard):
+def test_conflicting_evidence_requires_source_first_resolution(guard, floor):
     out = route(guard, evidence_conflicts=["graph disagrees with source"])
-    assert out["confidence"] < 0.8
+    assert out["confidence"] < floor["route_confidence"]
     assert any("conflicts" in item for item in out["limitations"])
     assert any("source" in item for item in out["fallbacks"])
 
@@ -193,7 +201,7 @@ def test_pass_through_fixture_stays_single_agent(guard):
     assert out["execution_plan"]["model_tiers"]["executor"] == "economy"
 
 
-def test_team_requires_score_independence_capability_and_budget(guard):
+def test_team_requires_score_independence_capability_and_budget(guard, floor):
     out = guard.evidence_route_payload({
         "intent": "fix auth bypass across API and policy",
         "task_signal": "security",
@@ -205,7 +213,7 @@ def test_team_requires_score_independence_capability_and_budget(guard):
         "adapter": "claude",
     })
     plan = out["execution_plan"]
-    assert plan["team_score"] >= 60
+    assert plan["team_score"] >= floor["team_score"]
     assert plan["team"] is True
     assert [role["id"] for role in plan["roles"]] == ["lead", "executor", "reviewer"]
     assert plan["mandatory_independent_review"] is True
@@ -284,12 +292,12 @@ def _consumer_specialist(**overrides):
     return candidate
 
 
-def test_qualified_consumer_specialist_precedes_piloth_fallback(guard):
+def test_qualified_consumer_specialist_precedes_piloth_fallback(guard, floor):
     out = route(guard, specialists=[_consumer_specialist()])
     selected = out["execution_plan"]["specialist"]
     assert selected["id"] == "consumer.parser-specialist"
     assert selected["owner"] == "consumer"
-    assert selected["score"] >= 70
+    assert selected["score"] >= floor["specialist_score"]
 
 
 def test_explicit_consumer_registry_is_discovered_without_inventing_specialist(
@@ -502,6 +510,137 @@ def test_os_start_persists_router_in_contract_state_and_report_without_learning_
     fields = guard.receipt_template_router_fields(contract)
     assert fields["decision_id"] == contract["decision_id"]
     assert fields["evidence_router"]["verification_methods"]
+
+
+def _matrix_with_floor(guard, tmp_path, **floor_overrides):
+    """The shipped matrix with an edited quality_floor, pointed at by the guard.
+
+    Uses the real task_matrix so only the floor differs from production.
+    """
+    matrix = json.loads(guard.EVIDENCE_ROUTER_MATRIX.read_text(encoding="utf-8"))
+    matrix["quality_floor"].update(floor_overrides)
+    path = tmp_path / "evidence-routing.json"
+    path.write_text(json.dumps(matrix), encoding="utf-8")
+    return path
+
+
+def test_default_quality_floor_matches_the_shipped_registry(guard):
+    """The embedded fallback and the shipped JSON must agree, otherwise the router
+    silently changes policy when the registry is unreadable."""
+    shipped = json.loads(guard.EVIDENCE_ROUTER_MATRIX.read_text(encoding="utf-8"))
+    assert shipped["quality_floor"] == guard.DEFAULT_QUALITY_FLOOR
+    assert guard.evidence_router_default_matrix()["quality_floor"] == guard.DEFAULT_QUALITY_FLOOR
+
+
+def test_registry_floor_overrides_the_embedded_default(guard, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        guard, "EVIDENCE_ROUTER_MATRIX",
+        _matrix_with_floor(guard, tmp_path, specialist_score=95, team_score=99),
+    )
+    resolved = guard.evidence_router_quality_floor()
+    assert resolved["specialist_score"] == 95
+    assert resolved["team_score"] == 99
+    # Keys the registry does not mention still come from the default.
+    assert resolved["route_confidence"] == guard.DEFAULT_QUALITY_FLOOR["route_confidence"]
+
+
+def test_partial_registry_floor_cannot_drop_a_threshold(guard, monkeypatch, tmp_path):
+    """A malformed or truncated quality_floor must not remove a floor — the
+    defaults backfill every key the registry omits."""
+    matrix = json.loads(guard.EVIDENCE_ROUTER_MATRIX.read_text(encoding="utf-8"))
+    matrix["quality_floor"] = {"specialist_score": 42, "team_score": "not-a-number"}
+    path = tmp_path / "partial.json"
+    path.write_text(json.dumps(matrix), encoding="utf-8")
+    monkeypatch.setattr(guard, "EVIDENCE_ROUTER_MATRIX", path)
+    resolved = guard.evidence_router_quality_floor()
+    assert resolved["specialist_score"] == 42
+    # Non-numeric values are ignored rather than accepted as a threshold.
+    assert resolved["team_score"] == guard.DEFAULT_QUALITY_FLOOR["team_score"]
+    assert set(resolved) == set(guard.DEFAULT_QUALITY_FLOOR)
+
+
+def test_raising_specialist_floor_disqualifies_a_qualified_candidate(
+    guard, monkeypatch, tmp_path,
+):
+    """The decisive test for the registry being real policy: the same candidate
+    that qualifies under the shipped floor must stop qualifying when the JSON
+    raises it. Before this, the floor was loaded, echoed into the payload, and
+    then ignored by the decision, which used a hard-coded 70."""
+    baseline = route(guard, specialists=[_consumer_specialist()])
+    selected = baseline["execution_plan"]["specialist"]
+    # This candidate scores a perfect 100 under the shipped floor, so the raised
+    # floor has to exceed 100 to change the outcome.
+    assert selected is not None and selected["score"] <= 100
+
+    monkeypatch.setattr(
+        guard, "EVIDENCE_ROUTER_MATRIX",
+        _matrix_with_floor(guard, tmp_path, specialist_score=101),
+    )
+    raised = route(guard, specialists=[_consumer_specialist()])
+    assert raised["execution_plan"]["specialist"] is None
+    assert any("101/100" in reason for reason in raised["decision_reasons"])
+    assert raised["rollout"]["quality_floor"]["specialist_score"] == 101
+
+
+def test_raising_team_floor_disables_team_execution(guard, monkeypatch, tmp_path):
+    """Team must be reached via team_score here, NOT via a mandatory independent
+    review: for security / release-deploy signals the safety reviewer deliberately
+    overrides the score threshold, so such a route would stay team-mode no matter
+    what the floor says. This payload qualifies on score alone."""
+    payload = {
+        "intent": "restructure module boundaries across api, core and worker layers",
+        "task_signal": "architecture",
+        "affected_paths": [
+            "src/api/a.py", "src/api/b.py", "src/core/c.py", "src/core/d.py",
+            "src/worker/e.py", "src/worker/f.py", "src/db/g.py", "src/db/h.py",
+            "tests/test_all.py",
+        ],
+        "work_packages": [
+            {"id": "impl", "scope": "module split", "independent": True},
+            {"id": "verify", "scope": "boundary verification", "independent": True},
+        ],
+        "specialists": [_consumer_specialist(
+            id="consumer.arch-specialist",
+            domains=["architecture"],
+            task_types=["architecture_change"],
+        )],
+        "adapter": "claude",
+    }
+    baseline = guard.evidence_route_payload(dict(payload))
+    assert baseline["execution_plan"]["mandatory_independent_review"] is False
+    assert baseline["execution_plan"]["team"] is True
+
+    monkeypatch.setattr(
+        guard, "EVIDENCE_ROUTER_MATRIX",
+        _matrix_with_floor(guard, tmp_path, team_score=101),
+    )
+    raised = guard.evidence_route_payload(dict(payload))
+    assert raised["execution_plan"]["team"] is False
+    assert any("threshold 101" in reason for reason in raised["decision_reasons"])
+
+
+def test_receipt_errors_use_the_floor_recorded_in_the_decision(guard, monkeypatch, tmp_path):
+    """A receipt is judged against the floor that was in force when the route was
+    decided, so editing the registry mid-task cannot retroactively change what an
+    already-issued route demanded."""
+    contract = {
+        "evidence_router": {
+            "decision_id": "er-abc",
+            "confidence": 0.75,
+            "execution_plan": {"mode": "single"},
+            "rollout": {"mode": "enforced", "quality_floor": {"route_confidence": 0.70}},
+            "evidence_plan": [],
+        },
+    }
+    receipt = {"decision_id": "er-abc", "execution_mode": "single"}
+    # 0.75 clears the recorded 0.70 floor -> no low-confidence resolution demanded.
+    errors = guard.evidence_router_receipt_errors(contract, receipt)
+    assert not any("low_confidence_resolution" in e for e in errors)
+
+    # Same receipt, decision recorded under the stricter shipped floor -> demanded.
+    contract["evidence_router"]["rollout"]["quality_floor"] = {"route_confidence": 0.80}
+    errors = guard.evidence_router_receipt_errors(contract, receipt)
+    assert any("router_low_confidence_resolution" in e for e in errors)
 
 
 def test_router_json_round_trip_has_no_non_json_values(guard):

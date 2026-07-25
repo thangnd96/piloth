@@ -486,15 +486,14 @@ def command_is_read_only_guard(command):
     if not parts[1].endswith("pilothOS/scripts/pilothos_guard.py"):
         return False
     mode = parts[2]
-    if mode not in READ_ONLY_GUARD_MODES:
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
         return False
     trailing_args = parts[3:]
     trailing_text = " ".join(trailing_args).lower()
     if any(re.search(pattern, trailing_text) for pattern in HIGH_RISK_COMMAND_PATTERNS):
         return False
-    if mode == "receipt-verify":
-        return "--record" not in trailing_args
-    return True
+    return not mode_mutates(mode, trailing_args)
 
 
 def command_looks_high_risk(command):

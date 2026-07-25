@@ -562,31 +562,7 @@ def control_plane_check_result(active_policy="auto"):
     )
 
     modes = guard_registered_modes()
-    required_modes = {
-        "contract-write",
-        "os-start",
-        "os-status",
-        "os-evidence",
-        "os-close",
-        "os-verify",
-        "os-report",
-        "asset-scan",
-        "asset-health",
-        "adapter-capabilities",
-        "evidence-route",
-        "codebase-index",
-        "codebase-status",
-        "codebase-query",
-        "evidence-add",
-        "tool-check",
-        "receipt-write",
-        "receipt-seal",
-        "receipt-verify",
-        "artifact-janitor",
-        "control-plane-check",
-        "production-review",
-    }
-    missing_modes = sorted(required_modes - modes)
+    missing_modes = sorted(CONTROL_PLANE_REQUIRED_GUARD_MODES - modes)
     add_check(
         "guard control-plane modes",
         not missing_modes,
@@ -920,77 +896,95 @@ def self_check():
     print("SELF-CHECK " + ("PASSED" if ok else "FAILED"))
 
 
-# Command dispatch: mode -> (handler, arg_kind). One source of truth for every
-# guard mode, replacing a long if/elif chain. arg_kind selects how the handler
-# is invoked:
+# mode -> handler. The ONLY thing this table adds to GUARD_MODES (00_header) is
+# the function binding, which has to live here because the handlers are defined
+# above. Everything else about a mode — arg kind, mutability, self-host and
+# control-plane membership — comes from the registry, so a mode can never be
+# registered in one place and forgotten in another.
+GUARD_HANDLERS = {
+    "session-start": session_start,
+    "prompt-check": prompt_check,
+    "stop-check": stop_check,
+    "pre-edit": pre_edit,
+    "post-edit": post_edit,
+    "contract-write": task_contract_write,
+    "evidence-add": evidence_add,
+    "tool-check": tool_check,
+    "receipt-write": receipt_write,
+    "os-start": os_start,
+    "os-status": os_status,
+    "os-evidence": os_evidence,
+    "token-telemetry": token_telemetry,
+    "os-close": os_close,
+    "os-verify": os_verify,
+    "os-report": os_report,
+    "review-request": review_request,
+    "review-feedback": review_feedback,
+    "review-verify": review_verify,
+    "asset-scan": asset_scan,
+    "asset-health": asset_health,
+    "asset-sync": asset_sync,
+    "adapter-capabilities": adapter_capabilities,
+    "evidence-route": evidence_route,
+    "route-task": route_task,
+    "context-budget": context_budget,
+    "codebase-index": codebase_index,
+    "codebase-status": codebase_status,
+    "codebase-query": codebase_query,
+    "rot-status": rot_status,
+    "reuse-scan": reuse_scan,
+    "ds-scan": ds_scan,
+    "scheduler-suggest": scheduler_suggest,
+    "scheduler-record": scheduler_record,
+    "receipt-seal": receipt_seal,
+    "receipt-verify": receipt_verify,
+    "artifact-janitor": artifact_janitor,
+    "state-janitor": state_janitor,
+    "control-plane-check": control_plane_check,
+    "team-contract-write": team_contract_write,
+    "team-receipt-write": team_receipt_write,
+    "log-append": log_append,
+    "receipt-template": receipt_template,
+    "statusline": statusline,
+    "self-check": self_check,
+    "self-host-check": self_host_check,
+    "preflight": preflight,
+    "detect": detect,
+    "audit-assets": audit_consumer_assets,
+    "registry-assets": registry_consumer_assets,
+    "state-doctor": state_doctor,
+    "production-review": production_review,
+}
+# Command dispatch: mode -> (handler, arg_kind), derived from the registry.
+# arg_kind selects how the handler is invoked:
 #   "hook" -> handler(read_hook_input())   (only these modes read stdin)
 #   "argv" -> handler(sys.argv[2:])
 #   "none" -> handler()
+# A mode present in exactly one of GUARD_MODES/GUARD_HANDLERS is a build error,
+# not a silently missing command (pinned by tests/unit/test_guard_command_table).
 COMMAND_TABLE = {
-    # hook modes (read hook JSON from stdin)
-    "session-start": (session_start, "hook"),
-    "prompt-check": (prompt_check, "hook"),
-    "stop-check": (stop_check, "hook"),
-    "pre-edit": (pre_edit, "hook"),
-    "post-edit": (post_edit, "hook"),
-    # argv modes (JSON arg / file / stdin payload)
-    "contract-write": (task_contract_write, "argv"),
-    "evidence-add": (evidence_add, "argv"),
-    "tool-check": (tool_check, "argv"),
-    "receipt-write": (receipt_write, "argv"),
-    "os-start": (os_start, "argv"),
-    "os-status": (os_status, "argv"),
-    "os-evidence": (os_evidence, "argv"),
-    "token-telemetry": (token_telemetry, "argv"),
-    "os-close": (os_close, "argv"),
-    "os-verify": (os_verify, "argv"),
-    "os-report": (os_report, "argv"),
-    "review-request": (review_request, "argv"),
-    "review-feedback": (review_feedback, "argv"),
-    "review-verify": (review_verify, "argv"),
-    "asset-scan": (asset_scan, "argv"),
-    "asset-health": (asset_health, "argv"),
-    "asset-sync": (asset_sync, "argv"),
-    "adapter-capabilities": (adapter_capabilities, "argv"),
-    "evidence-route": (evidence_route, "argv"),
-    "route-task": (route_task, "argv"),
-    "context-budget": (context_budget, "argv"),
-    "codebase-index": (codebase_index, "argv"),
-    "codebase-status": (codebase_status, "argv"),
-    "codebase-query": (codebase_query, "argv"),
-    "rot-status": (rot_status, "none"),
-    "reuse-scan": (reuse_scan, "argv"),
-    "ds-scan": (ds_scan, "argv"),
-    "scheduler-suggest": (scheduler_suggest, "argv"),
-    "scheduler-record": (scheduler_record, "argv"),
-    "receipt-seal": (receipt_seal, "argv"),
-    "receipt-verify": (receipt_verify, "argv"),
-    "artifact-janitor": (artifact_janitor, "argv"),
-    "state-janitor": (state_janitor, "argv"),
-    "control-plane-check": (control_plane_check, "argv"),
-    "team-contract-write": (team_contract_write, "argv"),
-    "team-receipt-write": (team_receipt_write, "argv"),
-    "log-append": (log_append, "argv"),
-    # no-arg modes
-    "receipt-template": (receipt_template, "none"),
-    "statusline": (statusline, "none"),
-    "self-check": (self_check, "none"),
-    "self-host-check": (self_host_check, "none"),
-    "preflight": (preflight, "none"),
-    "detect": (detect, "none"),
-    "audit-assets": (audit_consumer_assets, "none"),
-    "registry-assets": (registry_consumer_assets, "none"),
-    "state-doctor": (state_doctor, "none"),
-    "production-review": (production_review, "none"),
+    mode: (GUARD_HANDLERS[mode], meta["arg_kind"])
+    for mode, meta in GUARD_MODES.items()
+    if mode in GUARD_HANDLERS
 }
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "check"
+    # An unregistered mode must fail LOUDLY. This guard is wired into
+    # settings.json as six entry points (five hooks + statusline); when a typo
+    # exited 0 the harness read it as success and governance silently vanished.
+    # Exit 1, not 2: for hook events only exit 2 blocks the action, so 1 surfaces
+    # a `hook error` notice without blocking the user over a config typo. Every
+    # REGISTERED mode must keep exiting 0 — Claude Code only parses hook JSON
+    # (the block_decision payload) on exit 0.
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
     entry = COMMAND_TABLE.get(mode)
     if entry is None:
-        print(f"PilothOS guard: {mode}")
-        sys.exit(0)
+        label = f"unknown mode {mode!r}" if mode else "missing mode argument"
+        print(f"PilothOS guard: {label}", file=sys.stderr)
+        print("  usage: python3 pilothos_guard.py <mode> [args]", file=sys.stderr)
+        print("  modes: " + ", ".join(sorted(COMMAND_TABLE)), file=sys.stderr)
+        sys.exit(1)
     handler, kind = entry
     if kind == "hook":
         handler(read_hook_input())

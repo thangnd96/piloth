@@ -92,12 +92,7 @@ def evidence_router_default_matrix():
         }
     return {
         "schema_version": 1,
-        "quality_floor": {
-            "max_non_inferiority_delta_pp": 2,
-            "route_confidence": 0.80,
-            "specialist_score": 70,
-            "team_score": 60,
-        },
+        "quality_floor": dict(DEFAULT_QUALITY_FLOOR),
         "task_matrix": matrix,
     }
 
@@ -111,6 +106,23 @@ def load_evidence_router_matrix():
     ):
         return data, "registry"
     return evidence_router_default_matrix(), "embedded_fallback"
+
+
+def evidence_router_quality_floor(matrix=None):
+    """The quality floor in force: registry values layered over the embedded
+    defaults, so a partial or malformed `quality_floor` block cannot drop a
+    threshold. Every routing decision reads its thresholds from here — that is
+    what makes evidence-routing.json actually govern policy instead of merely
+    reporting it."""
+    floor = dict(DEFAULT_QUALITY_FLOOR)
+    if matrix is None:
+        matrix, _ = load_evidence_router_matrix()
+    declared = matrix.get("quality_floor") if isinstance(matrix, dict) else None
+    if isinstance(declared, dict):
+        for key, value in declared.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                floor[key] = value
+    return floor
 
 
 def evidence_router_schema_payload():
@@ -141,10 +153,11 @@ def evidence_router_schema_payload():
             "verification_plan", "budgets", "fallbacks", "limitations",
             "decision_reasons",
         ],
-        "quality_floor": {
-            "max_non_inferiority_delta_pp": 2,
-            "minimum_route_confidence": 0.80,
-        },
+        # Same key names as evidence-routing.json / DEFAULT_QUALITY_FLOOR: this
+        # block used to report `minimum_route_confidence`, a name that appears
+        # nowhere else, so a consumer reading the schema could not match it to the
+        # registry key it describes.
+        "quality_floor": evidence_router_quality_floor(),
     }
 
 
@@ -555,7 +568,7 @@ def load_specialist_candidates(request):
     return deduped
 
 
-def specialist_score_candidate(candidate, request, signal, task_class, evidence_types):
+def specialist_score_candidate(candidate, request, signal, task_class, evidence_types, floor=None):
     reasons = []
     disqualified = []
     owner = str(candidate.get("owner") or "consumer").strip().lower()
@@ -629,25 +642,29 @@ def specialist_score_candidate(candidate, request, signal, task_class, evidence_
         disqualified.append(f"missing {required_permission} permission")
 
     score = round(domain_score + evidence_score + tool_score + historical_score + cost_score, 2)
+    if floor is None:
+        floor = evidence_router_quality_floor()
     return {
         "id": str(candidate.get("id") or ""),
         "owner": owner,
         "score": score,
-        "qualified": score >= 70 and not disqualified,
+        "qualified": score >= floor["specialist_score"] and not disqualified,
         "reasons": reasons,
         "disqualified_reasons": disqualified,
         "permissions": sorted(permissions),
     }
 
 
-def select_specialist(request, signal, task_class, evidence_plan):
+def select_specialist(request, signal, task_class, evidence_plan, floor=None):
     evidence_types = {
         item.get("type") for item in evidence_plan
         if isinstance(item, dict) and item.get("required")
     }
+    if floor is None:
+        floor = evidence_router_quality_floor()
     ranked = [
         specialist_score_candidate(
-            item, request, signal, task_class, evidence_types,
+            item, request, signal, task_class, evidence_types, floor,
         )
         for item in load_specialist_candidates(request)
     ]
@@ -801,8 +818,10 @@ def evidence_router_execution_roles(
 
 
 def evidence_router_execution_plan(
-    request, risk, confidence, specialist, ranked, capability_result, budget,
+    request, risk, confidence, specialist, ranked, capability_result, budget, floor=None,
 ):
+    if floor is None:
+        floor = evidence_router_quality_floor()
     signal = request.get("_classified_signal", "not_applicable")
     mandatory_review = evidence_router_requires_independent_review(request, signal)
     team_score, components, packages, independent_count = evidence_router_team_score(
@@ -821,9 +840,10 @@ def evidence_router_execution_plan(
         caps.get("subagent_spawn") in {"native", "emulated"}
         and caps.get("role_permissions") in {"native", "emulated"}
     )
-    team_eligible = team_score >= 60 and independent_count >= 2 and not budget["exhausted"]
+    team_floor = floor["team_score"]
+    team_eligible = team_score >= team_floor and independent_count >= 2 and not budget["exhausted"]
     reasons = [
-        f"team score={team_score} (threshold 60)",
+        f"team score={team_score} (threshold {team_floor})",
         f"independent work packages={independent_count}",
     ]
     limitations = []
@@ -1027,6 +1047,7 @@ def evidence_route_output(
         "execution_plan": execution_plan,
         "adapter_capabilities": capability_result.get("capabilities", {}),
     }
+    floor = evidence_router_quality_floor(matrix)
     reasons = class_reasons + [
         f"matrix_source={matrix_source}",
         f"rollout={rollout}",
@@ -1037,7 +1058,10 @@ def evidence_route_output(
             f"selected {specialist['owner']} specialist {specialist['id']} score={specialist['score']}"
         )
     else:
-        reasons.append("no specialist met the 70/100 health/tool/permission floor")
+        reasons.append(
+            f"no specialist met the {floor['specialist_score']}/100 "
+            "health/tool/permission floor"
+        )
     locale, localized_summary = evidence_router_localized_summary(
         request, task_class, execution_plan,
     )
@@ -1066,7 +1090,9 @@ def evidence_route_output(
             "mode": rollout,
             "requested_mode": requested_rollout,
             "kill_switch": kill_switch,
-            "quality_floor": matrix.get("quality_floor", {}),
+            # The merged floor, i.e. the thresholds that actually governed this
+            # decision — not the raw registry block, which may omit keys.
+            "quality_floor": floor,
         },
     }
 
@@ -1083,7 +1109,8 @@ def finalize_evidence_route(
         + capability_result.get("limitations", [])
     )
     fallbacks = list(evidence_fallbacks)
-    if confidence < 0.80:
+    floor = evidence_router_quality_floor(matrix)
+    if confidence < floor["route_confidence"]:
         fallbacks.append(
             "read source, run another verification, or ask the user before relying on the route"
         )
@@ -1144,7 +1171,7 @@ def evidence_router_review_evidence_present(receipt, os_evidence):
     return False
 
 
-def evidence_router_receipt_errors(contract, receipt, os_evidence=None):
+def evidence_router_receipt_errors(contract, receipt, os_evidence=None, floor=None):
     if not isinstance(contract, dict) or not isinstance(receipt, dict):
         return []
     router = contract.get("evidence_router")
@@ -1152,6 +1179,15 @@ def evidence_router_receipt_errors(contract, receipt, os_evidence=None):
         return []
     rollout = router.get("rollout")
     rollout_mode = rollout.get("mode") if isinstance(rollout, dict) else "advisory"
+    if floor is None:
+        # Judge the receipt against the floor that was in force when the route was
+        # decided — the decision records it — rather than whatever the registry
+        # says now. Editing the registry mid-task must not retroactively change
+        # what an already-issued route demanded.
+        recorded = rollout.get("quality_floor") if isinstance(rollout, dict) else None
+        floor = evidence_router_quality_floor(
+            {"quality_floor": recorded} if isinstance(recorded, dict) else None
+        )
     execution = router.get("execution_plan")
     if not isinstance(execution, dict):
         execution = {}
@@ -1171,7 +1207,7 @@ def evidence_router_receipt_errors(contract, receipt, os_evidence=None):
         return errors
     if not non_empty_string(receipt_decision):
         errors.append("decision_id is required by enforced Evidence Router rollout")
-    if float(router.get("confidence", 0)) < 0.80 and not non_empty_string(
+    if float(router.get("confidence", 0)) < floor["route_confidence"] and not non_empty_string(
         receipt.get("router_low_confidence_resolution")
     ):
         errors.append(
@@ -1215,6 +1251,7 @@ def evidence_route_payload(request):
     if request_errors:
         return evidence_route_rejected(request_errors)
     matrix, matrix_source = load_evidence_router_matrix()
+    floor = evidence_router_quality_floor(matrix)
     signal, class_confidence, class_reasons, errors = classify_evidence_task(
         request, matrix,
     )
@@ -1236,7 +1273,9 @@ def evidence_route_payload(request):
     confidence = class_confidence
     if not request_paths(request):
         confidence -= 0.08
-    if any(item.get("confidence", 1.0) < 0.80 for item in evidence_plan):
+    # Per-evidence-item floor, a different question from route_confidence: one weak
+    # item caps the route's confidence just below the route floor.
+    if any(item.get("confidence", 1.0) < floor["evidence_item_confidence"] for item in evidence_plan):
         confidence = min(confidence, 0.78)
     conflicts = request.get("evidence_conflicts")
     if isinstance(conflicts, list) and conflicts:
@@ -1245,7 +1284,7 @@ def evidence_route_payload(request):
 
     budget = evidence_router_budget(request, capability_result)
     specialist, ranked = select_specialist(
-        request, signal, task_class, evidence_plan,
+        request, signal, task_class, evidence_plan, floor,
     )
     execution_request = dict(request)
     execution_request["_classified_signal"] = signal
@@ -1257,6 +1296,7 @@ def evidence_route_payload(request):
         ranked,
         capability_result,
         budget,
+        floor,
     )
     mandatory_review = execution_plan.get("mandatory_independent_review", False)
     context_plan = evidence_router_context_plan(task_row, request)

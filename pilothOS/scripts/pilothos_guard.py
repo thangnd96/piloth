@@ -73,7 +73,7 @@ Ghi chú thiết kế:
   Ladder: điều kiện "có thay đổi mà log chưa động" là máy móc nên hook được;
   chất lượng nội dung log vẫn cần judgment của model.
 """
-# GENERATED FILE — assembled from src/guard/*.py by scripts/build_guard.py.
+# GENERATED FILE — assembled from src/guard/*.py by scripts/build_bundles.py.
 # Edit the fragments and rebuild; hand-edits here are overwritten and caught by
 # the bundle-up-to-date gate in tests/unit.
 import sys
@@ -99,6 +99,23 @@ CONSUMER_ASSETS = PILOTHOS_DIR / "runtime" / "consumer-assets.md"
 SELF_HOSTING_DOC = PILOTHOS_DIR / "runtime" / "self-hosting.md"
 SCHEDULER_HISTORY = PILOTHOS_DIR / "memory" / "state" / "scheduler-history.jsonl"
 EVIDENCE_ROUTER_MATRIX = PILOTHOS_DIR / "runtime" / "evidence-routing.json"
+# Embedded fallback for the Evidence Router quality floor — the ONLY place these
+# numbers are written down. evidence-routing.json overrides them at runtime and
+# every threshold decision reads the merged result via
+# evidence_router_quality_floor(); the thresholds used to be duplicated as
+# literals across the routing decisions, so editing the JSON changed the reported
+# floor without changing a single decision.
+#   route_confidence          - floor for the confidence of the route itself
+#   evidence_item_confidence  - floor for ONE evidence item before it drags the
+#                               route confidence down (a different question from
+#                               route_confidence; kept separate on purpose)
+DEFAULT_QUALITY_FLOOR = {
+    "max_non_inferiority_delta_pp": 2,
+    "route_confidence": 0.80,
+    "evidence_item_confidence": 0.80,
+    "specialist_score": 70,
+    "team_score": 60,
+}
 ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.json"
 SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"
 MODEL_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "model-capabilities.json"
@@ -243,29 +260,125 @@ HIGH_RISK_COMMAND_PATTERNS = (
     r"\bgcloud\b.*\b(delete|deploy|update|create)\b",
     r"\bvercel\b.*\b--prod\b",
 )
-READ_ONLY_GUARD_MODES = {
-    "asset-health",
-    "asset-scan",
-    "artifact-janitor",
-    "state-janitor",
-    "context-budget",
-    "control-plane-check",
-    "ds-scan",
-    "adapter-capabilities",
-    "evidence-route",
-    "rot-status",
-    "production-review",
-    "receipt-verify",
-    "review-verify",
-    "reuse-scan",
-    "route-task",
-    "scheduler-suggest",
-    "self-host-check",
-    "state-doctor",
-    "os-status",
-    "os-verify",
-    "os-report",
+# --------------------------------------------------------- guard mode registry
+# SSOT for everything the guard knows about its own modes. Four hand-maintained
+# lists used to encode this separately (dispatch table, read-only set, self-host
+# set, control-plane set) and had already drifted: `artifact-janitor --fix` was
+# advertised read-only while it removes files, and `codebase-status` was not
+# advertised read-only although it never writes. Every one of those lists is now
+# derived from here, so a new mode cannot be half-registered.
+#
+# mutates:  False        -> never writes to disk
+#           True         -> always writes
+#           (flag, ...)  -> writes only when one of these argv flags is present
+# Verified against a call-graph reachability check over the shipped bundle; the
+# test suite re-runs that check so this table cannot silently drift from code.
+def _guard_mode(arg_kind, mutates=False, self_host=False, control_plane=False):
+    return {
+        "arg_kind": arg_kind,
+        "mutates": mutates,
+        "self_host": self_host,
+        "control_plane": control_plane,
+    }
+
+
+GUARD_MODES = {
+    # hook modes (read hook JSON from stdin)
+    "session-start": _guard_mode("hook", mutates=True),
+    "prompt-check": _guard_mode("hook", mutates=True),
+    "stop-check": _guard_mode("hook"),
+    "pre-edit": _guard_mode("hook", self_host=True),
+    "post-edit": _guard_mode("hook", mutates=True, self_host=True),
+    # argv modes (JSON arg / file / stdin payload)
+    "contract-write": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "evidence-add": _guard_mode("argv", mutates=True, control_plane=True),
+    "tool-check": _guard_mode("argv", control_plane=True),
+    "receipt-write": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-start": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-status": _guard_mode("argv", self_host=True, control_plane=True),
+    "os-evidence": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "token-telemetry": _guard_mode("argv", mutates=True),
+    "os-close": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "os-verify": _guard_mode("argv", self_host=True, control_plane=True),
+    "os-report": _guard_mode("argv", self_host=True, control_plane=True),
+    "review-request": _guard_mode("argv", mutates=True),
+    "review-feedback": _guard_mode("argv", mutates=True),
+    "review-verify": _guard_mode("argv"),
+    "asset-scan": _guard_mode("argv", self_host=True, control_plane=True),
+    "asset-health": _guard_mode("argv", self_host=True, control_plane=True),
+    "asset-sync": _guard_mode("argv", mutates=True, self_host=True),
+    "adapter-capabilities": _guard_mode("argv", self_host=True, control_plane=True),
+    "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
+    "route-task": _guard_mode("argv", self_host=True),
+    "context-budget": _guard_mode("argv"),
+    "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
+    "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
+    "reuse-scan": _guard_mode("argv", self_host=True),
+    "ds-scan": _guard_mode("argv", self_host=True),
+    "scheduler-suggest": _guard_mode("argv", self_host=True),
+    "scheduler-record": _guard_mode("argv", mutates=True, self_host=True),
+    "receipt-seal": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
+    "receipt-verify": _guard_mode("argv", self_host=True, control_plane=True),
+    # --fix removes artifact dirs/files; --target aims that removal at ANOTHER
+    # repo, so it is a write even without --fix.
+    "artifact-janitor": _guard_mode(
+        "argv", mutates=("--fix", "--target"), self_host=True, control_plane=True,
+    ),
+    # --fix prunes sealed-run artifacts, truncates the scheduler tail and rotates
+    # kernel logs.
+    "state-janitor": _guard_mode("argv", mutates=("--fix",)),
+    "control-plane-check": _guard_mode("argv", self_host=True, control_plane=True),
+    "team-contract-write": _guard_mode("argv", mutates=True, self_host=True),
+    "team-receipt-write": _guard_mode("argv", mutates=True, self_host=True),
+    "log-append": _guard_mode("argv", mutates=True),
+    # no-arg modes
+    "rot-status": _guard_mode("none"),
+    "receipt-template": _guard_mode("none"),
+    "statusline": _guard_mode("none"),
+    "self-check": _guard_mode("none"),
+    "self-host-check": _guard_mode("none", self_host=True),
+    "preflight": _guard_mode("none"),
+    "detect": _guard_mode("none"),
+    "audit-assets": _guard_mode("none"),
+    "registry-assets": _guard_mode("none"),
+    "state-doctor": _guard_mode("none", self_host=True),
+    "production-review": _guard_mode("none", self_host=True, control_plane=True),
 }
+# Modes that MAY be treated as read-only: those that never write, plus the two
+# janitors whose writes are flag-gated (the flag check lives in
+# command_is_read_only_guard, which reads GUARD_MODES["mutates"] directly).
+READ_ONLY_GUARD_MODES = frozenset(
+    mode for mode, meta in GUARD_MODES.items() if meta["mutates"] is not True
+)
+SELF_HOST_REQUIRED_GUARD_MODES = tuple(
+    sorted(mode for mode, meta in GUARD_MODES.items() if meta["self_host"])
+)
+CONTROL_PLANE_REQUIRED_GUARD_MODES = frozenset(
+    mode for mode, meta in GUARD_MODES.items() if meta["control_plane"]
+)
+
+
+def mode_mutates(mode, args=()):
+    """Whether running `mode` with `args` writes to disk.
+
+    Answers straight from GUARD_MODES so no caller can disagree with the
+    registry. An unrecognised mode counts as mutating: a mode this guard does not
+    know about must never be handed a read-only exemption.
+    """
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
+        return True
+    mutates = meta["mutates"]
+    if isinstance(mutates, bool):
+        return mutates
+    return any(
+        arg == flag or arg.startswith(flag + "=")
+        for arg in args
+        for flag in mutates
+    )
+
+
 SAFE_READ_ONLY_GUARD_ENV_VARS = {"PYTHONPYCACHEPREFIX"}
 SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|`]|\$\()")
 ENV_ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -337,40 +450,6 @@ COST_CLAIM_RE = re.compile(
     re.IGNORECASE,
 )
 SUPERIORITY_PASS_RESULTS = {"consumer_value_passed", "passed", "pass", "superior", "better"}
-SELF_HOST_REQUIRED_GUARD_MODES = (
-    "contract-write",
-    "pre-edit",
-    "post-edit",
-    "receipt-write",
-    "self-host-check",
-    "asset-scan",
-    "asset-health",
-    "asset-sync",
-    "adapter-capabilities",
-    "evidence-route",
-    "route-task",
-    "reuse-scan",
-    "ds-scan",
-    "codebase-index",
-    "codebase-status",
-    "codebase-query",
-    "scheduler-suggest",
-    "scheduler-record",
-    "state-doctor",
-    "receipt-seal",
-    "receipt-verify",
-    "artifact-janitor",
-    "control-plane-check",
-    "production-review",
-    "os-start",
-    "os-status",
-    "os-evidence",
-    "os-close",
-    "os-verify",
-    "os-report",
-    "team-contract-write",
-    "team-receipt-write",
-)
 PRODUCTION_FORBIDDEN_PATHS = {
     "pilothOS/scripts/pilothos_hostd.py",
     "pilothOS/runtime/host-control-plane.md",
@@ -4907,12 +4986,7 @@ def evidence_router_default_matrix():
         }
     return {
         "schema_version": 1,
-        "quality_floor": {
-            "max_non_inferiority_delta_pp": 2,
-            "route_confidence": 0.80,
-            "specialist_score": 70,
-            "team_score": 60,
-        },
+        "quality_floor": dict(DEFAULT_QUALITY_FLOOR),
         "task_matrix": matrix,
     }
 
@@ -4926,6 +5000,23 @@ def load_evidence_router_matrix():
     ):
         return data, "registry"
     return evidence_router_default_matrix(), "embedded_fallback"
+
+
+def evidence_router_quality_floor(matrix=None):
+    """The quality floor in force: registry values layered over the embedded
+    defaults, so a partial or malformed `quality_floor` block cannot drop a
+    threshold. Every routing decision reads its thresholds from here — that is
+    what makes evidence-routing.json actually govern policy instead of merely
+    reporting it."""
+    floor = dict(DEFAULT_QUALITY_FLOOR)
+    if matrix is None:
+        matrix, _ = load_evidence_router_matrix()
+    declared = matrix.get("quality_floor") if isinstance(matrix, dict) else None
+    if isinstance(declared, dict):
+        for key, value in declared.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                floor[key] = value
+    return floor
 
 
 def evidence_router_schema_payload():
@@ -4956,10 +5047,11 @@ def evidence_router_schema_payload():
             "verification_plan", "budgets", "fallbacks", "limitations",
             "decision_reasons",
         ],
-        "quality_floor": {
-            "max_non_inferiority_delta_pp": 2,
-            "minimum_route_confidence": 0.80,
-        },
+        # Same key names as evidence-routing.json / DEFAULT_QUALITY_FLOOR: this
+        # block used to report `minimum_route_confidence`, a name that appears
+        # nowhere else, so a consumer reading the schema could not match it to the
+        # registry key it describes.
+        "quality_floor": evidence_router_quality_floor(),
     }
 
 
@@ -5370,7 +5462,7 @@ def load_specialist_candidates(request):
     return deduped
 
 
-def specialist_score_candidate(candidate, request, signal, task_class, evidence_types):
+def specialist_score_candidate(candidate, request, signal, task_class, evidence_types, floor=None):
     reasons = []
     disqualified = []
     owner = str(candidate.get("owner") or "consumer").strip().lower()
@@ -5444,25 +5536,29 @@ def specialist_score_candidate(candidate, request, signal, task_class, evidence_
         disqualified.append(f"missing {required_permission} permission")
 
     score = round(domain_score + evidence_score + tool_score + historical_score + cost_score, 2)
+    if floor is None:
+        floor = evidence_router_quality_floor()
     return {
         "id": str(candidate.get("id") or ""),
         "owner": owner,
         "score": score,
-        "qualified": score >= 70 and not disqualified,
+        "qualified": score >= floor["specialist_score"] and not disqualified,
         "reasons": reasons,
         "disqualified_reasons": disqualified,
         "permissions": sorted(permissions),
     }
 
 
-def select_specialist(request, signal, task_class, evidence_plan):
+def select_specialist(request, signal, task_class, evidence_plan, floor=None):
     evidence_types = {
         item.get("type") for item in evidence_plan
         if isinstance(item, dict) and item.get("required")
     }
+    if floor is None:
+        floor = evidence_router_quality_floor()
     ranked = [
         specialist_score_candidate(
-            item, request, signal, task_class, evidence_types,
+            item, request, signal, task_class, evidence_types, floor,
         )
         for item in load_specialist_candidates(request)
     ]
@@ -5616,8 +5712,10 @@ def evidence_router_execution_roles(
 
 
 def evidence_router_execution_plan(
-    request, risk, confidence, specialist, ranked, capability_result, budget,
+    request, risk, confidence, specialist, ranked, capability_result, budget, floor=None,
 ):
+    if floor is None:
+        floor = evidence_router_quality_floor()
     signal = request.get("_classified_signal", "not_applicable")
     mandatory_review = evidence_router_requires_independent_review(request, signal)
     team_score, components, packages, independent_count = evidence_router_team_score(
@@ -5636,9 +5734,10 @@ def evidence_router_execution_plan(
         caps.get("subagent_spawn") in {"native", "emulated"}
         and caps.get("role_permissions") in {"native", "emulated"}
     )
-    team_eligible = team_score >= 60 and independent_count >= 2 and not budget["exhausted"]
+    team_floor = floor["team_score"]
+    team_eligible = team_score >= team_floor and independent_count >= 2 and not budget["exhausted"]
     reasons = [
-        f"team score={team_score} (threshold 60)",
+        f"team score={team_score} (threshold {team_floor})",
         f"independent work packages={independent_count}",
     ]
     limitations = []
@@ -5842,6 +5941,7 @@ def evidence_route_output(
         "execution_plan": execution_plan,
         "adapter_capabilities": capability_result.get("capabilities", {}),
     }
+    floor = evidence_router_quality_floor(matrix)
     reasons = class_reasons + [
         f"matrix_source={matrix_source}",
         f"rollout={rollout}",
@@ -5852,7 +5952,10 @@ def evidence_route_output(
             f"selected {specialist['owner']} specialist {specialist['id']} score={specialist['score']}"
         )
     else:
-        reasons.append("no specialist met the 70/100 health/tool/permission floor")
+        reasons.append(
+            f"no specialist met the {floor['specialist_score']}/100 "
+            "health/tool/permission floor"
+        )
     locale, localized_summary = evidence_router_localized_summary(
         request, task_class, execution_plan,
     )
@@ -5881,7 +5984,9 @@ def evidence_route_output(
             "mode": rollout,
             "requested_mode": requested_rollout,
             "kill_switch": kill_switch,
-            "quality_floor": matrix.get("quality_floor", {}),
+            # The merged floor, i.e. the thresholds that actually governed this
+            # decision — not the raw registry block, which may omit keys.
+            "quality_floor": floor,
         },
     }
 
@@ -5898,7 +6003,8 @@ def finalize_evidence_route(
         + capability_result.get("limitations", [])
     )
     fallbacks = list(evidence_fallbacks)
-    if confidence < 0.80:
+    floor = evidence_router_quality_floor(matrix)
+    if confidence < floor["route_confidence"]:
         fallbacks.append(
             "read source, run another verification, or ask the user before relying on the route"
         )
@@ -5959,7 +6065,7 @@ def evidence_router_review_evidence_present(receipt, os_evidence):
     return False
 
 
-def evidence_router_receipt_errors(contract, receipt, os_evidence=None):
+def evidence_router_receipt_errors(contract, receipt, os_evidence=None, floor=None):
     if not isinstance(contract, dict) or not isinstance(receipt, dict):
         return []
     router = contract.get("evidence_router")
@@ -5967,6 +6073,15 @@ def evidence_router_receipt_errors(contract, receipt, os_evidence=None):
         return []
     rollout = router.get("rollout")
     rollout_mode = rollout.get("mode") if isinstance(rollout, dict) else "advisory"
+    if floor is None:
+        # Judge the receipt against the floor that was in force when the route was
+        # decided — the decision records it — rather than whatever the registry
+        # says now. Editing the registry mid-task must not retroactively change
+        # what an already-issued route demanded.
+        recorded = rollout.get("quality_floor") if isinstance(rollout, dict) else None
+        floor = evidence_router_quality_floor(
+            {"quality_floor": recorded} if isinstance(recorded, dict) else None
+        )
     execution = router.get("execution_plan")
     if not isinstance(execution, dict):
         execution = {}
@@ -5986,7 +6101,7 @@ def evidence_router_receipt_errors(contract, receipt, os_evidence=None):
         return errors
     if not non_empty_string(receipt_decision):
         errors.append("decision_id is required by enforced Evidence Router rollout")
-    if float(router.get("confidence", 0)) < 0.80 and not non_empty_string(
+    if float(router.get("confidence", 0)) < floor["route_confidence"] and not non_empty_string(
         receipt.get("router_low_confidence_resolution")
     ):
         errors.append(
@@ -6030,6 +6145,7 @@ def evidence_route_payload(request):
     if request_errors:
         return evidence_route_rejected(request_errors)
     matrix, matrix_source = load_evidence_router_matrix()
+    floor = evidence_router_quality_floor(matrix)
     signal, class_confidence, class_reasons, errors = classify_evidence_task(
         request, matrix,
     )
@@ -6051,7 +6167,9 @@ def evidence_route_payload(request):
     confidence = class_confidence
     if not request_paths(request):
         confidence -= 0.08
-    if any(item.get("confidence", 1.0) < 0.80 for item in evidence_plan):
+    # Per-evidence-item floor, a different question from route_confidence: one weak
+    # item caps the route's confidence just below the route floor.
+    if any(item.get("confidence", 1.0) < floor["evidence_item_confidence"] for item in evidence_plan):
         confidence = min(confidence, 0.78)
     conflicts = request.get("evidence_conflicts")
     if isinstance(conflicts, list) and conflicts:
@@ -6060,7 +6178,7 @@ def evidence_route_payload(request):
 
     budget = evidence_router_budget(request, capability_result)
     specialist, ranked = select_specialist(
-        request, signal, task_class, evidence_plan,
+        request, signal, task_class, evidence_plan, floor,
     )
     execution_request = dict(request)
     execution_request["_classified_signal"] = signal
@@ -6072,6 +6190,7 @@ def evidence_route_payload(request):
         ranked,
         capability_result,
         budget,
+        floor,
     )
     mandatory_review = execution_plan.get("mandatory_independent_review", False)
     context_plan = evidence_router_context_plan(task_row, request)
@@ -7327,15 +7446,14 @@ def command_is_read_only_guard(command):
     if not parts[1].endswith("pilothOS/scripts/pilothos_guard.py"):
         return False
     mode = parts[2]
-    if mode not in READ_ONLY_GUARD_MODES:
+    meta = GUARD_MODES.get(mode)
+    if meta is None:
         return False
     trailing_args = parts[3:]
     trailing_text = " ".join(trailing_args).lower()
     if any(re.search(pattern, trailing_text) for pattern in HIGH_RISK_COMMAND_PATTERNS):
         return False
-    if mode == "receipt-verify":
-        return "--record" not in trailing_args
-    return True
+    return not mode_mutates(mode, trailing_args)
 
 
 def command_looks_high_risk(command):
@@ -7955,7 +8073,7 @@ def receipt_template():
         template["_allowed_values"] = allowed
 
     print(json.dumps(template, ensure_ascii=False, indent=2))
-# --------------------------------------------------------- OS lifecycle modes
+# ---------------------------------------------------- OS contract construction
 
 def clean_string_list(value):
     if isinstance(value, str) and value.strip():
@@ -8332,6 +8450,7 @@ def build_os_contract(request, route, scheduler, target=None):
     return contract
 
 
+# ------------------------------------------------------------ OS quality gates
 def contract_requires_ui_quality_evidence(contract, receipt=None):
     if isinstance(contract, dict) and contract.get("evidence_profile") == "ui":
         return True
@@ -9072,6 +9191,7 @@ def sanitize_os_evidence_payload(payload):
     return sanitized, []
 
 
+# ------------------------------------------------- OS cost and token telemetry
 def metric_records(os_evidence):
     return [
         item for item in os_evidence
@@ -9465,6 +9585,7 @@ def consumer_superiority_ok(receipt, os_evidence):
     return False
 
 
+# ---------------------------------------------------------- OS lifecycle modes
 def os_start_schema_payload():
     """Machine-readable os-start request schema (SSOT for the doc page).
 
@@ -11169,31 +11290,7 @@ def control_plane_check_result(active_policy="auto"):
     )
 
     modes = guard_registered_modes()
-    required_modes = {
-        "contract-write",
-        "os-start",
-        "os-status",
-        "os-evidence",
-        "os-close",
-        "os-verify",
-        "os-report",
-        "asset-scan",
-        "asset-health",
-        "adapter-capabilities",
-        "evidence-route",
-        "codebase-index",
-        "codebase-status",
-        "codebase-query",
-        "evidence-add",
-        "tool-check",
-        "receipt-write",
-        "receipt-seal",
-        "receipt-verify",
-        "artifact-janitor",
-        "control-plane-check",
-        "production-review",
-    }
-    missing_modes = sorted(required_modes - modes)
+    missing_modes = sorted(CONTROL_PLANE_REQUIRED_GUARD_MODES - modes)
     add_check(
         "guard control-plane modes",
         not missing_modes,
@@ -11527,77 +11624,95 @@ def self_check():
     print("SELF-CHECK " + ("PASSED" if ok else "FAILED"))
 
 
-# Command dispatch: mode -> (handler, arg_kind). One source of truth for every
-# guard mode, replacing a long if/elif chain. arg_kind selects how the handler
-# is invoked:
+# mode -> handler. The ONLY thing this table adds to GUARD_MODES (00_header) is
+# the function binding, which has to live here because the handlers are defined
+# above. Everything else about a mode — arg kind, mutability, self-host and
+# control-plane membership — comes from the registry, so a mode can never be
+# registered in one place and forgotten in another.
+GUARD_HANDLERS = {
+    "session-start": session_start,
+    "prompt-check": prompt_check,
+    "stop-check": stop_check,
+    "pre-edit": pre_edit,
+    "post-edit": post_edit,
+    "contract-write": task_contract_write,
+    "evidence-add": evidence_add,
+    "tool-check": tool_check,
+    "receipt-write": receipt_write,
+    "os-start": os_start,
+    "os-status": os_status,
+    "os-evidence": os_evidence,
+    "token-telemetry": token_telemetry,
+    "os-close": os_close,
+    "os-verify": os_verify,
+    "os-report": os_report,
+    "review-request": review_request,
+    "review-feedback": review_feedback,
+    "review-verify": review_verify,
+    "asset-scan": asset_scan,
+    "asset-health": asset_health,
+    "asset-sync": asset_sync,
+    "adapter-capabilities": adapter_capabilities,
+    "evidence-route": evidence_route,
+    "route-task": route_task,
+    "context-budget": context_budget,
+    "codebase-index": codebase_index,
+    "codebase-status": codebase_status,
+    "codebase-query": codebase_query,
+    "rot-status": rot_status,
+    "reuse-scan": reuse_scan,
+    "ds-scan": ds_scan,
+    "scheduler-suggest": scheduler_suggest,
+    "scheduler-record": scheduler_record,
+    "receipt-seal": receipt_seal,
+    "receipt-verify": receipt_verify,
+    "artifact-janitor": artifact_janitor,
+    "state-janitor": state_janitor,
+    "control-plane-check": control_plane_check,
+    "team-contract-write": team_contract_write,
+    "team-receipt-write": team_receipt_write,
+    "log-append": log_append,
+    "receipt-template": receipt_template,
+    "statusline": statusline,
+    "self-check": self_check,
+    "self-host-check": self_host_check,
+    "preflight": preflight,
+    "detect": detect,
+    "audit-assets": audit_consumer_assets,
+    "registry-assets": registry_consumer_assets,
+    "state-doctor": state_doctor,
+    "production-review": production_review,
+}
+# Command dispatch: mode -> (handler, arg_kind), derived from the registry.
+# arg_kind selects how the handler is invoked:
 #   "hook" -> handler(read_hook_input())   (only these modes read stdin)
 #   "argv" -> handler(sys.argv[2:])
 #   "none" -> handler()
+# A mode present in exactly one of GUARD_MODES/GUARD_HANDLERS is a build error,
+# not a silently missing command (pinned by tests/unit/test_guard_command_table).
 COMMAND_TABLE = {
-    # hook modes (read hook JSON from stdin)
-    "session-start": (session_start, "hook"),
-    "prompt-check": (prompt_check, "hook"),
-    "stop-check": (stop_check, "hook"),
-    "pre-edit": (pre_edit, "hook"),
-    "post-edit": (post_edit, "hook"),
-    # argv modes (JSON arg / file / stdin payload)
-    "contract-write": (task_contract_write, "argv"),
-    "evidence-add": (evidence_add, "argv"),
-    "tool-check": (tool_check, "argv"),
-    "receipt-write": (receipt_write, "argv"),
-    "os-start": (os_start, "argv"),
-    "os-status": (os_status, "argv"),
-    "os-evidence": (os_evidence, "argv"),
-    "token-telemetry": (token_telemetry, "argv"),
-    "os-close": (os_close, "argv"),
-    "os-verify": (os_verify, "argv"),
-    "os-report": (os_report, "argv"),
-    "review-request": (review_request, "argv"),
-    "review-feedback": (review_feedback, "argv"),
-    "review-verify": (review_verify, "argv"),
-    "asset-scan": (asset_scan, "argv"),
-    "asset-health": (asset_health, "argv"),
-    "asset-sync": (asset_sync, "argv"),
-    "adapter-capabilities": (adapter_capabilities, "argv"),
-    "evidence-route": (evidence_route, "argv"),
-    "route-task": (route_task, "argv"),
-    "context-budget": (context_budget, "argv"),
-    "codebase-index": (codebase_index, "argv"),
-    "codebase-status": (codebase_status, "argv"),
-    "codebase-query": (codebase_query, "argv"),
-    "rot-status": (rot_status, "none"),
-    "reuse-scan": (reuse_scan, "argv"),
-    "ds-scan": (ds_scan, "argv"),
-    "scheduler-suggest": (scheduler_suggest, "argv"),
-    "scheduler-record": (scheduler_record, "argv"),
-    "receipt-seal": (receipt_seal, "argv"),
-    "receipt-verify": (receipt_verify, "argv"),
-    "artifact-janitor": (artifact_janitor, "argv"),
-    "state-janitor": (state_janitor, "argv"),
-    "control-plane-check": (control_plane_check, "argv"),
-    "team-contract-write": (team_contract_write, "argv"),
-    "team-receipt-write": (team_receipt_write, "argv"),
-    "log-append": (log_append, "argv"),
-    # no-arg modes
-    "receipt-template": (receipt_template, "none"),
-    "statusline": (statusline, "none"),
-    "self-check": (self_check, "none"),
-    "self-host-check": (self_host_check, "none"),
-    "preflight": (preflight, "none"),
-    "detect": (detect, "none"),
-    "audit-assets": (audit_consumer_assets, "none"),
-    "registry-assets": (registry_consumer_assets, "none"),
-    "state-doctor": (state_doctor, "none"),
-    "production-review": (production_review, "none"),
+    mode: (GUARD_HANDLERS[mode], meta["arg_kind"])
+    for mode, meta in GUARD_MODES.items()
+    if mode in GUARD_HANDLERS
 }
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "check"
+    # An unregistered mode must fail LOUDLY. This guard is wired into
+    # settings.json as six entry points (five hooks + statusline); when a typo
+    # exited 0 the harness read it as success and governance silently vanished.
+    # Exit 1, not 2: for hook events only exit 2 blocks the action, so 1 surfaces
+    # a `hook error` notice without blocking the user over a config typo. Every
+    # REGISTERED mode must keep exiting 0 — Claude Code only parses hook JSON
+    # (the block_decision payload) on exit 0.
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
     entry = COMMAND_TABLE.get(mode)
     if entry is None:
-        print(f"PilothOS guard: {mode}")
-        sys.exit(0)
+        label = f"unknown mode {mode!r}" if mode else "missing mode argument"
+        print(f"PilothOS guard: {label}", file=sys.stderr)
+        print("  usage: python3 pilothos_guard.py <mode> [args]", file=sys.stderr)
+        print("  modes: " + ", ".join(sorted(COMMAND_TABLE)), file=sys.stderr)
+        sys.exit(1)
     handler, kind = entry
     if kind == "hook":
         handler(read_hook_input())

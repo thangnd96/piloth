@@ -45,6 +45,33 @@ def test_every_mode_dispatches_via_cli(guard):
     assert not failures, "modes failed to dispatch:\n" + "\n".join(failures)
 
 
+def test_unregistered_mode_fails_loudly():
+    """A typo'd mode must not look like success. The guard is wired into
+    settings.json as hook commands, so an exit-0 no-op silently disabled
+    governance instead of reporting the bad config."""
+    r = _run(["definitely-not-a-mode"])
+    assert r.returncode == 1, f"expected rc=1, got {r.returncode}: {r.stdout}{r.stderr}"
+    assert "definitely-not-a-mode" in r.stderr
+    assert not r.stdout, "diagnostics must go to stderr so hook stdout stays JSON-only"
+
+
+def test_missing_mode_argument_fails_loudly():
+    r = _run([])
+    assert r.returncode == 1, f"expected rc=1, got {r.returncode}"
+    assert "missing mode argument" in r.stderr
+
+
+def test_registered_modes_never_exit_nonzero(guard):
+    """Claude Code only parses hook JSON on exit 0, so block_decision depends on
+    every registered mode exiting 0. Pinned separately from the dispatch smoke
+    test because it is a protocol requirement, not just a crash check."""
+    offenders = [
+        mode for mode in sorted(guard.COMMAND_TABLE)
+        if _run([mode], stdin="").returncode != 0
+    ]
+    assert not offenders, f"modes exited non-zero (breaks hook JSON parsing): {offenders}"
+
+
 # Pure, input-determined modes only (no timestamps / hashes / repo or git scan)
 # -> exact snapshot. NB: receipt-template is intentionally NOT here — it embeds
 # the current working-tree changed_files, so it is state-dependent; the smoke
@@ -54,12 +81,13 @@ GOLDEN_CASES = [
 ]
 
 
-def test_bundle_matches_src_guard():
-    """The shipped pilothos_guard.py must equal a fresh amalgamation of
-    src/guard/*.py. Hand-edits to the bundle (instead of the fragments) are
-    drift and are rejected here."""
+def test_bundles_match_their_fragments():
+    """Every shipped single-file engine must equal a fresh amalgamation of its
+    fragments (pilothos_guard.py from src/guard/, pilothos_installer.py from
+    src/installer/). Hand-edits to a bundle instead of the fragments are drift and
+    are rejected here."""
     r = subprocess.run(
-        [sys.executable, str(REPO / "scripts" / "build_guard.py"), "--check"],
+        [sys.executable, str(REPO / "scripts" / "build_bundles.py"), "--check"],
         capture_output=True, text=True, timeout=30,
     )
     assert r.returncode == 0, r.stdout + r.stderr

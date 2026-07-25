@@ -90,5 +90,21 @@ Stay source-only when:
 
 The current engine is a contract reference with Python deep parsing and
 universal shallow coverage. It does not meet the full parity plan, cross-platform
-native SLA, real token reduction SLA or end-to-end speed SLA. Those claims remain
-blocked until the matrix in `docs/codebase-memory-plan.md` passes.
+native SLA, real token reduction SLA or end-to-end speed SLA.
+
+Those claims stay blocked until ALL of the following are demonstrated. The list is
+stated here rather than linked because the vendor-side plan is not part of the
+distribution — a link to it would be dead in your project:
+
+- **Language parity** — deep parsing (symbols, callers, imports) for every
+  language the project actually contains, not Python alone.
+- **Cross-platform** — the same results on Linux, macOS and Windows, on a repo
+  large enough to matter.
+- **Token reduction** — measured against a no-index baseline with real
+  prompt/completion telemetry recorded (`real_token_telemetry=true`). Retrieval
+  byte counts are not a token claim.
+- **End-to-end speed** — wall-clock on a cold and a warm index, not engine-internal
+  timings.
+
+Until then, treat graph results as structural candidates: a response may only be
+called source-grounded when it reads a live source snippet.

@@ -3,6 +3,7 @@
   "quality_floor": {
     "max_non_inferiority_delta_pp": 2,
     "route_confidence": 0.8,
+    "evidence_item_confidence": 0.8,
     "specialist_score": 70,
     "team_score": 60
   },

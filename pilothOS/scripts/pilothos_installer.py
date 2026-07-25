@@ -23,6 +23,9 @@ Thiết kế:
   toàn bộ plan.
 - SSOT merge semantics nằm TẠI ĐÂY (xem `explain`); tài liệu chỉ trỏ về.
 """
+# GENERATED FILE — assembled from src/installer/*.py by scripts/build_bundles.py.
+# Edit the fragments and rebuild; hand-edits here are overwritten and caught by
+# the bundle-up-to-date gate in tests/unit.
 import sys
 import os
 import re

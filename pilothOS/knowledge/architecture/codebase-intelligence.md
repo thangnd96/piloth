@@ -78,5 +78,6 @@ Costs:
 - full native parity requires a maintained fork, platform builds and a large
   differential corpus.
 
-See `docs/codebase-memory-deep-scout.md` and
-`docs/codebase-memory-plan.md` for evidence and delivery gates.
+Evidence and delivery gates for full parity are tracked vendor-side in the Piloth
+source repo; they are not part of this distribution. The gates that must pass are
+listed in `pilothOS/runtime/codebase-intelligence.md` under "Current limitation".
