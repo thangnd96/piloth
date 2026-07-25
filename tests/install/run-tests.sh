@@ -36,6 +36,7 @@ EOP
 [ ! -f pilothOS/memory/state/receipt-seals.jsonl ]
 [ ! -d pilothOS/memory/state/team-runs ]
 [ ! -d pilothOS/memory/state/os-runs ]
+grep -qx 'pilothOS/' .gitignore
 echo "C10a PASS"
 
 echo "== C10b brownfield: khong de file consumer =="
@@ -227,25 +228,25 @@ set -e
 [ "$rc" -ne 0 ]   # add tren project chua init phai fail
 echo "C10f PASS: targeted add copies only the missing adapter, kernel untouched"
 
-echo "== C10g gitignore gap: existing .gitignore gains runtime rules =="
+echo "== C10g gitignore default: existing .gitignore ignores full pilothOS =="
 mkdir -p $W/gi && cd $W/gi && printf 'node_modules/\n' > .gitignore
 bash "$REPO/scripts/stage.sh" "$W/gi" > /dev/null   # staging bo qua .gitignore consumer-owned
 ! grep -q 'pilothOS' .gitignore   # staging mot minh khong them gi
 python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude > receipt.json
 grep -q '"result": "applied"' receipt.json
+grep -qx 'pilothOS/' .gitignore
+grep -qx 'node_modules/' .gitignore   # dong consumer giu nguyen
+echo "C10g PASS: existing .gitignore ignores whole pilothOS/ by default"
+
+echo "== C10h gitignore compatibility opt-in scope=runtime =="
+mkdir -p $W/giruntime && cd $W/giruntime && printf 'node_modules/\n' > .gitignore
+bash "$REPO/scripts/stage.sh" "$W/giruntime" > /dev/null
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude --gitignore-scope runtime > receipt.json
+grep -q '"result": "applied"' receipt.json
 grep -qx 'pilothOS/.backup/' .gitignore
 grep -qx 'pilothOS/memory/state/os-runs/' .gitignore
-grep -qx 'node_modules/' .gitignore   # dong consumer giu nguyen
-! grep -qx 'pilothOS/' .gitignore     # runtime scope KHONG ignore ca cay
-echo "C10g PASS: existing .gitignore gains runtime rules"
-
-echo "== C10h gitignore opt-in scope=all =="
-mkdir -p $W/giall && cd $W/giall && printf 'node_modules/\n' > .gitignore
-bash "$REPO/scripts/stage.sh" "$W/giall" > /dev/null
-python3 $ENG unattended --mode greenfield --persona P --goals G --owner O --adapters claude --gitignore-scope all > receipt.json
-grep -q '"result": "applied"' receipt.json
-grep -qx 'pilothOS/' .gitignore
-echo "C10h PASS: opt-in scope=all ignores whole pilothOS/"
+! grep -qx 'pilothOS/' .gitignore
+echo "C10h PASS: explicit scope=runtime keeps kernel trackable"
 
 echo "== sync-templates guard =="
 python3 - << EOP

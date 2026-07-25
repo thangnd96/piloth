@@ -28,8 +28,15 @@ MAP = [
 # Artifacts present in the working tree that must never be distributed.
 IGNORE_NAMES = {".DS_Store", "Thumbs.db"}
 IGNORE_DIRS = {"__pycache__"}
-LOCAL_STATE_FILES = {"memory/state/scheduler-history.jsonl", "memory/state/receipt-seals.jsonl"}
-LOCAL_STATE_DIRS = {"memory/state/team-runs", "memory/state/os-runs"}
+LOCAL_STATE_FILES = {
+    "memory/state/scheduler-history.jsonl",
+    "memory/state/receipt-seals.jsonl",
+}
+LOCAL_STATE_DIRS = {
+    "memory/state/team-runs",
+    "memory/state/os-runs",
+    "memory/state/codebase-index",
+}
 
 # Dest paths the consumer owns: never clobbered on stage, classed non-verbatim.
 CONSUMER_OWNED = {"CLAUDE.md", "AGENTS.md", ".gitignore", ".claude/settings.json"}

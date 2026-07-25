@@ -210,7 +210,7 @@ def scheduler_suggest_payload(payload):
     }
     if full_suite_expected:
         skeleton["energy_budget_reason"] = suite_reason
-    return {
+    result = {
         "result": "scheduler_suggested",
         "history_status": history,
         "history_matches": history_matches,
@@ -226,6 +226,11 @@ def scheduler_suggest_payload(payload):
         "contract_skeleton": skeleton,
         "fallback_used": history != "loaded",
     }
+    # Compatibility wrapper for one major version. Existing scheduler fields
+    # remain unchanged; new consumers should use evidence-route directly.
+    if payload.get("_router_compat_only") is not True:
+        result["evidence_router"] = evidence_route_payload(payload)
+    return result
 
 
 def scheduler_suggest(argv):
@@ -317,6 +322,7 @@ def scheduler_record(argv):
     SCHEDULER_HISTORY.parent.mkdir(parents=True, exist_ok=True)
     with open(SCHEDULER_HISTORY, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
-    json_print({"result": "scheduler_recorded", "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix()})
-
-
+    json_print({
+        "result": "scheduler_recorded",
+        "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
+    })

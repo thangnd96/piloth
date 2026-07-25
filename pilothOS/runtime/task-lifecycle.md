@@ -6,7 +6,7 @@
 |---|---|---|
 | Intake | `os-start request.json` | Scope, assumptions, target repo, target paths, affected layers, task id |
 | Contract | `os-start` writes active contract | Scope, target-relative allowed paths, consumer scope, expected evidence, context evidence, reuse evidence, decision limits |
-| Route | `os-start` routes assets/scheduler | Consumer asset routing, health notes, expected evidence, target snapshot |
+| Route | `os-start` calls Evidence Router, then compatibility asset/scheduler wrappers | Task/risk class, evidence/context/execution/tool/verification plans, capability limitations, consumer asset routing and target snapshot |
 | Prototype (optional) | Contract khai `requires_prototype` | ≥2 UI options + option đã chọn; `PROTOTYPE.md`; `os-evidence kind=prototype`; human pick qua human_review round-trip |
 | Execute | Contract active | Implementation/output + post-edit diff facts |
 | Tool/Evidence | Tool/checks run | `os-evidence evidence.json` entries; no full output/secrets |
@@ -24,6 +24,8 @@
   `os-close` → `os-verify`. Use `os-close --dry-run` to validate the receipt
   (full gate set) without sealing, and `receipt-template` for a gate-aware
   skeleton; `os-start --explain` prints the request schema.
+- `evidence-route` is the canonical read-only router. `route-task` and
+  `scheduler-suggest` preserve their V1 fields for one major version.
 - For controlled-target work, pass an absolute `target_repo` to `os-start` and
   use `target_paths` plus target-relative receipt `changed_files`.
 - Driving a target from another repo's session means the target's own hooks do

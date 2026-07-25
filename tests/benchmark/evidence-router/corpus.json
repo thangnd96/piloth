@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "comparison_modes": ["none-piloth", "single-agent-piloth", "routed-piloth"],
+  "quality_floor": {
+    "max_non_inferiority_delta_pp": 2,
+    "complex_token_reduction_target_pct": 30,
+    "complex_speed_improvement_target_pct": 20,
+    "small_task_overhead_ceiling_pct": 5
+  },
+  "tasks": [
+    {
+      "id": "small",
+      "request": {
+        "intent": "update one local comment",
+        "task_signal": "not_applicable",
+        "affected_paths": ["src/comment.py"],
+        "adapter": "claude"
+      },
+      "expected_class": "small_task",
+      "expected_team": false
+    },
+    {
+      "id": "localized-bug",
+      "request": {
+        "intent": "fix parser regression",
+        "task_signal": "bug fix",
+        "affected_paths": ["src/parser.py", "tests/test_parser.py"],
+        "adapter": "claude"
+      },
+      "expected_class": "localized_bug",
+      "expected_team": false
+    },
+    {
+      "id": "cross-file-bug",
+      "request": {
+        "intent": "fix cross-file cache invalidation regression",
+        "task_signal": "bug fix",
+        "affected_paths": ["src/cache/read.py", "src/cache/write.py", "src/model.py", "tests/test_cache.py"],
+        "adapter": "claude"
+      },
+      "expected_class": "localized_bug",
+      "expected_team": false
+    },
+    {
+      "id": "ui",
+      "request": {
+        "intent": "update account card component",
+        "task_signal": "UI/component",
+        "affected_paths": ["src/components/AccountCard.tsx"],
+        "adapter": "claude"
+      },
+      "expected_class": "ui_change",
+      "expected_team": false
+    },
+    {
+      "id": "architecture",
+      "request": {
+        "intent": "change service boundary",
+        "task_signal": "architecture",
+        "affected_paths": ["src/api/service.py", "src/domain/model.py"],
+        "adapter": "claude"
+      },
+      "expected_class": "architecture_change",
+      "expected_team": false
+    },
+    {
+      "id": "security",
+      "request": {
+        "intent": "fix auth bypass with independent verification",
+        "task_signal": "security",
+        "affected_paths": ["src/auth.py", "src/policy.py", "tests/test_auth.py"],
+        "work_packages": [
+          {"id": "implementation", "scope": "auth implementation", "independent": true},
+          {"id": "review", "scope": "security verification", "independent": true}
+        ],
+        "adapter": "claude"
+      },
+      "expected_class": "security_change",
+      "expected_team": true
+    },
+    {
+      "id": "release",
+      "request": {
+        "intent": "release package to production",
+        "task_signal": "release/deploy",
+        "affected_paths": ["package.json", "CHANGELOG.md"],
+        "adapter": "codex"
+      },
+      "expected_class": "release_change",
+      "expected_team": false,
+      "expected_mode": "single_with_external_review"
+    }
+  ]
+}

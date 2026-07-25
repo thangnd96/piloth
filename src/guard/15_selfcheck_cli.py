@@ -404,6 +404,15 @@ def receipt_seal_chain_status(items):
     return {"ok": True, "latest_seal_sha256": previous, "repo_records": len(items)}
 
 
+def manifest_path_is_runtime_state(rel):
+    return (
+        (rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl"))
+        or rel.startswith("pilothOS/memory/state/os-runs/")
+        or rel.startswith("pilothOS/memory/state/team-runs/")
+        or rel.startswith("pilothOS/memory/state/codebase-index/")
+    )
+
+
 def state_doctor_result():
     checks = []
 
@@ -437,7 +446,6 @@ def state_doctor_result():
         seals.get("status") == "missing" or chain.get("ok"),
         chain if seal_items else {"ok": True, "repo_records": 0},
     )
-
     os_run_checks = []
     if OS_RUNS_DIR.exists():
         for state_path in sorted(OS_RUNS_DIR.glob("*/state.json")):
@@ -471,10 +479,7 @@ def state_doctor_result():
     manifest = manifest_paths()
     shipped_state = sorted(
         rel for rel in manifest
-        if (
-            rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl")
-        )
-        or rel.startswith("pilothOS/memory/state/os-runs/")
+        if manifest_path_is_runtime_state(rel)
     )
     add_check(
         "repo-local state excluded from manifest",
@@ -543,10 +548,7 @@ def control_plane_check_result(active_policy="auto"):
     missing_manifest = sorted(self_host_required_manifest_paths() - manifest)
     shipped_state = sorted(
         rel for rel in manifest
-        if (
-            rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl")
-        )
-        or rel.startswith("pilothOS/memory/state/os-runs/")
+        if manifest_path_is_runtime_state(rel)
     )
     add_check(
         "manifest",
@@ -570,6 +572,11 @@ def control_plane_check_result(active_policy="auto"):
         "os-report",
         "asset-scan",
         "asset-health",
+        "adapter-capabilities",
+        "evidence-route",
+        "codebase-index",
+        "codebase-status",
+        "codebase-query",
         "evidence-add",
         "tool-check",
         "receipt-write",
@@ -944,8 +951,13 @@ COMMAND_TABLE = {
     "asset-scan": (asset_scan, "argv"),
     "asset-health": (asset_health, "argv"),
     "asset-sync": (asset_sync, "argv"),
+    "adapter-capabilities": (adapter_capabilities, "argv"),
+    "evidence-route": (evidence_route, "argv"),
     "route-task": (route_task, "argv"),
     "context-budget": (context_budget, "argv"),
+    "codebase-index": (codebase_index, "argv"),
+    "codebase-status": (codebase_status, "argv"),
+    "codebase-query": (codebase_query, "argv"),
     "rot-status": (rot_status, "none"),
     "reuse-scan": (reuse_scan, "argv"),
     "ds-scan": (ds_scan, "argv"),

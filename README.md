@@ -103,6 +103,11 @@ và learn từ tài sản consumer. Skills, hooks, tools, MCP, design system và
 convention riêng của consumer là **userland apps/drivers**; PilothOS không sở
 hữu hoặc overwrite chúng.
 
+Control plane này dùng **Evidence Router**: classify task/risk, kiểm adapter
+capability, chọn bằng chứng nhỏ nhất đủ tin cậy, ưu tiên consumer specialist,
+rồi mới quyết định single/team và model tier. `os-start` gọi router trực tiếp;
+`route-task` và `scheduler-suggest` được giữ làm compatibility wrappers.
+
 ## Cách Piloth hoạt động
 
 Piloth bắt đầu từ lúc coding agent nhận task. Thay vì nhảy ngay vào implementation, agent phải xác định mục tiêu, assumptions, layer bị ảnh hưởng và tiêu chí thành công.
@@ -160,6 +165,13 @@ Execute and verify
 ```
 
 Cơ chế này giảm token cost, hạn chế instruction conflict và giữ context tập trung vào công việc hiện tại.
+
+Với câu hỏi cấu trúc như caller/callee, impact hoặc cross-file architecture,
+Piloth có thêm codebase intelligence local theo luồng
+`status -> search -> coverage -> trace -> live snippet`. Graph là derived cache,
+không phải source of truth; stale hoặc partial result bắt buộc fallback về source.
+Xem [deep scout](docs/codebase-memory-deep-scout.md) và
+[delivery plan](docs/codebase-memory-plan.md).
 
 ### 4. Verify trước khi tuyên bố hoàn thành
 

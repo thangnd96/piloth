@@ -22,6 +22,10 @@ distribution. The policy source of truth remains in runtime docs, evaluation
 docs and agent-team definitions, not copied scheduler, OS-run or team-run
 history.
 
+The Evidence Router itself is stateless and read-only. `scheduler-history.jsonl`
+is optional compatibility history written only by `scheduler-record`; it does
+not mutate router policy or promote lessons automatically.
+
 ## Retention / cleanup
 
 These runtime files accumulate; `state-janitor` keeps them bounded (see

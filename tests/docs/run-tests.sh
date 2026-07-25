@@ -66,13 +66,7 @@ echo "== D3 documented uninstall path =="
 echo "D3 PASS"
 
 echo "== D4 staged gitignore =="
-grep -qx "pilothOS/.backup/" templates/gitignore
-grep -qx "pilothOS/.pending-plan.json" templates/gitignore
-grep -qx "pilothOS/memory/state/scheduler-history.jsonl" templates/gitignore
-grep -qx "pilothOS/memory/state/receipt-seals.jsonl" templates/gitignore
-grep -qx "pilothOS/memory/state/\*.jsonl" templates/gitignore
-grep -qx "pilothOS/memory/state/team-runs/" templates/gitignore
-grep -qx "pilothOS/memory/state/os-runs/" templates/gitignore
+grep -qx "pilothOS/" templates/gitignore
 # Engine SSOT (PILOTHOS_GITIGNORE_LINES) phai khop template — chong drift giua
 # nhanh greenfield-chua-co-gitignore (template) va normalize (engine append).
 python3 - <<'PY'

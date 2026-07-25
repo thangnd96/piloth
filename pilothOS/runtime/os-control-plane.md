@@ -17,9 +17,9 @@ consumer-visible overhead and is rejected by the default
 
 The project-local OS controls are deterministic, local and auditable:
 
-- `os-start` opens a task run, resolves the controlled target, writes an active
-  contract, records a target snapshot, routes consumer assets and records
-  required gates;
+- `os-start` opens a task run, resolves the controlled target, calls the
+  Evidence Router directly, writes its decision into the active contract,
+  records a target snapshot, routes consumer assets and records required gates;
 - `os-evidence` appends sanitized command/tool evidence without full output or
   secrets;
 - `os-close` validates the receipt against the target, required gates, evidence
@@ -107,7 +107,10 @@ Key fields: `task_id`, `intent` (→ `task_scope`), `task_signal`, `target_repo`
 `expected_evidence`, `out_of_scope_paths`, `evidence_profile`
 (`code|ui|design_tokens|docs|release|generic`), `mode`
 (`lean|standard|strict|adaptive|auto`), `requires_prototype`/`requires_human_review`,
-`budget`. `requires_prototype:true` also forces `requires_human_review:true`.
+`budget`, `adapter`, `adapter_capabilities`, `specialists`, `work_packages` and
+`user_overrides`. `requires_prototype:true` also forces
+`requires_human_review:true`. See `runtime/evidence-router.md` for the canonical
+route contract and rollout modes.
 
 ## Driving a target from another session (enforcement caveat)
 

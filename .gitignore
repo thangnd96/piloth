@@ -7,5 +7,6 @@ pilothOS/memory/state/receipt-seals.jsonl
 pilothOS/memory/state/*.jsonl
 pilothOS/memory/state/team-runs/
 pilothOS/memory/state/os-runs/
+pilothOS/memory/state/codebase-index/
 pilothOS/memory/lessons-learned-archive.md
 pilothOS/rot/review-log-archive.md

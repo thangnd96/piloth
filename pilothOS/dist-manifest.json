@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.11.0",
- "generated_at": "2026-07-23T01:57:31.618161+00:00",
+ "generated_at": "2026-07-25T12:24:57.817424+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -185,6 +185,10 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/knowledge/architecture/codebase-intelligence.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/knowledge/domain/README.md",
    "class": "verbatim"
   },
@@ -250,6 +254,14 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/runtime/adapter-capabilities.json",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/codebase-intelligence.md",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/consumer-assets.md",
    "class": "verbatim"
   },
@@ -262,7 +274,23 @@
    "class": "verbatim"
   },
   {
+   "path": "pilothOS/runtime/evidence-router-issues.json",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/evidence-router.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/evidence-routing.json",
+   "class": "verbatim"
+  },
+  {
    "path": "pilothOS/runtime/index.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/model-capabilities.json",
    "class": "verbatim"
   },
   {
@@ -275,6 +303,10 @@
   },
   {
    "path": "pilothOS/runtime/self-hosting.md",
+   "class": "verbatim"
+  },
+  {
+   "path": "pilothOS/runtime/specialist-registry.json",
    "class": "verbatim"
   },
   {

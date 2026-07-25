@@ -20,6 +20,21 @@ Ba đòn bẩy chính, từ tác động lớn tới nhỏ:
    chứng minh được task; `lean` cho task UI/docs/test hẹp **và task code blast-radius
    nhỏ** (≤3 file cụ thể) — tự động, không cần khai. Ví dụ: helper + test (2 file)
    tự thành `lean` (7→3 gates, context ~5.845→~4.850 tok).
+4. **Codebase intelligence có điều kiện** — graph route các câu hỏi cấu trúc tới
+   candidate nhỏ, sau đó đọc live source. Không index nếu chi phí build lớn hơn
+   giá trị của task.
+
+## Codebase retrieval proxy
+
+Reference benchmark ở `tests/benchmark/codebase-memory/run-tests.sh` dùng corpus
+call-chain có ground truth để đo index/query và số byte evidence được trả. Nó
+giúp bắt regression trong retrieval contract, nhưng **không phải token
+telemetry** và không chứng minh Piloth tiết kiệm token hay nhanh hơn end-to-end.
+
+Các claim mục tiêu (median token/tool-call giảm 30%, end-to-end nhanh hơn 20%)
+chỉ được mở khóa khi benchmark corpus có telemetry thật từ adapter. Freshness,
+coverage và source fallback cũng phải pass để cost win không đổi lấy quality
+regression.
 
 ## Đo footprint context (deterministic)
 

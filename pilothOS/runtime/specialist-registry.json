@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "specialists": [
+    {
+      "id": "piloth.software-engineer",
+      "owner": "piloth",
+      "domains": ["bug fix", "API/backend", "tool/MCP"],
+      "task_types": ["localized_bug", "backend_change", "tooling_change"],
+      "capabilities": ["implementation", "source_analysis"],
+      "tools": [],
+      "evidence_types": ["source", "test", "capability"],
+      "permissions": ["plan", "edit", "qa"],
+      "health": "healthy",
+      "confidence": 0.9,
+      "cost_class": "standard",
+      "adapter_support": ["claude", "codex", "cursor", "antigravity"]
+    },
+    {
+      "id": "piloth.critical-evaluator",
+      "owner": "piloth",
+      "domains": ["architecture", "security", "release/deploy"],
+      "task_types": ["architecture_change", "security_change", "release_change"],
+      "capabilities": ["independent_review", "risk_analysis"],
+      "tools": [],
+      "evidence_types": ["source", "review", "test", "manifest"],
+      "permissions": ["review", "qa"],
+      "health": "healthy",
+      "confidence": 0.86,
+      "cost_class": "standard",
+      "adapter_support": ["claude", "codex", "cursor", "antigravity"]
+    }
+  ]
+}

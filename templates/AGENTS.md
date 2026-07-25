@@ -40,3 +40,5 @@ mức enforcement:
 Use PilothOS as the OS entry point. `AGENTS.md` là adapter entry point, không
 phải source of truth; do not fork policy trong adapter files. Khi mâu thuẫn, ưu
 tiên `pilothOS/` và ghi finding vào `pilothOS/rot/review-log.md`.
+Normal tasks start through `os-start`, which invokes the canonical
+`evidence-route` decision and records adapter limitations honestly.

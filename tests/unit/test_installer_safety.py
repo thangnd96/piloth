@@ -134,7 +134,7 @@ def test_normalize_injects_removals_for_unselected(installer, staged_repo):
     assert plan["steps"][-1]["op"] == "write_marker"  # marker stays last
 
 
-def test_normalize_gitignore_runtime_appends_missing(installer, staged_repo):
+def test_normalize_gitignore_defaults_to_all(installer, staged_repo):
     plan = {"plan_version": 1, "mode": "greenfield",
             "adapters": ["claude", "cursor", "codex", "antigravity"],
             "steps": [{"op": "write_marker"}]}
@@ -143,7 +143,21 @@ def test_normalize_gitignore_runtime_appends_missing(installer, staged_repo):
           if s["op"] == "append_lines" and s["target"] == ".gitignore"]
     assert len(gi) == 1
     assert set(installer.PILOTHOS_GITIGNORE_LINES) <= set(gi[0]["lines"])
-    assert "pilothOS/" not in gi[0]["lines"]
+    assert "pilothOS/" in gi[0]["lines"]
+
+
+def test_normalize_gitignore_runtime_scope_is_explicit_opt_in(
+    installer, staged_repo,
+):
+    plan = {"plan_version": 1, "mode": "greenfield",
+            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "options": {"gitignore_scope": "runtime"},
+            "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    gi = [s for s in plan["steps"]
+          if s["op"] == "append_lines" and s["target"] == ".gitignore"][0]
+    assert set(installer.PILOTHOS_GITIGNORE_RUNTIME_LINES) <= set(gi["lines"])
+    assert "pilothOS/" not in gi["lines"]
 
 
 def test_normalize_gitignore_all_scope(installer, staged_repo):

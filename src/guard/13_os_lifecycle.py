@@ -1532,6 +1532,12 @@ def os_start_schema_payload():
             "target_footprint_policy": {"required": False, "allowed": sorted(TARGET_FOOTPRINT_POLICIES), "aliases": ["footprint_policy"], "default": "no_control_plane_files if explicit target else repo_local_state_allowed"},
             "execution_strategy": {"required": False, "default": "controlled_target if explicit target else repo_local"},
             "budget": {"required": False, "note": "object; budget.max_usd is an advisory cost ceiling"},
+            "adapter": {"required": False, "allowed": ["claude", "codex", "cursor", "antigravity"], "note": "used for capability handshake; unknown adapters degrade explicitly"},
+            "locale": {"required": False, "default": "en", "note": "localizes human-readable summary only; IDs and schema remain English"},
+            "adapter_capabilities": {"required": False, "note": "native|emulated|unavailable map; request values override the conservative adapter registry"},
+            "specialists": {"required": False, "note": "consumer specialist registry entries; healthy qualified consumer entries outrank Piloth fallbacks"},
+            "work_packages": {"required": False, "note": "independent work packages used by the scored team gate"},
+            "user_overrides": {"required": False, "note": "rollout/execution override; safety review remains mandatory"},
             "success_metrics": {"required": False},
             "requires_prototype": {"required": False, "default": False, "note": "true also forces requires_human_review"},
             "requires_human_review": {"required": False, "default": False},
@@ -1574,13 +1580,36 @@ def os_start(argv):
             })
             return
     task_signal = request.get("task_signal") or "not_applicable"
-    route = route_task_payload({"task_signal": task_signal})
+    evidence_router = evidence_route_payload(request)
+    if evidence_router.get("result") != "evidence_route":
+        json_print({
+            "result": "os_start_rejected",
+            "task_id": task_id,
+            "errors": evidence_router.get("errors", ["evidence router rejected request"]),
+        })
+        return
+    routed_signal = evidence_router.get("task_signal") or task_signal
+    route = route_task_payload({
+        "task_signal": routed_signal,
+        "intent": request_intent(request),
+        "affected_paths": paths,
+        "adapter": request.get("adapter"),
+        "adapter_capabilities": request.get("adapter_capabilities"),
+        "_router_compat_only": True,
+    })
     scheduler = scheduler_suggest_payload({
-        "task_signal": task_signal,
+        "task_signal": routed_signal,
         "affected_paths": paths,
         "intent": request_intent(request),
+        "_router_compat_only": True,
     })
     contract = build_os_contract(request, route, scheduler, target=target)
+    contract["evidence_router"] = evidence_router
+    contract["decision_id"] = evidence_router.get("decision_id")
+    contract["evidence_plan"] = evidence_router.get("evidence_plan", [])
+    contract["execution_plan"] = evidence_router.get("execution_plan", {})
+    contract["verification_plan"] = evidence_router.get("verification_plan", [])
+    contract["router_limitations"] = evidence_router.get("limitations", [])
     contract_errors = validate_task_contract(contract)
     if contract_errors:
         json_print({"result": "os_start_rejected", "task_id": task_id, "errors": contract_errors})
@@ -1633,6 +1662,7 @@ def os_start(argv):
             ][:20],
         },
         "scheduler_suggestion": scheduler,
+        "evidence_router": evidence_router,
     }
     state_path = save_os_state(state)
     write_json(os_state_path(task_id, "contract.json"), contract)
@@ -1683,6 +1713,7 @@ def os_start(argv):
             "energy_budget": scheduler.get("energy_budget") if isinstance(scheduler, dict) else "",
         },
         "asset_routing": route,
+        "evidence_router": evidence_router,
     })
 
 
@@ -1716,6 +1747,7 @@ def os_status(argv=None):
         "required_gates": state.get("required_gates", []),
         "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
         "model_hints": (state.get("contract") or {}).get("model_hints", {}),
+        "evidence_router": state.get("evidence_router", {}),
         "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
         "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
         "prototype": state.get("prototype", {}),
@@ -1836,6 +1868,7 @@ def os_close_result(receipt, task_id=None, dry_run=False):
         state["enforcement_advisory"] = enforcement_advisory
     os_evidence = os_evidence_records(state["task_id"])
     errors.extend(validate_deliver_receipt(receipt, contract, facts))
+    errors.extend(evidence_router_receipt_errors(contract, receipt, os_evidence))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
     required_gates = state.get("required_gates") or required_gates_for_task(contract, receipt, mode=state.get("mode"))
     if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
@@ -2267,12 +2300,15 @@ def os_report(argv):
         "target_footprint": target_footprint if isinstance(target_footprint, dict) else {},
         "target_diff": target_diff if isinstance(target_diff, dict) else {},
         "target_seal_sha256": target_seal.get("target_seal_sha256", "") if isinstance(target_seal, dict) else "",
+        "evidence_router": state.get("evidence_router", {}),
         "required_gates": state.get("required_gates", []),
         "evidence_count": len(evidence),
         "limitations": [
             "exact LLM token usage is unavailable unless llm_usage metrics record real_token_telemetry=true",
             "artifact token estimates are not LLM cost telemetry",
-        ],
+        ] + (
+            state.get("evidence_router", {}).get("limitations", [])
+            if isinstance(state.get("evidence_router"), dict)
+            else []
+        ),
     })
-
-

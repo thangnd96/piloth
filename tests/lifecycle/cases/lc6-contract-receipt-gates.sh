@@ -218,7 +218,7 @@ git config user.name "lc6"
 git add -A
 git commit -q -m "lc6 baseline"
 printf '%s' '{"session_id":"lc6commit"}' | python3 "$G" session-start >/dev/null
-printf '\n# lc6 committed change\n' >> pilothOS/VALIDATION.md
+printf '\n# lc6 committed consumer change\n' >> AGENTS.md
 git add -A
 git commit -q -m "lc6 session change delivered via commit"
 out=$(printf '%s' '{"session_id":"lc6commit"}' | python3 "$G" stop-check)
@@ -226,6 +226,6 @@ out=$(printf '%s' '{"session_id":"lc6commit"}' | python3 "$G" stop-check)
 
 echo "== uncommitted change still triggers gate under git =="
 printf '%s' '{"session_id":"lc6dirty"}' | python3 "$G" session-start >/dev/null
-printf '\n# lc6 uncommitted change\n' >> pilothOS/VALIDATION.md
+printf '\n# lc6 uncommitted consumer change\n' >> AGENTS.md
 out=$(printf '%s' '{"session_id":"lc6dirty"}' | env PILOTHOS_DELIVER_RECEIPT="$bad_receipt" python3 "$G" stop-check)
 grep -q '"decision": "block"' <<< "$out"

@@ -28,12 +28,16 @@ def _load_guard():
 
 
 @pytest.fixture()
-def guard(monkeypatch):
+def guard(monkeypatch, tmp_path):
     # Preset env vars would override contract/receipt presets and make tests
     # non-deterministic across machines/CI — clear them for every test.
     monkeypatch.delenv("PILOTHOS_OPERATIONAL_PRESET", raising=False)
     monkeypatch.delenv("PILOTHOS_PRESET", raising=False)
-    return _load_guard()
+    module = _load_guard()
+    # Compatibility history is repo-local runtime state. Unit tests must never
+    # consume or mutate a developer's real scheduler history.
+    module.SCHEDULER_HISTORY = tmp_path / "scheduler-history.jsonl"
+    return module
 
 
 @pytest.fixture()

@@ -196,8 +196,21 @@ def dynamic_agent_assets(rows, seen):
             continue
         for path in sorted(root.rglob("*.md")):
             rel = path.relative_to(REPO_ROOT).as_posix()
-            add_audit_row(rows, seen, rel, "doc", "agent definition",
+            add_audit_row(rows, seen, rel, "agent", "agent definition",
                           risk="medium", handling="index")
+    specialist_roots = [
+        REPO_ROOT / ".agents" / "specialists",
+        REPO_ROOT / ".claude" / "specialists",
+        REPO_ROOT / "specialists",
+    ]
+    for root in specialist_roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.md")):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            add_audit_row(rows, seen, rel, "specialist",
+                          "explicit specialist definition",
+                          risk="medium", handling="route")
 
 
 def collect_consumer_asset_rows():
@@ -267,6 +280,11 @@ def collect_consumer_asset_rows():
             add_audit_row(rows, seen, rel, "mcp",
                           "MCP/tool configuration", risk="medium",
                           handling="route")
+    for rel in (".piloth/specialists.json", "piloth-specialists.json"):
+        if (REPO_ROOT / rel).exists():
+            add_audit_row(rows, seen, rel, "specialist",
+                          "explicit consumer specialist registry",
+                          owner="consumer", risk="medium", handling="route")
 
     for rel in ("scripts/test.sh", "scripts/test", "scripts/build.sh",
                 "scripts/lint.sh", "Makefile"):
@@ -756,7 +774,6 @@ def route_task_payload(payload):
                 + ", ".join(sorted(r["task_signal"] for r in TASK_SIGNAL_ROUTES.values()))
             ],
         }
-
     asset_types = set(route["asset_types"])
     all_rows = collect_consumer_asset_rows()
     detected = [
@@ -830,7 +847,7 @@ def route_task_payload(payload):
     index_first = apply_context_mode(
         ["runtime/consumer-assets.md", "runtime/context-loading.md"], mode)
     context_layers = apply_context_mode(list(route["context_layers"]), mode)
-    return {
+    result = {
         "result": "route_suggested",
         "task_signal": route["task_signal"],
         "context_mode": mode,
@@ -843,6 +860,17 @@ def route_task_payload(payload):
         "context_evidence": context_evidence,
         "consumer_asset_routing": routing,
     }
+    return route_task_attach_evidence_router(result, payload)
+
+
+def route_task_attach_evidence_router(result, payload):
+    """Add the canonical decision without changing any V1 wrapper field."""
+    if payload.get("_router_compat_only") is True:
+        return result
+    router_request = dict(payload)
+    router_request.setdefault("intent", payload.get("task_scope") or "")
+    result["evidence_router"] = evidence_route_payload(router_request)
+    return result
 
 
 def route_task(argv):
@@ -852,5 +880,3 @@ def route_task(argv):
         json_print({"result": "route_rejected", "errors": [str(e)]})
         return
     json_print(route_task_payload(payload))
-
-

@@ -19,8 +19,13 @@ Các mode:
   asset-scan      Deterministic JSON/markdown scan of repo assets.
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
+  evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+  adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
   route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
   context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
+  codebase-index  Tạo local SQLite code graph theo budget explicit.
+  codebase-status Báo freshness/coverage count của code graph hiện tại.
+  codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
   rot-status      Rot signal gọn (chỉ scope quá hạn) — lazy load thay vì cả registry.
   reuse-scan      Evidence-shaped semantic reuse candidate scan.
   ds-scan         Evidence-shaped design-system candidate scan.
@@ -72,6 +77,7 @@ Ghi chú thiết kế:
 # Edit the fragments and rebuild; hand-edits here are overwritten and caught by
 # the bundle-up-to-date gate in tests/unit.
 import sys
+import ast
 import re
 import json
 import time
@@ -81,6 +87,7 @@ import hashlib
 import datetime
 import pathlib
 import shlex
+import sqlite3
 import subprocess
 import shutil
 
@@ -91,10 +98,16 @@ REGISTRY = PILOTHOS_DIR / "rot" / "registry.md"
 CONSUMER_ASSETS = PILOTHOS_DIR / "runtime" / "consumer-assets.md"
 SELF_HOSTING_DOC = PILOTHOS_DIR / "runtime" / "self-hosting.md"
 SCHEDULER_HISTORY = PILOTHOS_DIR / "memory" / "state" / "scheduler-history.jsonl"
+EVIDENCE_ROUTER_MATRIX = PILOTHOS_DIR / "runtime" / "evidence-routing.json"
+ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.json"
+SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"
+MODEL_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "model-capabilities.json"
 RECEIPT_SEALS = PILOTHOS_DIR / "memory" / "state" / "receipt-seals.jsonl"
 TEAM_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "team-runs"
 OS_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "os-runs"
 OS_CURRENT = OS_RUNS_DIR / "current.json"
+CODEBASE_INDEX_DIR = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
+CODEBASE_INDEX_DB = CODEBASE_INDEX_DIR / "index.sqlite3"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
@@ -175,11 +188,12 @@ REUSE_EVIDENCE_DECISIONS = {"reuse", "not_applicable", "not_enough"}
 ASSET_ROUTING_DECISIONS = {"loaded", "skipped", "approval_required", "not_applicable"}
 ASSET_ROUTING_SIGNALS = {
     "UI/component", "API/backend", "bug fix", "release/deploy",
-    "tool/MCP", "not_applicable",
+    "tool/MCP", "architecture", "security", "not_applicable",
 }
 ASSET_ROUTING_TYPES = {
     "skill", "hook", "tool", "mcp", "command", "design-system", "doc",
-    "convention", "test-runner", "build-runner", "not_applicable",
+    "convention", "test-runner", "build-runner", "agent", "specialist",
+    "not_applicable",
 }
 UI_DESIGN_SYSTEM_DECISIONS = {"reuse", "extend", "new", "not_applicable"}
 UI_RECEIPT_FIELDS = {
@@ -237,6 +251,8 @@ READ_ONLY_GUARD_MODES = {
     "context-budget",
     "control-plane-check",
     "ds-scan",
+    "adapter-capabilities",
+    "evidence-route",
     "rot-status",
     "production-review",
     "receipt-verify",
@@ -330,9 +346,14 @@ SELF_HOST_REQUIRED_GUARD_MODES = (
     "asset-scan",
     "asset-health",
     "asset-sync",
+    "adapter-capabilities",
+    "evidence-route",
     "route-task",
     "reuse-scan",
     "ds-scan",
+    "codebase-index",
+    "codebase-status",
+    "codebase-query",
     "scheduler-suggest",
     "scheduler-record",
     "state-doctor",
@@ -511,6 +532,18 @@ TASK_SIGNAL_ROUTES = {
         "load_policy": "task-routed",
         "context_layers": ("tools/index.md", "runtime/context-loading.md"),
     },
+    "architecture": {
+        "task_signal": "architecture",
+        "asset_types": ("specialist", "agent", "convention", "doc"),
+        "load_policy": "task-routed",
+        "context_layers": ("knowledge/architecture/README.md", "runtime/context-loading.md"),
+    },
+    "security": {
+        "task_signal": "security",
+        "asset_types": ("specialist", "agent", "tool", "test-runner"),
+        "load_policy": "approval-required",
+        "context_layers": ("governance/operational-controls.md", "evaluation/quality-gates.md"),
+    },
     "not_applicable": {
         "task_signal": "not_applicable",
         "asset_types": ("not_applicable",),
@@ -518,5 +551,3 @@ TASK_SIGNAL_ROUTES = {
         "context_layers": ("runtime/context-loading.md",),
     },
 }
-
-

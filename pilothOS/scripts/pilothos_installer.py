@@ -62,11 +62,10 @@ OPTIONAL_ADAPTER_PATHS = {
     "antigravity": ".antigravity",
 }
 ALLOWED_ADAPTERS = {"claude", "cursor", "codex", "antigravity"}
-# SSOT các dòng .gitignore của PilothOS. `runtime` = chỉ ignore runtime state
-# (kernel pilothOS/ vẫn commit để team share); `all` = ignore toàn bộ pilothOS/
-# (opt-in cho consumer coi PilothOS là tooling cục bộ). Đồng bộ với
-# templates/gitignore (tests/docs D4 canh).
-PILOTHOS_GITIGNORE_LINES = [
+# SSOT .gitignore của PilothOS. Consumer mặc định coi pilothOS/ là tooling cục
+# bộ và ignore toàn cây. `runtime` được giữ như compatibility opt-in cho team
+# muốn commit kernel nhưng bỏ qua state phát sinh.
+PILOTHOS_GITIGNORE_RUNTIME_LINES = [
     "pilothOS/.backup/",
     "pilothOS/.pending-plan.json",
     "pilothOS/memory/state/scheduler-history.jsonl",
@@ -74,9 +73,12 @@ PILOTHOS_GITIGNORE_LINES = [
     "pilothOS/memory/state/*.jsonl",
     "pilothOS/memory/state/team-runs/",
     "pilothOS/memory/state/os-runs/",
+    "pilothOS/memory/state/codebase-index/",
 ]
 PILOTHOS_GITIGNORE_ALL = ["pilothOS/"]
+PILOTHOS_GITIGNORE_LINES = PILOTHOS_GITIGNORE_ALL
 GITIGNORE_SCOPES = ("runtime", "all")
+DEFAULT_GITIGNORE_SCOPE = "all"
 PLAN_TOP_FIELDS = {"plan_version", "mode", "fill", "options", "steps", "adapters"}
 STEP_FIELDS = {"op", "payload", "target", "lines"}
 OPTION_FIELDS = {"statusline", "gitignore_scope"}
@@ -578,8 +580,14 @@ def gitignore_append_step(plan, steps):
     if any(isinstance(s, dict) and s.get("op") == "append_lines"
            and s.get("target") == ".gitignore" for s in steps):
         return None
-    scope = (plan.get("options") or {}).get("gitignore_scope", "runtime")
-    want = PILOTHOS_GITIGNORE_ALL if scope == "all" else PILOTHOS_GITIGNORE_LINES
+    scope = (
+        plan.get("options") or {}
+    ).get("gitignore_scope", DEFAULT_GITIGNORE_SCOPE)
+    want = (
+        PILOTHOS_GITIGNORE_ALL
+        if scope == "all"
+        else PILOTHOS_GITIGNORE_RUNTIME_LINES
+    )
     current = set(gi.read_text(encoding="utf-8").splitlines())
     missing = [l for l in want if l not in current]
     if not missing:
@@ -628,7 +636,7 @@ def build_unattended_plan(argv):
     parser.add_argument("--adapters", default="claude,cursor,codex,antigravity")
     parser.add_argument("--statusline", choices=("consumer", "pilothos", "chain"))
     parser.add_argument("--gitignore-scope", choices=GITIGNORE_SCOPES,
-                        default="runtime")
+                        default=DEFAULT_GITIGNORE_SCOPE)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--print-plan", action="store_true")
     args = parser.parse_args(argv)
@@ -643,7 +651,7 @@ def build_unattended_plan(argv):
     options = {}
     if args.statusline:
         options["statusline"] = args.statusline
-    if args.gitignore_scope != "runtime":
+    if args.gitignore_scope != DEFAULT_GITIGNORE_SCOPE:
         options["gitignore_scope"] = args.gitignore_scope
     if options:
         plan["options"] = options

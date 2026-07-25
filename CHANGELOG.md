@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Consumer `.gitignore` mặc định ignore toàn bộ `pilothOS/`**: init
+  greenfield/brownfield và unattended install dùng scope `all` khi plan không
+  khai báo lựa chọn. `--gitignore-scope runtime` /
+  `options.gitignore_scope="runtime"` vẫn được giữ như compatibility opt-in
+  cho team muốn commit kernel và chỉ ignore state phát sinh.
+
 ## v1.11.0 — 2026-07-23
 
 Update path first-class + drift-warning (vá thiếu sót "update plugin rồi thì bản đã init nâng cấp thế nào").

@@ -52,7 +52,24 @@ Generated table contract:
 ## Types
 
 `skill`, `hook`, `tool`, `mcp`, `command`, `design-system`, `doc`,
-`convention`, `test-runner`, `build-runner`.
+`convention`, `test-runner`, `build-runner`, `agent`, `specialist`.
+
+`agent` identifies an executable or advisory agent definition. `specialist`
+is narrower and is routed only through the Evidence Router registry contract:
+
+```text
+id, owner, domains, task_types, capabilities, tools, evidence_types,
+permissions, health, confidence, cost_class, adapter_support
+```
+
+Consumer-owned qualified specialists are selected before Piloth fallbacks.
+Entries below 70/100, unhealthy entries, or entries missing a required tool or
+permission are never routed as specialists.
+
+Explicit consumer registries may live at `.piloth/specialists.json` or
+`piloth-specialists.json` with a top-level `specialists` array. Request-local
+entries may also be passed to `evidence-route`; the router never derives a
+specialist entry from a generic agent description.
 
 ## Risk
 

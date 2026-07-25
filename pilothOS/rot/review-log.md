@@ -10,3 +10,4 @@ Append-only operational history. Không sửa hoặc xóa lịch sử đã ghi.
 |---|---|---|---|---|---|
 | 2026-07-16 | Rules & Hooks | Promoted task contract, pre/post edit facts, deliver receipt, unattended/upgrade support | Implemented mechanical gates and lifecycle/install tests | tests/run_all.sh | Codex |
 | 2026-07-16 | Tools/Runtime | Fixed stale re-init/pre-edit docs, session diff facts handoff, stage flag parsing, upgrade dry-run marker kind, adapter typo validation | Added install/lifecycle/docs regressions | tests/run_all.sh | Codex |
+| 2026-07-25 | Codebase intelligence | Deep scout found generated-source ambiguity, unsafe source collapsing, stale trust, state symlink and RAM retention risks | Added provenance-aware canonicalization, streaming budgets, freshness/coverage contract, tests and full-parity roadmap | docs/codebase-memory-deep-scout.md | Codex |
