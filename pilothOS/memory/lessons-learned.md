@@ -67,3 +67,5 @@ For cross-project lessons, append `upstream` to a real target, for example
 
 | Date | Context | Lesson | Promoted To |
 |---|---|---|---|
+| 2026-07-26 | Kiểm ai đọc một field trước khi cắt nó khỏi output | Grep `src/` + `pilothOS/**` là chưa đủ — `tests/` cũng là consumer. Tôi kết luận `skipped_assets[].reason` không ai đọc rồi xoá, E19 vỡ. Quét cả tests/ trước khi bỏ field. | not_applicable |
+

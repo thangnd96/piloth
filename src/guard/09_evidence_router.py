@@ -26,6 +26,27 @@ ADAPTER_CAPABILITY_KEYS = (
     "receipt_enforcement",
     "seal_enforcement",
 )
+# Presence of the variable is the signal, not its value. Each maps to an adapter
+# id the capability registry must declare before detection may use it.
+#
+# Only variables the harness sets in the process that runs this guard belong here.
+# Notably absent: CURSOR_CLI, which Cursor's integrated terminal sets even when a
+# human is typing commands by hand — it says "a Cursor terminal", not "the Cursor
+# agent is driving", so using it would claim cursor's capability profile for a
+# session that never went through the agent.
+ADAPTER_ENV_SIGNALS = (
+    ("CLAUDECODE", "claude"),
+    ("CLAUDE_PROJECT_DIR", "claude"),
+    # Set by Cursor CLI while the agent runs a shell command. Cursor has an open
+    # report of it not being set consistently, so treat a miss as "unknown".
+    ("CURSOR_AGENT", "cursor"),
+    # Codex sets this ("seatbelt" on macOS) on the child process it spawns for a
+    # tool call — which is where this guard runs. Two caveats: it is undocumented
+    # (Codex points at --sandbox / config.toml instead) and it only appears when
+    # sandboxing is on, so `codex --sandbox danger-full-access` resolves to
+    # "unknown". Both directions fail closed, never toward a wrong claim.
+    ("CODEX_SANDBOX", "codex"),
+)
 EVIDENCE_ROUTER_ROLLOUT_MODES = {"off", "shadow", "advisory", "enforced"}
 EVIDENCE_ROUTER_DEFAULT_BUDGET = {
     "max_roles": 3,
@@ -169,6 +190,37 @@ def load_adapter_capability_registry():
     return adapters if isinstance(adapters, dict) else {}
 
 
+def resolve_adapter(payload):
+    """``(adapter_id, source)`` for a capability request.
+
+    Precedence: explicit request > ``PILOTHOS_ADAPTER`` > harness env signal >
+    ``"unknown"``.  Without this every caller defaults to ``unknown``, which is
+    the worst path available: all 15 capabilities resolve to ``unavailable``, so
+    an ``enforced`` rollout silently degrades to ``advisory`` even on a harness
+    that does support hooks and seals.
+
+    An explicit request keeps whatever id it names — declaring an unregistered
+    harness is legitimate and simply resolves every capability to
+    ``unavailable``.  Env detection is stricter and only yields ids the registry
+    declares, so Piloth never invents a capability profile from a stray
+    variable.  ``adapter_source`` travels with the answer so the resolution
+    stays auditable instead of looking like a claim.
+    """
+    requested = str(payload.get("adapter") or "").strip().lower()
+    if requested:
+        return requested, "request"
+    registry = load_adapter_capability_registry()
+    declared = str(os.environ.get("PILOTHOS_ADAPTER") or "").strip().lower()
+    if declared:
+        # An explicit override that names nothing we know stays conservative
+        # rather than falling through to detection behind the user's back.
+        return (declared, "env") if declared in registry else ("unknown", "default")
+    for var, adapter in ADAPTER_ENV_SIGNALS:
+        if os.environ.get(var) and adapter in registry:
+            return adapter, "detected"
+    return "unknown", "default"
+
+
 def adapter_capabilities_payload(payload):
     if not isinstance(payload, dict):
         return {
@@ -182,7 +234,7 @@ def adapter_capabilities_payload(payload):
             "statuses": sorted(ADAPTER_CAPABILITY_STATUS),
             "capabilities": list(ADAPTER_CAPABILITY_KEYS),
         }
-    adapter = str(payload.get("adapter") or "unknown").strip().lower()
+    adapter, adapter_source = resolve_adapter(payload)
     registry = load_adapter_capability_registry()
     declared = registry.get(adapter)
     if not isinstance(declared, dict):
@@ -230,11 +282,19 @@ def adapter_capabilities_payload(payload):
         else:
             normalized[key] = "unavailable"
             sources[key] = "missing"
-    limitations = [
-        f"{key} is unavailable; no native capability is claimed"
-        for key, status in normalized.items()
-        if status == "unavailable"
+    # One aggregate line, not one line per key: the per-key statuses are already
+    # in `capabilities`, and 15 boilerplate sentences both cost tokens and dilute
+    # the limitations that carry real signal.
+    unavailable = [
+        key for key, status in normalized.items() if status == "unavailable"
     ]
+    limitations = []
+    if unavailable:
+        limitations.append(
+            f"{len(unavailable)} capability(ies) unavailable; no native path is "
+            "claimed: " + ", ".join(unavailable)
+        )
+    # Emulated stays itemised — an emulated path is a decision input, not noise.
     degraded = [
         f"{key} uses an emulated adapter path"
         for key, status in normalized.items()
@@ -244,8 +304,17 @@ def adapter_capabilities_payload(payload):
         "result": "adapter_capabilities",
         "read_only": True,
         "adapter": adapter,
+        "adapter_source": adapter_source,
         "capabilities": normalized,
-        "sources": sources,
+        # Only provenance that says something: "missing" is the default and is
+        # recoverable from `capabilities` plus `sources_summary`.
+        "sources": {
+            key: value for key, value in sources.items() if value != "missing"
+        },
+        "sources_summary": {
+            name: sum(1 for value in sources.values() if value == name)
+            for name in ("request", "registry", "missing")
+        },
         "complete": len(normalized) == len(ADAPTER_CAPABILITY_KEYS),
         "limitations": limitations,
         "degraded": degraded,
@@ -625,7 +694,7 @@ def specialist_score_candidate(candidate, request, signal, task_class, evidence_
     health = str(candidate.get("health") or "unknown").lower()
     if health not in {"healthy", "ready"}:
         disqualified.append(f"health={health}")
-    adapter = str(request.get("adapter") or "unknown").lower()
+    adapter, _ = resolve_adapter(request)
     support = {
         str(x).lower() for x in candidate.get("adapter_support", [])
         if isinstance(x, str)
@@ -1097,6 +1166,82 @@ def evidence_route_output(
     }
 
 
+def evidence_route_digest(decision):
+    """The acting half of a route decision; `--verbose` and state keep the rest.
+
+    A full decision is ~1.8-2.3k tokens, and `os-start` plus every `os-status`
+    reprinted it even though the same blob is already persisted to
+    `contract.json` and the run state. The digest keeps what changes what the
+    agent does next — plan, gates, budgets, limitations — and drops the
+    provenance that gate logic reads from state rather than from stdout.
+    """
+    if not isinstance(decision, dict) or decision.get("result") != "evidence_route":
+        return decision
+    execution = decision.get("execution_plan") or {}
+    capabilities = decision.get("adapter_capabilities") or {}
+    rollout = decision.get("rollout") or {}
+    specialist = execution.get("specialist") or {}
+
+    def items(key):
+        return [x for x in (decision.get(key) or []) if isinstance(x, dict)]
+
+    return {
+        "result": decision.get("result"),
+        "schema_version": decision.get("schema_version"),
+        "digest": True,
+        "decision_id": decision.get("decision_id"),
+        "decision_summary": decision.get("decision_summary"),
+        "task_signal": decision.get("task_signal"),
+        "task_class": decision.get("task_class"),
+        "risk": decision.get("risk"),
+        "confidence": decision.get("confidence"),
+        "adapter": {
+            "adapter": capabilities.get("adapter"),
+            "source": capabilities.get("adapter_source"),
+            "degraded": capabilities.get("degraded", []),
+        },
+        "rollout": {
+            "mode": rollout.get("mode"),
+            "kill_switch": rollout.get("kill_switch"),
+        },
+        "execution": {
+            "mode": execution.get("mode"),
+            "controls_execution": execution.get("controls_execution"),
+            "team": execution.get("team"),
+            "roles": execution.get("roles", []),
+            "mandatory_independent_review": execution.get(
+                "mandatory_independent_review",
+            ),
+            "max_repair_loops": execution.get("max_repair_loops"),
+            "model_tiers": execution.get("model_tiers", {}),
+            "specialist": specialist.get("id", ""),
+        },
+        "evidence_plan": [
+            {
+                "type": item.get("type"),
+                "source": item.get("source"),
+                "required": item.get("required"),
+            }
+            for item in items("evidence_plan")
+        ],
+        "verification_plan": [
+            {"method": item.get("method"), "required": item.get("required")}
+            for item in items("verification_plan")
+        ],
+        "context_plan": [item.get("source") for item in items("context_plan")],
+        "tool_plan": [item.get("tool") for item in items("tool_plan")],
+        # hard_limits only names keys that are already present alongside it.
+        "budgets": {
+            key: value
+            for key, value in (decision.get("budgets") or {}).items()
+            if key != "hard_limits"
+        },
+        "limitations": decision.get("limitations", []),
+        "fallbacks": decision.get("fallbacks", []),
+        "verbose_with": "--verbose (evidence-route/os-status) or the run's contract.json",
+    }
+
+
 def finalize_evidence_route(
     request, matrix, matrix_source, signal, task_class, class_reasons, risk, confidence, evidence_plan, context_plan,
     execution_plan, tool_plan, verification_plan, budget, capability_result, specialist, evidence_fallbacks, evidence_limitations, execution_limitations,
@@ -1260,8 +1405,11 @@ def evidence_route_payload(request):
     task_row = matrix["task_matrix"].get(signal, {})
     task_class = str(task_row.get("task_class") or "small_task")
     risk = evidence_router_risk(request, signal, task_row)
+    # Pass the request's adapter through untouched (absent stays absent) so
+    # resolve_adapter can fall back to env detection instead of being pinned to
+    # "unknown" before it ever runs.
     capability_request = {
-        "adapter": request.get("adapter") or "unknown",
+        "adapter": request.get("adapter"),
         "adapter_capabilities": request.get("adapter_capabilities") or {},
     }
     capability_result = adapter_capabilities_payload(capability_request)
@@ -1313,9 +1461,12 @@ def evidence_route_payload(request):
 
 
 def evidence_route(argv):
-    if "--explain" in list(argv):
+    argv = list(argv)
+    if "--explain" in argv:
         json_print(evidence_router_schema_payload())
         return
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if a != "--verbose"]
     try:
         request, _ = json_arg_or_stdin(argv, "evidence-route")
     except Exception as e:
@@ -1324,5 +1475,6 @@ def evidence_route(argv):
             "errors": [str(e)],
         })
         return
-    json_print(evidence_route_payload(request))
+    decision = evidence_route_payload(request)
+    json_print(decision if verbose else evidence_route_digest(decision))
 

@@ -928,6 +928,7 @@ GUARD_HANDLERS = {
     "evidence-route": evidence_route,
     "route-task": route_task,
     "context-budget": context_budget,
+    "payload-budget": payload_budget,
     "codebase-index": codebase_index,
     "codebase-status": codebase_status,
     "codebase-query": codebase_query,

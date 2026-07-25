@@ -3,6 +3,7 @@
 These lock in the token-saving guarantee: a routed task must pull far less
 kernel text than loading the whole kernel, and routing must not silently bloat.
 """
+import pytest
 
 
 def test_rejects_non_dict(guard):
@@ -112,3 +113,71 @@ def test_route_lean_drops_docs_but_standard_keeps_them(guard):
     std_ctx = std["index_first"] + std["context_layers"]
     assert "runtime/consumer-assets.md" in std_ctx
     assert "runtime/consumer-assets.md" not in lean_ctx
+
+
+# ------------------------------------------- token ceilings (anti-bloat ratchet)
+
+# Measured footprint per (task_signal, mode) plus ~2% headroom. `loaded_count`
+# and a >=50% savings floor were the only guards before, and neither noticed the
+# bootstrap set growing 2,209 bytes (+552 tok/task) when the evidence router and
+# codebase intelligence docs landed: file count did not change and the full-kernel
+# denominator grew alongside, so the percentage even improved.
+#
+# These numbers may only be LOWERED. Raising one means every consumer task pays
+# more, so it is a decision to take deliberately, not a test to relax.
+CONTEXT_TOKEN_CEILINGS = {
+    ("not_applicable", "standard"): 5_650,
+    ("UI/component", "standard"): 6_100,
+    ("API/backend", "standard"): 6_800,
+    ("bug fix", "standard"): 8_250,
+    ("release/deploy", "standard"): 7_400,
+    ("not_applicable", "lean"): 3_850,
+    ("UI/component", "lean"): 4_300,
+    ("API/backend", "lean"): 5_000,
+    ("bug fix", "lean"): 4_650,
+    ("release/deploy", "lean"): 5_600,
+    ("not_applicable", "micro"): 2_900,
+    ("UI/component", "micro"): 3_300,
+    ("API/backend", "micro"): 4_050,
+    ("bug fix", "micro"): 3_650,
+    ("release/deploy", "micro"): 4_650,
+}
+
+
+@pytest.mark.parametrize(("signal", "mode"), sorted(CONTEXT_TOKEN_CEILINGS))
+def test_routed_context_stays_under_its_token_ceiling(guard, signal, mode):
+    out = guard.context_budget_payload({"task_signal": signal, "mode": mode})
+    ceiling = CONTEXT_TOKEN_CEILINGS[(signal, mode)]
+    assert out["loaded_tokens_est"] <= ceiling, (
+        f"{signal}/{mode} now loads {out['loaded_tokens_est']} tok (ceiling "
+        f"{ceiling}). Shrink the routed docs, or raise the ceiling deliberately "
+        "and update docs/token-optimization.md with the new measurement."
+    )
+
+
+def test_ceilings_do_not_drift_far_above_the_measurement(guard):
+    """A ceiling nobody tightened is a ceiling that stopped guarding anything."""
+    for (signal, mode), ceiling in CONTEXT_TOKEN_CEILINGS.items():
+        actual = guard.context_budget_payload(
+            {"task_signal": signal, "mode": mode},
+        )["loaded_tokens_est"]
+        assert ceiling <= actual * 1.15, (
+            f"{signal}/{mode} ceiling {ceiling} is far above the measured "
+            f"{actual}; lower it so the ratchet keeps biting."
+        )
+
+
+def test_routable_denominator_is_reported_and_stricter_than_full_kernel(guard):
+    """`skills/**` is 45% of the .md ceiling but is never routable context.
+
+    Quoting the full-kernel percentage flatters the saving, so the honest
+    denominator ships alongside it.
+    """
+    out = guard.context_budget_payload({"task_signal": "bug fix"})
+    assert out["routable_kernel_bytes"] < out["full_kernel_bytes"]
+    assert out["routable_kernel_files"] < out["full_kernel_files"]
+    assert (
+        out["savings_pct_vs_routable_kernel"]
+        < out["savings_pct_vs_full_kernel"]
+    )
+    assert out["savings_pct_vs_routable_kernel"] >= 50.0

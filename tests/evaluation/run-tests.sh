@@ -1382,7 +1382,9 @@ grep -q '"context_evidence"' <<< "$out"
 grep -q '"source": ".claude/skills/design-system"' <<< "$out"
 grep -q '"skipped_assets"' <<< "$out"
 grep -q '"asset": "package.json:scripts.deploy"' <<< "$out"
-grep -q '"reason": "command is not routed for UI/component"' <<< "$out"
+# The skip rule is identical for every row, so it is stated once at top level
+# rather than repeated per asset (it used to restate each row's own type).
+grep -q '"skipped_reason": "asset type is not routed for UI/component"' <<< "$out"
 grep -q '"consumer_asset_routing"' <<< "$out"
 out=$(python3 "$G" route-task '{"task_signal":"release/deploy"}')
 grep -q '"load_policy": "approval-required"' <<< "$out"

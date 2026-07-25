@@ -2,6 +2,81 @@
 
 ## Unreleased
 
+## v1.12.0 — 2026-07-26
+
+Cắt footprint tool-output + mở khóa cost evidence.
+
+> **Breaking cho ai parse stdout của guard.** Sáu command giờ in **digest** thay vì
+> quyết định đầy đủ: `evidence-route`, `os-start`, `os-status`, `os-report`,
+> `route-task`, `scheduler-suggest`. Lấy lại blob cũ bằng `--verbose`
+> (`evidence-route`, `os-status`) hoặc đọc `contract.json`/OS state — blob đầy đủ
+> luôn còn trên đĩa. Shape **contract/receipt** (cái có validator, consumer viết)
+> **không đổi**, và không adapter/hook/skill/template nào bị ảnh hưởng.
+
+- **Mở khóa cost evidence: định giá `claude-opus-5` + cost khai được một phần**:
+  `cost_usd` từng là all-or-nothing và **im lặng** — một turn có model không nằm
+  trong `runtime/model-pricing.json` là mất số cost của **cả run**, không nói model
+  nào. Transcript thật có 831 turn `claude-opus-5` (model default hiện tại) chưa
+  được định giá, nên mọi run đều mất cost và `budget_status` luôn
+  `advisory_unavailable`. Nay: thêm hàng giá Opus 5 ($5/$25, 1M context là default
+  *và* maximum, không phụ phí long-context → cùng hàng với `claude-opus-4-8`);
+  `<synthetic>` bị loại vì không phải model call; phần có giá vẫn được cộng kèm
+  `cost_complete` + `unpriced_models` + `unpriced_tokens`, `budget_status` gắn nhãn
+  `spent_usd` là **sàn** khi chưa đủ. Đo trên transcript thật: `cost_usd` từ `None`
+  → **$106,32** với `cost_complete: true`. Price map có test self-consistency
+  (`cache_write_5m = 1.25×input`, `cache_read = 0.1×input`) để typo tier cache —
+  chiếm phần lớn hóa đơn session dài — fail chứ không âm thầm tính sai.
+- **`docs/token-optimization.md` thôi nói ngược về token telemetry**: doc từng viết
+  "adapter phải expose được prompt/completion token… chưa có nguồn số thật" trong
+  khi command `token-telemetry` đã đọc transcript Claude Code và ghi
+  `real_token_telemetry=true` (document ở `energy-token-policy.md`). Nay doc nêu
+  đúng đường chính + ba giới hạn thật: cần benchmark `had-piloth` vs `none-piloth`
+  cho claim so sánh, `subagent_scope=main_session_only`, và cost phụ thuộc price map
+  (không phủ fast mode $10/$50 vì map chưa có chiều `speed`).
+- **Sửa hai env signal detect adapter đã đoán sai**: `CURSOR_TRACE_ID` **không tồn
+  tại** → `CURSOR_AGENT`; `CURSOR_CLI` cố tình **không** dùng vì integrated terminal
+  set nó cả khi người thật gõ tay (sẽ claim sai capability profile).
+  `CODEX_SANDBOX` giữ lại kèm ghi chú undocumented + chỉ có khi sandbox bật. Thêm
+  test: mọi signal phải map tới adapter mà registry khai.
+- **Nén cả bốn view asset trong `route-task`** (20.591→**11.860 B**, −42%):
+  `detected_assets` 2.971→2.094 B (bỏ `health_reason` lặp lại đường dẫn, `handling`
+  gần như luôn `index`), `skipped_assets` 2.148→830 B (lý do giống nhau mọi row → nêu
+  một lần ở `skipped_reason`). Hai mảng contract **giữ nguyên shape** — validator bắt
+  buộc mọi key là string non-empty — nhưng bỏ phần `reason` lặp lại field đã có
+  structural trên cùng row: `consumer_asset_routing` 2.219→1.963 B,
+  `context_evidence` 2.278→2.054 B. Đã kiểm chứng contract vẫn validate sạch ở **cả
+  hai** nhánh (`contract_requires_context_evidence` true/false). Hai ratchet riêng:
+  chặn thêm field vào mảng pure-output, và chặn `reason` lặp lại lần nữa. Không nén
+  thêm là có chủ ý: shape là hợp đồng consumer đang viết, cắt template chỉ chuyển chi
+  phí sang output token (đắt hơn ~5×), và lọc bớt asset là silent cap.
+  `os-status` bỏ in trùng `allowed_paths` (luôn bằng `target_paths` do cùng biến ở
+  `build_os_contract`): 4.885→4.043 B.
+- **Digest-as-default cho output của router + ratchet token hai mặt**: Evidence
+  Router in **digest** (phần hành động được + `decision_id`) ở `evidence-route`,
+  `os-start`, `os-status`, `os-report`, `route-task`, `scheduler-suggest`; blob
+  đầy đủ vẫn nằm trong `contract.json`/OS state và lấy qua `--verbose`. Đo được:
+  `route-task` 20.591→14.937 B, `scheduler-suggest` 10.386→4.732 B,
+  `evidence-route` 7.342→2.196 B; `os-start`/`os-status`/`os-report` tiết kiệm
+  ~5.3 KB (~1.3k tok) mỗi lần in. `adapter_capabilities` thôi phát cùng 15 key ba
+  lần (2.137 B → map + **một** dòng limitation tổng hợp + `sources` lọc
+  `missing` + `sources_summary`).
+- **Adapter auto-detect** (`resolve_adapter`): `adapter` trong request →
+  `PILOTHOS_ADAPTER` → env harness (`CLAUDECODE`, `CLAUDE_PROJECT_DIR`,
+  `CURSOR_TRACE_ID`, `CODEX_SANDBOX`) → `unknown`, kèm `adapter_source` để
+  auditable. Trước đó không caller nào truyền `adapter` nên mọi consumer chạy
+  đường `unknown`: 15/15 capability `unavailable`, `enforced` tự hạ thành
+  `advisory` và specialist có `adapter_support` bị disqualify. Đây là fix
+  **capability**, không phải token.
+- **`payload-budget` + ceiling test**: meter mới đo footprint output từng command
+  một task gọi — mặt chi phí mà `context-budget` không thấy.
+  `CONTEXT_TOKEN_CEILINGS` (per `task_signal`×`mode`) và `PAYLOAD_BYTE_CEILINGS`
+  chặn bloat theo **token/byte**, không chỉ theo số file như trước (lỗ đó đã để
+  bootstrap phình +2.209 B / +552 tok mỗi task mà không test nào fail).
+  `context-budget` thêm denominator trung thực `routable_kernel_*` (bỏ
+  `skills/**` + `README`/`VALIDATION` — 45% trần cũ). Line budget cho hai engine
+  amalgamated được gate ở `tests/unit/test_repo_hygiene.py`.
+  `docs/token-optimization.md` refresh bằng số đo thật và **bind vào test** nên
+  drift làm fail CI.
 - **Consumer `.gitignore` mặc định ignore toàn bộ `pilothOS/`**: init
   greenfield/brownfield và unattended install dùng scope `all` khi plan không
   khai báo lựa chọn. `--gitignore-scope runtime` /

@@ -19,6 +19,7 @@ Intake
 
 ```bash
 python3 pilothOS/scripts/pilothos_guard.py evidence-route request.json
+python3 pilothOS/scripts/pilothos_guard.py evidence-route --verbose request.json
 python3 pilothOS/scripts/pilothos_guard.py evidence-route --explain
 python3 pilothOS/scripts/pilothos_guard.py adapter-capabilities capabilities.json
 ```
@@ -37,6 +38,50 @@ limitations, decision_reasons
 
 Every evidence item contains `type`, `source`, `required`, `freshness`,
 `coverage`, `confidence`, `estimated_cost`, `trust` and `fallback`.
+
+## Digest by default
+
+`evidence-route`, `os-start`, `os-status`, `route-task` and `scheduler-suggest`
+print a **digest** of the decision: the fields that change what the agent does
+next (plan, gates, budgets, limitations) plus `decision_id`. The full decision
+is always written to the run's `contract.json` and OS state, and
+`evidence-route --verbose` / `os-status --verbose` print it in full.
+
+Reprinting the whole decision at each of those call sites cost ~1.8-2.3k tokens
+per call for provenance that only gate logic reads, and gates read it from state.
+
+## Adapter resolution
+
+Adapter identity resolves in this order, and the answer carries
+`adapter_source` so it stays auditable rather than looking like a claim:
+
+| Order | Signal | `adapter_source` |
+|---|---|---|
+| 1 | `adapter` in the request | `request` |
+| 2 | `PILOTHOS_ADAPTER` env | `env` |
+| 3 | Harness env signal (table below) | `detected` |
+| 4 | Nothing recognised | `default` (`unknown`) |
+
+An explicit request keeps whatever id it names — declaring an unregistered
+harness is legitimate and simply resolves every capability to `unavailable`.
+Detection is stricter and only yields ids `adapter-capabilities.json` declares.
+A `PILOTHOS_ADAPTER` value that names nothing known stays `unknown` instead of
+falling through to detection.
+
+Detection covers only variables the harness sets in the process that runs the
+guard, and every gap fails closed to `unknown` rather than to a wrong claim:
+
+| Adapter | Signal | Caveat |
+|---|---|---|
+| `claude` | `CLAUDECODE`, `CLAUDE_PROJECT_DIR` | — |
+| `cursor` | `CURSOR_AGENT` | Cursor has an open report of it not being set consistently. `CURSOR_CLI` is deliberately **not** used: the integrated terminal sets it even for a human typing by hand. |
+| `codex` | `CODEX_SANDBOX` | Undocumented, and only set when sandboxing is on — `--sandbox danger-full-access` resolves to `unknown`. |
+| `antigravity` | none | Must declare `PILOTHOS_ADAPTER=antigravity`. |
+
+`unknown` is not a neutral default: it resolves all 15 capabilities to
+`unavailable`, so an `enforced` rollout degrades to `advisory` and every
+capability gate fails. Detection exists so a supported harness is not penalised
+for staying silent.
 
 ## Quality and trust gates
 

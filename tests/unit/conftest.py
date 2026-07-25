@@ -34,6 +34,12 @@ def guard(monkeypatch, tmp_path):
     monkeypatch.delenv("PILOTHOS_OPERATIONAL_PRESET", raising=False)
     monkeypatch.delenv("PILOTHOS_PRESET", raising=False)
     module = _load_guard()
+    # Same reason for adapter identity: the harness running the suite would
+    # otherwise decide which capability profile the router sees, so a test would
+    # pass under Claude Code and fail in CI.
+    monkeypatch.delenv("PILOTHOS_ADAPTER", raising=False)
+    for var, _adapter in module.ADAPTER_ENV_SIGNALS:
+        monkeypatch.delenv(var, raising=False)
     # Compatibility history is repo-local runtime state. Unit tests must never
     # consume or mutate a developer's real scheduler history.
     module.SCHEDULER_HISTORY = tmp_path / "scheduler-history.jsonl"

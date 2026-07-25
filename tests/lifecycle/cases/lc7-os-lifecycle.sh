@@ -23,6 +23,10 @@ grep -q '"task_id": "lc7-docs"' <<< "$out"
 out=$(python3 "$G" os-status)
 grep -q '"result": "os_status"' <<< "$out"
 grep -q '"status": "open"' <<< "$out"
+# target_paths and allowed_paths are the same resolved list unless the target repo
+# differs from the control plane, so the alias is not printed twice here.
+grep -q '"target_paths"' <<< "$out"
+! grep -q '"allowed_paths"' <<< "$out"
 
 echo "== os-evidence sanitizes full output and secrets =="
 cat > evidence.json <<'JSON'

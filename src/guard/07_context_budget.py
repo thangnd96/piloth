@@ -41,6 +41,30 @@ def full_kernel_footprint():
     return files, total
 
 
+# Docs that inflate the full-kernel ceiling without ever being routable context:
+# skills/ payloads are only opened while that skill executes, and README/
+# VALIDATION document the kernel to humans instead of instructing a task. Kept
+# out of the honest denominator so the savings figure is not flattered by text a
+# routed task could never have loaded.
+NON_ROUTABLE_KERNEL = ("README.md", "VALIDATION.md", "CHANGELOG.md")
+
+
+def routable_kernel_footprint():
+    """(file_count, total_bytes) of the kernel docs a routed task could load."""
+    total = 0
+    files = 0
+    for path in PILOTHOS_DIR.rglob("*.md"):
+        rel = path.relative_to(PILOTHOS_DIR)
+        if rel.parts[0] == "skills" or rel.as_posix() in NON_ROUTABLE_KERNEL:
+            continue
+        try:
+            total += path.stat().st_size
+            files += 1
+        except OSError:
+            continue
+    return files, total
+
+
 def context_budget_payload(payload):
     """Measure the deterministic context footprint of a routed task.
 
@@ -79,6 +103,11 @@ def context_budget_payload(payload):
     kernel_files, kernel_bytes = full_kernel_footprint()
     saved_bytes = max(kernel_bytes - loaded_bytes, 0)
     savings_pct = round(saved_bytes / kernel_bytes * 100, 1) if kernel_bytes else 0.0
+    routable_files, routable_bytes = routable_kernel_footprint()
+    routable_savings_pct = (
+        round(max(routable_bytes - loaded_bytes, 0) / routable_bytes * 100, 1)
+        if routable_bytes else 0.0
+    )
 
     return {
         "result": "context_budget",
@@ -98,6 +127,12 @@ def context_budget_payload(payload):
         "full_kernel_tokens_est": estimate_context_tokens(kernel_bytes),
         "saved_bytes_vs_full_kernel": saved_bytes,
         "savings_pct_vs_full_kernel": savings_pct,
+        # The honest comparison: routable docs only. Lower than the full-kernel
+        # figure by design — quote this one when claiming a saving.
+        "routable_kernel_files": routable_files,
+        "routable_kernel_bytes": routable_bytes,
+        "routable_kernel_tokens_est": estimate_context_tokens(routable_bytes),
+        "savings_pct_vs_routable_kernel": routable_savings_pct,
     }
 
 
@@ -108,6 +143,78 @@ def context_budget(argv):
         json_print({"result": "context_budget_rejected", "errors": [str(e)]})
         return
     json_print(context_budget_payload(payload))
+
+
+# --------------------------------------------------------- payload budget
+
+# The read-only commands a routed task actually calls, with the smallest
+# realistic argument for each. Their JSON lands in the agent's context, so it
+# costs tokens exactly like a loaded file — and context-budget never saw it.
+PER_TASK_PAYLOAD_PROBES = (
+    ("route-task", lambda signal: route_task_payload({"task_signal": signal})),
+    ("rot-status", lambda signal: rot_status_payload()),
+    ("codebase-status", lambda signal: codebase_status_payload()),
+    ("adapter-capabilities", lambda signal: adapter_capabilities_payload({})),
+    ("evidence-route", lambda signal: evidence_route_digest(
+        evidence_route_payload({
+            "task_signal": signal,
+            "task_type": "code",
+            "scope": "narrow",
+        }),
+    )),
+)
+
+
+def printed_payload_bytes(payload):
+    """Bytes a payload occupies once json_print has written it."""
+    return len(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    ) + 1
+
+
+def payload_budget_payload(payload=None):
+    """Per-command tool-output footprint for one routed task.
+
+    Sibling of context_budget: that one measures the kernel text a task pulls
+    into context, this one measures the JSON the task prints back into it. Both
+    are ~4 bytes/token estimates and neither is llm_usage telemetry.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    signal = str(payload.get("task_signal") or "bug fix")
+    commands = []
+    for name, probe in PER_TASK_PAYLOAD_PROBES:
+        try:
+            num_bytes = printed_payload_bytes(probe(signal))
+        except Exception as e:
+            # A broken probe must degrade the meter, never break the caller.
+            commands.append({"command": name, "error": str(e)})
+            continue
+        commands.append({
+            "command": name,
+            "bytes": num_bytes,
+            "tokens_est": estimate_context_tokens(num_bytes),
+        })
+    total = sum(item.get("bytes", 0) for item in commands)
+    return {
+        "result": "payload_budget",
+        "metric": "tool_output",
+        "note": "per-command output footprint (bytes/estimated tokens); not llm_usage telemetry",
+        "task_signal": signal,
+        "commands": commands,
+        "total_bytes": total,
+        "total_tokens_est": estimate_context_tokens(total),
+    }
+
+
+def payload_budget(argv):
+    payload = {}
+    if argv:
+        try:
+            payload, _ = json_arg_or_stdin(argv, "payload-budget")
+        except Exception as e:
+            json_print({"result": "payload_budget_rejected", "errors": [str(e)]})
+            return
+    json_print(payload_budget_payload(payload))
 
 
 def rot_status_payload():

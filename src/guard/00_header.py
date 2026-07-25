@@ -20,9 +20,11 @@ Các mode:
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
   evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+                 Prints the acting digest; `--verbose` prints the full decision.
   adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
   route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
   context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
+  payload-budget  Đo footprint output (bytes/token) của các command một task gọi.
   codebase-index  Tạo local SQLite code graph theo budget explicit.
   codebase-status Báo freshness/coverage count của code graph hiện tại.
   codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
@@ -35,6 +37,7 @@ Các mode:
   os-start       Open an adaptive OS task run and write the scoped contract.
                  `os-start --explain` prints the request schema (no run opened).
   os-status      Show active OS task status, mode and cost ledger.
+                 `os-status --verbose` prints the full router decision too.
   os-evidence    Append sanitized command/tool/metric evidence to an OS run.
   os-close       Validate receipt, gates, truth claims and target seal.
                  `os-close --dry-run` runs the full validation without sealing.
@@ -311,6 +314,7 @@ GUARD_MODES = {
     "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
     "route-task": _guard_mode("argv", self_host=True),
     "context-budget": _guard_mode("argv"),
+    "payload-budget": _guard_mode("argv"),
     "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
     "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
     "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
@@ -553,6 +557,9 @@ SAFE_OS_EVIDENCE_METADATA_KEYS = {
     "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
     "total_tokens", "real_token_telemetry", "unavailable_reason",
     "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+    # `unpriced_tokens` matches SECRET_KEY_RE on "token" — it is a count, not a
+    # credential, so it needs the same exemption the other *_tokens counts have.
+    "unpriced_tokens",
     "model", "pricing_source", "window_start", "subagent_scope",
     "consumer_value_result", "all_mandatory_not_worse",
     "consumer_visible_win", "mandatory_regressions", "wins",

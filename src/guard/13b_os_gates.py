@@ -686,6 +686,7 @@ def sanitize_os_evidence_payload(payload):
         "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
         "total_tokens", "real_token_telemetry", "unavailable_reason",
         "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+        "cost_complete", "unpriced_models", "unpriced_tokens",
         "model", "pricing_source", "window_start", "subagent_scope",
         "consumer_value_result", "all_mandatory_not_worse",
         "consumer_visible_win", "mandatory_regressions", "wins",

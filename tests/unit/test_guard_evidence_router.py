@@ -126,7 +126,95 @@ def test_adapter_contract_is_complete_and_missing_capabilities_are_not_claimed(g
     assert out["complete"] is True
     assert set(out["capabilities"]) == set(guard.ADAPTER_CAPABILITY_KEYS)
     assert set(out["capabilities"].values()) == {"unavailable"}
-    assert set(out["sources"].values()) == {"missing"}
+    # "missing" is the default provenance, so it is summarised rather than
+    # repeated once per key; the count still proves nothing was claimed.
+    assert out["sources"] == {}
+    assert out["sources_summary"]["missing"] == len(guard.ADAPTER_CAPABILITY_KEYS)
+
+
+def test_unavailable_capabilities_collapse_into_one_limitation(guard):
+    """15 boilerplate lines cost tokens and bury the limitations that matter."""
+    out = guard.adapter_capabilities_payload({"adapter": "new-harness"})
+    assert len(out["limitations"]) == 1
+    only = out["limitations"][0]
+    assert "15 capability(ies) unavailable" in only
+    # Every key is still named, so no information is lost.
+    for key in guard.ADAPTER_CAPABILITY_KEYS:
+        assert key in only
+
+
+def test_adapter_resolution_precedence(guard, monkeypatch):
+    """request > PILOTHOS_ADAPTER > harness env signal > unknown."""
+    monkeypatch.setenv("PILOTHOS_ADAPTER", "cursor")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert guard.resolve_adapter({"adapter": "codex"}) == ("codex", "request")
+    assert guard.resolve_adapter({}) == ("cursor", "env")
+    monkeypatch.delenv("PILOTHOS_ADAPTER")
+    assert guard.resolve_adapter({}) == ("claude", "detected")
+    monkeypatch.delenv("CLAUDECODE")
+    assert guard.resolve_adapter({}) == ("unknown", "default")
+
+
+def test_cursor_integrated_terminal_is_not_an_agent_signal(guard, monkeypatch):
+    """`CURSOR_CLI` means "a Cursor terminal", not "the Cursor agent is driving".
+
+    It is set even when a human types commands by hand, so treating it as a
+    detection signal would claim cursor's capability profile for a session that
+    never went through the agent.
+    """
+    monkeypatch.setenv("CURSOR_CLI", "/Applications/Cursor.app")
+    assert guard.resolve_adapter({}) == ("unknown", "default")
+    monkeypatch.setenv("CURSOR_AGENT", "1")
+    assert guard.resolve_adapter({}) == ("cursor", "detected")
+
+
+def test_every_detection_signal_maps_to_a_declared_adapter(guard):
+    """A signal naming an adapter the registry doesn't declare would silently
+    never fire — detection only yields ids adapter-capabilities.json declares."""
+    registry = guard.load_adapter_capability_registry()
+    for var, adapter in guard.ADAPTER_ENV_SIGNALS:
+        assert adapter in registry, f"{var} maps to undeclared adapter {adapter!r}"
+
+
+def test_unregistered_env_override_stays_conservative(guard, monkeypatch):
+    """An override naming nothing we know must not silently fall back to detection."""
+    monkeypatch.setenv("PILOTHOS_ADAPTER", "typo-harness")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    assert guard.resolve_adapter({}) == ("unknown", "default")
+
+
+def test_detected_adapter_unlocks_the_capability_profile(guard, monkeypatch):
+    """Without detection every consumer ran the worst path: enforced -> advisory.
+
+    `unknown` resolves all 15 capabilities to `unavailable`, which fails the
+    enforcement gate, so the router downgrades an enforced rollout even on a
+    harness that does support hooks and seals.
+    """
+    request = {
+        "task_signal": "bug fix", "task_type": "code", "scope": "narrow",
+        "router_mode": "enforced",
+    }
+    blind = guard.evidence_route_payload(dict(request))
+    assert blind["adapter_capabilities"]["adapter"] == "unknown"
+    assert blind["rollout"]["mode"] == "advisory"
+    assert any("capability gaps" in item for item in blind["limitations"])
+
+    monkeypatch.setenv("CLAUDECODE", "1")
+    detected = guard.evidence_route_payload(dict(request))
+    assert detected["adapter_capabilities"]["adapter_source"] == "detected"
+    assert detected["rollout"]["mode"] == "enforced"
+    # Cheaper as well as stronger: no boilerplate limitation survives.
+    assert detected["limitations"] == []
+
+
+def test_emulated_capabilities_stay_itemised(guard):
+    out = guard.adapter_capabilities_payload({
+        "adapter": "new-harness",
+        "stop_hooks": "emulated",
+        "seal_enforcement": "emulated",
+    })
+    assert len(out["degraded"]) == 2
+    assert any("stop_hooks" in line for line in out["degraded"])
 
 
 def test_adapter_handshake_accepts_direct_capability_file_shape(guard):
@@ -439,6 +527,32 @@ def test_enforced_low_confidence_route_requires_recorded_resolution(guard):
     assert guard.evidence_router_receipt_errors(
         {"evidence_router": decision}, receipt,
     ) == []
+
+
+# ------------------------------------------------- route digest (token budget)
+
+def test_digest_is_much_smaller_but_keeps_the_acting_fields(guard):
+    """os-start and every os-status reprinted the full decision; digest replaces it."""
+    decision = route(guard)
+    digest = guard.evidence_route_digest(decision)
+    full_bytes = len(json.dumps(decision))
+    digest_bytes = len(json.dumps(digest))
+    assert digest_bytes < full_bytes / 2, (full_bytes, digest_bytes)
+    # decision_id is the join key between contract, receipt and seal — losing it
+    # would break receipt validation, not just readability.
+    assert digest["decision_id"] == decision["decision_id"]
+    assert digest["digest"] is True
+    for key in ("evidence_plan", "verification_plan", "limitations", "fallbacks"):
+        assert key in digest
+    assert len(digest["evidence_plan"]) == len(decision["evidence_plan"])
+    assert digest["execution"]["mode"] == decision["execution_plan"]["mode"]
+    assert digest["rollout"]["mode"] == decision["rollout"]["mode"]
+
+
+def test_digest_passes_rejections_and_non_decisions_through(guard):
+    rejected = guard.evidence_route_payload({"task_signal": 5})
+    assert guard.evidence_route_digest(rejected) is rejected
+    assert guard.evidence_route_digest({}) == {}
 
 
 def test_compatibility_wrappers_keep_v1_result_and_attach_router(guard):

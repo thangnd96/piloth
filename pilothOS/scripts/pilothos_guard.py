@@ -20,9 +20,11 @@ Các mode:
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
   evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+                 Prints the acting digest; `--verbose` prints the full decision.
   adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
   route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
   context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
+  payload-budget  Đo footprint output (bytes/token) của các command một task gọi.
   codebase-index  Tạo local SQLite code graph theo budget explicit.
   codebase-status Báo freshness/coverage count của code graph hiện tại.
   codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
@@ -35,6 +37,7 @@ Các mode:
   os-start       Open an adaptive OS task run and write the scoped contract.
                  `os-start --explain` prints the request schema (no run opened).
   os-status      Show active OS task status, mode and cost ledger.
+                 `os-status --verbose` prints the full router decision too.
   os-evidence    Append sanitized command/tool/metric evidence to an OS run.
   os-close       Validate receipt, gates, truth claims and target seal.
                  `os-close --dry-run` runs the full validation without sealing.
@@ -311,6 +314,7 @@ GUARD_MODES = {
     "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
     "route-task": _guard_mode("argv", self_host=True),
     "context-budget": _guard_mode("argv"),
+    "payload-budget": _guard_mode("argv"),
     "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
     "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
     "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
@@ -553,6 +557,9 @@ SAFE_OS_EVIDENCE_METADATA_KEYS = {
     "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
     "total_tokens", "real_token_telemetry", "unavailable_reason",
     "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+    # `unpriced_tokens` matches SECRET_KEY_RE on "token" — it is a count, not a
+    # credential, so it needs the same exemption the other *_tokens counts have.
+    "unpriced_tokens",
     "model", "pricing_source", "window_start", "subagent_scope",
     "consumer_value_result", "all_mandatory_not_worse",
     "consumer_visible_win", "mandatory_regressions", "wins",
@@ -3282,6 +3289,73 @@ def apply_bootstrap_mode(files, mode):
     return list(files)
 
 
+def route_task_asset_views(detected, route):
+    """(detected_assets, consumer_asset_routing, context_evidence) for one route.
+
+    Three views over the same asset set, kept together because they are derived
+    from the same per-asset health lookup. Only the last two are contract shapes
+    (validated on contract/receipt); `detected_assets` is a plain inventory view.
+    """
+    asset_rows = []
+    routing = []
+    context_evidence = []
+    for row in detected:
+        load_when = registry_load_when(row)
+        health = health_for_asset(normalize_asset_row(row))
+        health_status = health.get("status")
+        # `reason` stays a non-empty string (the contract validator requires it),
+        # but it should not restate what the entry already carries structurally:
+        # the row has task_signal and asset_type, so the asset PATH is the only
+        # new information — and it is load-bearing, because a routing entry has
+        # no `asset` field to identify which asset it decided about.
+        if health_status == "healthy":
+            decision = "approval_required" if load_when == "approval-required" else "loaded"
+            routing_reason = f"matched {row['asset']}"
+        elif health_status == "needs_approval":
+            decision = "approval_required"
+            routing_reason = f"{row['asset']}: approval required ({health.get('health_reason')})"
+        else:
+            decision = "skipped"
+            routing_reason = f"{row['asset']}: health {health_status} ({health.get('health_reason')})"
+        # Inventory view, not a contract shape: nothing validates it and no doc
+        # specifies it. `health_reason` mostly restated the asset path, and
+        # `handling` was almost always "index" — both are available from
+        # asset-scan / asset-health when the detail is actually wanted.
+        asset_rows.append({
+            "asset": row["asset"],
+            "type": row["type"],
+            "risk": row["risk"],
+            "load_when": load_when,
+            "health_status": health_status,
+        })
+        routing.append({
+            "task_signal": route["task_signal"],
+            "asset_type": row["type"],
+            "decision": decision,
+            "reason": routing_reason,
+        })
+        context_evidence.append({
+            "source": row["asset"],
+            # `source` already names the asset and the paired routing entry
+            # already names the signal — the asset type is what this adds.
+            "reason": f"routed as {row['type']}",
+            "finding": f"{row['capability']} (health: {health_status})",
+        })
+    if not routing:
+        routing.append({
+            "task_signal": route["task_signal"],
+            "asset_type": "not_applicable",
+            "decision": "not_applicable",
+            "reason": "no matching consumer asset detected by deterministic audit",
+        })
+        context_evidence.append({
+            "source": "runtime/consumer-assets.md",
+            "reason": f"{route['task_signal']} routing lookup",
+            "finding": "no matching consumer asset detected by deterministic audit",
+        })
+    return asset_rows, routing, context_evidence
+
+
 def route_task_payload(payload):
     if not isinstance(payload, dict):
         return {"result": "route_rejected", "errors": ["route payload must be a JSON object"]}
@@ -3301,68 +3375,16 @@ def route_task_payload(payload):
         row for row in all_rows
         if row.get("type") in asset_types
     ]
+    # Receipt guidance, not a validated contract shape. The rule is the same for
+    # every row, so it is stated once as `skipped_reason` instead of repeated per
+    # asset — the old per-row `reason`/`decision`/`risk` restated the row's own
+    # type plus the response's task_signal, once per asset.
     skipped_assets = [
-        {
-            "asset": row["asset"],
-            "type": row["type"],
-            "risk": row["risk"],
-            "decision": "skipped",
-            "reason": f"{row['type']} is not routed for {route['task_signal']}",
-        }
+        {"asset": row["asset"], "type": row["type"]}
         for row in all_rows
         if row.get("type") not in asset_types
     ]
-    asset_rows = []
-    routing = []
-    context_evidence = []
-    for row in detected:
-        load_when = registry_load_when(row)
-        health = health_for_asset(normalize_asset_row(row))
-        health_status = health.get("status")
-        if health_status == "healthy":
-            decision = "approval_required" if load_when == "approval-required" else "loaded"
-            routing_reason = f"{row['asset']} matched {route['task_signal']} routing"
-        elif health_status == "needs_approval":
-            decision = "approval_required"
-            routing_reason = f"{row['asset']} matched but health requires approval: {health.get('health_reason')}"
-        elif health_status in {"missing", "stale"}:
-            decision = "skipped"
-            routing_reason = f"{row['asset']} matched but health is {health_status}: {health.get('health_reason')}"
-        else:
-            decision = "skipped"
-            routing_reason = f"{row['asset']} matched but health is {health_status}: {health.get('health_reason')}"
-        asset_rows.append({
-            "asset": row["asset"],
-            "type": row["type"],
-            "risk": row["risk"],
-            "handling": row["handling"],
-            "load_when": load_when,
-            "health_status": health_status,
-            "health_reason": health.get("health_reason"),
-        })
-        routing.append({
-            "task_signal": route["task_signal"],
-            "asset_type": row["type"],
-            "decision": decision,
-            "reason": routing_reason,
-        })
-        context_evidence.append({
-            "source": row["asset"],
-            "reason": f"{row['type']} matched {route['task_signal']} routing",
-            "finding": f"{row['capability']} (health: {health_status})",
-        })
-    if not routing:
-        routing.append({
-            "task_signal": route["task_signal"],
-            "asset_type": "not_applicable",
-            "decision": "not_applicable",
-            "reason": "no matching consumer asset detected by deterministic audit",
-        })
-        context_evidence.append({
-            "source": "runtime/consumer-assets.md",
-            "reason": f"{route['task_signal']} routing lookup",
-            "finding": "no matching consumer asset detected by deterministic audit",
-        })
+    asset_rows, routing, context_evidence = route_task_asset_views(detected, route)
 
     mode = context_mode_from_payload(payload)
     index_first = apply_context_mode(
@@ -3378,6 +3400,10 @@ def route_task_payload(payload):
         "inspect_asset_types": list(route["asset_types"]),
         "detected_assets": asset_rows,
         "skipped_assets": skipped_assets,
+        "skipped_reason": (
+            f"asset type is not routed for {route['task_signal']}"
+            if skipped_assets else ""
+        ),
         "context_evidence": context_evidence,
         "consumer_asset_routing": routing,
     }
@@ -3390,7 +3416,12 @@ def route_task_attach_evidence_router(result, payload):
         return result
     router_request = dict(payload)
     router_request.setdefault("intent", payload.get("task_scope") or "")
-    result["evidence_router"] = evidence_route_payload(router_request)
+    # Digest, not the full decision: this wrapper is a routing hint, and the full
+    # blob was 5.8 KB of the 20 KB route-task printed. Callers that need all of
+    # it call evidence-route --verbose.
+    result["evidence_router"] = evidence_route_digest(
+        evidence_route_payload(router_request),
+    )
     return result
 
 
@@ -3444,6 +3475,30 @@ def full_kernel_footprint():
     return files, total
 
 
+# Docs that inflate the full-kernel ceiling without ever being routable context:
+# skills/ payloads are only opened while that skill executes, and README/
+# VALIDATION document the kernel to humans instead of instructing a task. Kept
+# out of the honest denominator so the savings figure is not flattered by text a
+# routed task could never have loaded.
+NON_ROUTABLE_KERNEL = ("README.md", "VALIDATION.md", "CHANGELOG.md")
+
+
+def routable_kernel_footprint():
+    """(file_count, total_bytes) of the kernel docs a routed task could load."""
+    total = 0
+    files = 0
+    for path in PILOTHOS_DIR.rglob("*.md"):
+        rel = path.relative_to(PILOTHOS_DIR)
+        if rel.parts[0] == "skills" or rel.as_posix() in NON_ROUTABLE_KERNEL:
+            continue
+        try:
+            total += path.stat().st_size
+            files += 1
+        except OSError:
+            continue
+    return files, total
+
+
 def context_budget_payload(payload):
     """Measure the deterministic context footprint of a routed task.
 
@@ -3482,6 +3537,11 @@ def context_budget_payload(payload):
     kernel_files, kernel_bytes = full_kernel_footprint()
     saved_bytes = max(kernel_bytes - loaded_bytes, 0)
     savings_pct = round(saved_bytes / kernel_bytes * 100, 1) if kernel_bytes else 0.0
+    routable_files, routable_bytes = routable_kernel_footprint()
+    routable_savings_pct = (
+        round(max(routable_bytes - loaded_bytes, 0) / routable_bytes * 100, 1)
+        if routable_bytes else 0.0
+    )
 
     return {
         "result": "context_budget",
@@ -3501,6 +3561,12 @@ def context_budget_payload(payload):
         "full_kernel_tokens_est": estimate_context_tokens(kernel_bytes),
         "saved_bytes_vs_full_kernel": saved_bytes,
         "savings_pct_vs_full_kernel": savings_pct,
+        # The honest comparison: routable docs only. Lower than the full-kernel
+        # figure by design — quote this one when claiming a saving.
+        "routable_kernel_files": routable_files,
+        "routable_kernel_bytes": routable_bytes,
+        "routable_kernel_tokens_est": estimate_context_tokens(routable_bytes),
+        "savings_pct_vs_routable_kernel": routable_savings_pct,
     }
 
 
@@ -3511,6 +3577,78 @@ def context_budget(argv):
         json_print({"result": "context_budget_rejected", "errors": [str(e)]})
         return
     json_print(context_budget_payload(payload))
+
+
+# --------------------------------------------------------- payload budget
+
+# The read-only commands a routed task actually calls, with the smallest
+# realistic argument for each. Their JSON lands in the agent's context, so it
+# costs tokens exactly like a loaded file — and context-budget never saw it.
+PER_TASK_PAYLOAD_PROBES = (
+    ("route-task", lambda signal: route_task_payload({"task_signal": signal})),
+    ("rot-status", lambda signal: rot_status_payload()),
+    ("codebase-status", lambda signal: codebase_status_payload()),
+    ("adapter-capabilities", lambda signal: adapter_capabilities_payload({})),
+    ("evidence-route", lambda signal: evidence_route_digest(
+        evidence_route_payload({
+            "task_signal": signal,
+            "task_type": "code",
+            "scope": "narrow",
+        }),
+    )),
+)
+
+
+def printed_payload_bytes(payload):
+    """Bytes a payload occupies once json_print has written it."""
+    return len(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    ) + 1
+
+
+def payload_budget_payload(payload=None):
+    """Per-command tool-output footprint for one routed task.
+
+    Sibling of context_budget: that one measures the kernel text a task pulls
+    into context, this one measures the JSON the task prints back into it. Both
+    are ~4 bytes/token estimates and neither is llm_usage telemetry.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    signal = str(payload.get("task_signal") or "bug fix")
+    commands = []
+    for name, probe in PER_TASK_PAYLOAD_PROBES:
+        try:
+            num_bytes = printed_payload_bytes(probe(signal))
+        except Exception as e:
+            # A broken probe must degrade the meter, never break the caller.
+            commands.append({"command": name, "error": str(e)})
+            continue
+        commands.append({
+            "command": name,
+            "bytes": num_bytes,
+            "tokens_est": estimate_context_tokens(num_bytes),
+        })
+    total = sum(item.get("bytes", 0) for item in commands)
+    return {
+        "result": "payload_budget",
+        "metric": "tool_output",
+        "note": "per-command output footprint (bytes/estimated tokens); not llm_usage telemetry",
+        "task_signal": signal,
+        "commands": commands,
+        "total_bytes": total,
+        "total_tokens_est": estimate_context_tokens(total),
+    }
+
+
+def payload_budget(argv):
+    payload = {}
+    if argv:
+        try:
+            payload, _ = json_arg_or_stdin(argv, "payload-budget")
+        except Exception as e:
+            json_print({"result": "payload_budget_rejected", "errors": [str(e)]})
+            return
+    json_print(payload_budget_payload(payload))
 
 
 def rot_status_payload():
@@ -4920,6 +5058,27 @@ ADAPTER_CAPABILITY_KEYS = (
     "receipt_enforcement",
     "seal_enforcement",
 )
+# Presence of the variable is the signal, not its value. Each maps to an adapter
+# id the capability registry must declare before detection may use it.
+#
+# Only variables the harness sets in the process that runs this guard belong here.
+# Notably absent: CURSOR_CLI, which Cursor's integrated terminal sets even when a
+# human is typing commands by hand — it says "a Cursor terminal", not "the Cursor
+# agent is driving", so using it would claim cursor's capability profile for a
+# session that never went through the agent.
+ADAPTER_ENV_SIGNALS = (
+    ("CLAUDECODE", "claude"),
+    ("CLAUDE_PROJECT_DIR", "claude"),
+    # Set by Cursor CLI while the agent runs a shell command. Cursor has an open
+    # report of it not being set consistently, so treat a miss as "unknown".
+    ("CURSOR_AGENT", "cursor"),
+    # Codex sets this ("seatbelt" on macOS) on the child process it spawns for a
+    # tool call — which is where this guard runs. Two caveats: it is undocumented
+    # (Codex points at --sandbox / config.toml instead) and it only appears when
+    # sandboxing is on, so `codex --sandbox danger-full-access` resolves to
+    # "unknown". Both directions fail closed, never toward a wrong claim.
+    ("CODEX_SANDBOX", "codex"),
+)
 EVIDENCE_ROUTER_ROLLOUT_MODES = {"off", "shadow", "advisory", "enforced"}
 EVIDENCE_ROUTER_DEFAULT_BUDGET = {
     "max_roles": 3,
@@ -5063,6 +5222,37 @@ def load_adapter_capability_registry():
     return adapters if isinstance(adapters, dict) else {}
 
 
+def resolve_adapter(payload):
+    """``(adapter_id, source)`` for a capability request.
+
+    Precedence: explicit request > ``PILOTHOS_ADAPTER`` > harness env signal >
+    ``"unknown"``.  Without this every caller defaults to ``unknown``, which is
+    the worst path available: all 15 capabilities resolve to ``unavailable``, so
+    an ``enforced`` rollout silently degrades to ``advisory`` even on a harness
+    that does support hooks and seals.
+
+    An explicit request keeps whatever id it names — declaring an unregistered
+    harness is legitimate and simply resolves every capability to
+    ``unavailable``.  Env detection is stricter and only yields ids the registry
+    declares, so Piloth never invents a capability profile from a stray
+    variable.  ``adapter_source`` travels with the answer so the resolution
+    stays auditable instead of looking like a claim.
+    """
+    requested = str(payload.get("adapter") or "").strip().lower()
+    if requested:
+        return requested, "request"
+    registry = load_adapter_capability_registry()
+    declared = str(os.environ.get("PILOTHOS_ADAPTER") or "").strip().lower()
+    if declared:
+        # An explicit override that names nothing we know stays conservative
+        # rather than falling through to detection behind the user's back.
+        return (declared, "env") if declared in registry else ("unknown", "default")
+    for var, adapter in ADAPTER_ENV_SIGNALS:
+        if os.environ.get(var) and adapter in registry:
+            return adapter, "detected"
+    return "unknown", "default"
+
+
 def adapter_capabilities_payload(payload):
     if not isinstance(payload, dict):
         return {
@@ -5076,7 +5266,7 @@ def adapter_capabilities_payload(payload):
             "statuses": sorted(ADAPTER_CAPABILITY_STATUS),
             "capabilities": list(ADAPTER_CAPABILITY_KEYS),
         }
-    adapter = str(payload.get("adapter") or "unknown").strip().lower()
+    adapter, adapter_source = resolve_adapter(payload)
     registry = load_adapter_capability_registry()
     declared = registry.get(adapter)
     if not isinstance(declared, dict):
@@ -5124,11 +5314,19 @@ def adapter_capabilities_payload(payload):
         else:
             normalized[key] = "unavailable"
             sources[key] = "missing"
-    limitations = [
-        f"{key} is unavailable; no native capability is claimed"
-        for key, status in normalized.items()
-        if status == "unavailable"
+    # One aggregate line, not one line per key: the per-key statuses are already
+    # in `capabilities`, and 15 boilerplate sentences both cost tokens and dilute
+    # the limitations that carry real signal.
+    unavailable = [
+        key for key, status in normalized.items() if status == "unavailable"
     ]
+    limitations = []
+    if unavailable:
+        limitations.append(
+            f"{len(unavailable)} capability(ies) unavailable; no native path is "
+            "claimed: " + ", ".join(unavailable)
+        )
+    # Emulated stays itemised — an emulated path is a decision input, not noise.
     degraded = [
         f"{key} uses an emulated adapter path"
         for key, status in normalized.items()
@@ -5138,8 +5336,17 @@ def adapter_capabilities_payload(payload):
         "result": "adapter_capabilities",
         "read_only": True,
         "adapter": adapter,
+        "adapter_source": adapter_source,
         "capabilities": normalized,
-        "sources": sources,
+        # Only provenance that says something: "missing" is the default and is
+        # recoverable from `capabilities` plus `sources_summary`.
+        "sources": {
+            key: value for key, value in sources.items() if value != "missing"
+        },
+        "sources_summary": {
+            name: sum(1 for value in sources.values() if value == name)
+            for name in ("request", "registry", "missing")
+        },
         "complete": len(normalized) == len(ADAPTER_CAPABILITY_KEYS),
         "limitations": limitations,
         "degraded": degraded,
@@ -5519,7 +5726,7 @@ def specialist_score_candidate(candidate, request, signal, task_class, evidence_
     health = str(candidate.get("health") or "unknown").lower()
     if health not in {"healthy", "ready"}:
         disqualified.append(f"health={health}")
-    adapter = str(request.get("adapter") or "unknown").lower()
+    adapter, _ = resolve_adapter(request)
     support = {
         str(x).lower() for x in candidate.get("adapter_support", [])
         if isinstance(x, str)
@@ -5991,6 +6198,82 @@ def evidence_route_output(
     }
 
 
+def evidence_route_digest(decision):
+    """The acting half of a route decision; `--verbose` and state keep the rest.
+
+    A full decision is ~1.8-2.3k tokens, and `os-start` plus every `os-status`
+    reprinted it even though the same blob is already persisted to
+    `contract.json` and the run state. The digest keeps what changes what the
+    agent does next — plan, gates, budgets, limitations — and drops the
+    provenance that gate logic reads from state rather than from stdout.
+    """
+    if not isinstance(decision, dict) or decision.get("result") != "evidence_route":
+        return decision
+    execution = decision.get("execution_plan") or {}
+    capabilities = decision.get("adapter_capabilities") or {}
+    rollout = decision.get("rollout") or {}
+    specialist = execution.get("specialist") or {}
+
+    def items(key):
+        return [x for x in (decision.get(key) or []) if isinstance(x, dict)]
+
+    return {
+        "result": decision.get("result"),
+        "schema_version": decision.get("schema_version"),
+        "digest": True,
+        "decision_id": decision.get("decision_id"),
+        "decision_summary": decision.get("decision_summary"),
+        "task_signal": decision.get("task_signal"),
+        "task_class": decision.get("task_class"),
+        "risk": decision.get("risk"),
+        "confidence": decision.get("confidence"),
+        "adapter": {
+            "adapter": capabilities.get("adapter"),
+            "source": capabilities.get("adapter_source"),
+            "degraded": capabilities.get("degraded", []),
+        },
+        "rollout": {
+            "mode": rollout.get("mode"),
+            "kill_switch": rollout.get("kill_switch"),
+        },
+        "execution": {
+            "mode": execution.get("mode"),
+            "controls_execution": execution.get("controls_execution"),
+            "team": execution.get("team"),
+            "roles": execution.get("roles", []),
+            "mandatory_independent_review": execution.get(
+                "mandatory_independent_review",
+            ),
+            "max_repair_loops": execution.get("max_repair_loops"),
+            "model_tiers": execution.get("model_tiers", {}),
+            "specialist": specialist.get("id", ""),
+        },
+        "evidence_plan": [
+            {
+                "type": item.get("type"),
+                "source": item.get("source"),
+                "required": item.get("required"),
+            }
+            for item in items("evidence_plan")
+        ],
+        "verification_plan": [
+            {"method": item.get("method"), "required": item.get("required")}
+            for item in items("verification_plan")
+        ],
+        "context_plan": [item.get("source") for item in items("context_plan")],
+        "tool_plan": [item.get("tool") for item in items("tool_plan")],
+        # hard_limits only names keys that are already present alongside it.
+        "budgets": {
+            key: value
+            for key, value in (decision.get("budgets") or {}).items()
+            if key != "hard_limits"
+        },
+        "limitations": decision.get("limitations", []),
+        "fallbacks": decision.get("fallbacks", []),
+        "verbose_with": "--verbose (evidence-route/os-status) or the run's contract.json",
+    }
+
+
 def finalize_evidence_route(
     request, matrix, matrix_source, signal, task_class, class_reasons, risk, confidence, evidence_plan, context_plan,
     execution_plan, tool_plan, verification_plan, budget, capability_result, specialist, evidence_fallbacks, evidence_limitations, execution_limitations,
@@ -6154,8 +6437,11 @@ def evidence_route_payload(request):
     task_row = matrix["task_matrix"].get(signal, {})
     task_class = str(task_row.get("task_class") or "small_task")
     risk = evidence_router_risk(request, signal, task_row)
+    # Pass the request's adapter through untouched (absent stays absent) so
+    # resolve_adapter can fall back to env detection instead of being pinned to
+    # "unknown" before it ever runs.
     capability_request = {
-        "adapter": request.get("adapter") or "unknown",
+        "adapter": request.get("adapter"),
         "adapter_capabilities": request.get("adapter_capabilities") or {},
     }
     capability_result = adapter_capabilities_payload(capability_request)
@@ -6207,9 +6493,12 @@ def evidence_route_payload(request):
 
 
 def evidence_route(argv):
-    if "--explain" in list(argv):
+    argv = list(argv)
+    if "--explain" in argv:
         json_print(evidence_router_schema_payload())
         return
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if a != "--verbose"]
     try:
         request, _ = json_arg_or_stdin(argv, "evidence-route")
     except Exception as e:
@@ -6218,7 +6507,8 @@ def evidence_route(argv):
             "errors": [str(e)],
         })
         return
-    json_print(evidence_route_payload(request))
+    decision = evidence_route_payload(request)
+    json_print(decision if verbose else evidence_route_digest(decision))
 
 # -------------------------------------------------------------- scheduler v4
 
@@ -6451,7 +6741,9 @@ def scheduler_suggest_payload(payload):
     # Compatibility wrapper for one major version. Existing scheduler fields
     # remain unchanged; new consumers should use evidence-route directly.
     if payload.get("_router_compat_only") is not True:
-        result["evidence_router"] = evidence_route_payload(payload)
+        result["evidence_router"] = evidence_route_digest(
+            evidence_route_payload(payload),
+        )
     return result
 
 
@@ -9136,6 +9428,7 @@ def sanitize_os_evidence_payload(payload):
         "chars", "bytes", "duration_ms", "input_tokens", "output_tokens",
         "total_tokens", "real_token_telemetry", "unavailable_reason",
         "cache_creation_input_tokens", "cache_read_input_tokens", "cost_usd",
+        "cost_complete", "unpriced_models", "unpriced_tokens",
         "model", "pricing_source", "window_start", "subagent_scope",
         "consumer_value_result", "all_mandatory_not_worse",
         "consumer_visible_win", "mandatory_regressions", "wins",
@@ -9297,21 +9590,33 @@ TRANSCRIPT_USAGE_KEYS = (
     "input_tokens", "output_tokens",
     "cache_creation_input_tokens", "cache_read_input_tokens",
 )
+# Transcript `message.model` values that are not a model call. They carry a
+# usage block, so they would otherwise be summed as real tokens and — being
+# absent from the price map — reported as an unpriced model.
+NON_BILLABLE_TRANSCRIPT_MODELS = frozenset({"<synthetic>"})
 
 
 def sum_transcript_usage(path, since=None, pricing=None):
     """Sum real per-turn `message.usage` from a Claude Code transcript, windowed
     to records at/after `since` (a datetime). Returns a dict with summed usage,
-    per-model token totals, a summed cost (or None when any model is unpriced),
-    and record/model counts — or None if the file can't be read.
+    per-model token totals, the cost of the priced portion, and record/model
+    counts — or None if the file can't be read.
+
+    Cost is a subtotal, not all-or-nothing: an unpriced model used to void
+    `cost_usd` for the entire run, silently, so a single turn on a model missing
+    from the price map cost the caller every other turn's number too. Now the
+    priced portion is summed and the gap is declared in `cost_complete` /
+    `unpriced_models` / `unpriced_tokens`. `cost_usd` is None only when nothing
+    at all could be priced.
 
     Attribution is main-session-only: background subagent transcripts are
     separate files and are not summed here (disclosed as subagent_scope)."""
     usage = {k: 0 for k in TRANSCRIPT_USAGE_KEYS}
     per_model_tokens = {}
+    unpriced_models = {}
     records = 0
     cost_total = 0.0
-    cost_available = True
+    priced_records = 0
     pricing = pricing if isinstance(pricing, dict) else load_model_pricing()
     try:
         with open(path, encoding="utf-8") as f:
@@ -9333,17 +9638,23 @@ def sum_transcript_usage(path, since=None, pricing=None):
                 u = msg.get("usage") if isinstance(msg, dict) else None
                 if not isinstance(u, dict):
                     continue
+                model = msg.get("model") if non_empty_string(msg.get("model")) else "unknown"
+                if model in NON_BILLABLE_TRANSCRIPT_MODELS:
+                    # Harness-generated turn, not a model call. Counting it would
+                    # overstate real tokens and make the run look unpriced.
+                    continue
                 records += 1
                 row = {k: metric_int(u.get(k)) for k in TRANSCRIPT_USAGE_KEYS}
                 for k in TRANSCRIPT_USAGE_KEYS:
                     usage[k] += row[k]
-                model = msg.get("model") if non_empty_string(msg.get("model")) else "unknown"
-                per_model_tokens[model] = per_model_tokens.get(model, 0) + sum(row.values())
+                row_tokens = sum(row.values())
+                per_model_tokens[model] = per_model_tokens.get(model, 0) + row_tokens
                 c = compute_token_cost_usd(row, model, pricing)
                 if c is None:
-                    cost_available = False
+                    unpriced_models[model] = unpriced_models.get(model, 0) + row_tokens
                 else:
                     cost_total += c
+                    priced_records += 1
     except OSError:
         return None
     primary_model = max(per_model_tokens, key=per_model_tokens.get) if per_model_tokens else ""
@@ -9352,9 +9663,63 @@ def sum_transcript_usage(path, since=None, pricing=None):
         "records": records,
         "models": sorted(per_model_tokens),
         "primary_model": primary_model,
-        "cost_usd": round(cost_total, 6) if cost_available else None,
+        "cost_usd": round(cost_total, 6) if priced_records else None,
+        "cost_complete": not unpriced_models,
+        "unpriced_models": sorted(unpriced_models),
+        "unpriced_tokens": sum(unpriced_models.values()),
         "pricing_source": pricing.get("source") if isinstance(pricing, dict) else "",
     }
+
+
+def token_telemetry_payload(task_id, created_at, summed):
+    """(evidence payload, result label) for a summed transcript, or for no data.
+
+    Split out of token_telemetry so the mode function stays inside the
+    function-length ratchet; it is also the unit under test for the cost fields.
+    """
+    base = {
+        "task_id": task_id,
+        "kind": "metric",
+        "metric_type": "llm_usage",
+        "metric_name": "session-token-usage",
+        "subagent_scope": "main_session_only",
+    }
+    if not summed or summed.get("records", 0) == 0:
+        base.update({
+            "real_token_telemetry": False,
+            "unavailable_reason": "no Claude Code transcript usage found for this session (harness may not expose per-turn token telemetry)",
+            "summary": "token telemetry unavailable",
+        })
+        return base, "token_telemetry_unavailable"
+
+    usage = summed["usage"]
+    base.update({
+        "real_token_telemetry": True,
+        "input_tokens": usage["input_tokens"],
+        "output_tokens": usage["output_tokens"],
+        "cache_creation_input_tokens": usage["cache_creation_input_tokens"],
+        "cache_read_input_tokens": usage["cache_read_input_tokens"],
+        "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+        "model": summed.get("primary_model") or "",
+        "window_start": created_at or "",
+        "summary": f"session token telemetry from Claude Code transcript ({summed['records']} turns)",
+    })
+    if summed.get("cost_usd") is not None:
+        base["cost_usd"] = summed["cost_usd"]
+        # Whether the cost covers every turn travels with the number, so a
+        # subtotal is never mistaken for a complete bill.
+        base["cost_complete"] = bool(summed.get("cost_complete"))
+        if summed.get("unpriced_models"):
+            base["unpriced_models"] = summed["unpriced_models"]
+            base["unpriced_tokens"] = summed.get("unpriced_tokens", 0)
+        if non_empty_string(summed.get("pricing_source")):
+            base["pricing_source"] = summed["pricing_source"]
+    elif summed.get("unpriced_models"):
+        base["unavailable_reason"] = (
+            "no model in this session is in runtime/model-pricing.json: "
+            + ", ".join(summed["unpriced_models"])
+        )
+    return base, "token_telemetry_recorded"
 
 
 def token_telemetry(argv):
@@ -9386,41 +9751,7 @@ def token_telemetry(argv):
     transcript = resolve_transcript_path(argv)
     summed = sum_transcript_usage(transcript, since=since) if transcript else None
 
-    if not summed or summed.get("records", 0) == 0:
-        payload = {
-            "task_id": task_id,
-            "kind": "metric",
-            "metric_type": "llm_usage",
-            "metric_name": "session-token-usage",
-            "real_token_telemetry": False,
-            "unavailable_reason": "no Claude Code transcript usage found for this session (harness may not expose per-turn token telemetry)",
-            "subagent_scope": "main_session_only",
-            "summary": "token telemetry unavailable",
-        }
-        result_label = "token_telemetry_unavailable"
-    else:
-        usage = summed["usage"]
-        payload = {
-            "task_id": task_id,
-            "kind": "metric",
-            "metric_type": "llm_usage",
-            "metric_name": "session-token-usage",
-            "real_token_telemetry": True,
-            "input_tokens": usage["input_tokens"],
-            "output_tokens": usage["output_tokens"],
-            "cache_creation_input_tokens": usage["cache_creation_input_tokens"],
-            "cache_read_input_tokens": usage["cache_read_input_tokens"],
-            "total_tokens": usage["input_tokens"] + usage["output_tokens"],
-            "model": summed.get("primary_model") or "",
-            "window_start": created_at or "",
-            "subagent_scope": "main_session_only",
-            "summary": f"session token telemetry from Claude Code transcript ({summed['records']} turns)",
-        }
-        if summed.get("cost_usd") is not None:
-            payload["cost_usd"] = summed["cost_usd"]
-            if non_empty_string(summed.get("pricing_source")):
-                payload["pricing_source"] = summed["pricing_source"]
-        result_label = "token_telemetry_recorded"
+    payload, result_label = token_telemetry_payload(task_id, created_at, summed)
 
     evidence, errors = sanitize_os_evidence_payload(payload)
     if errors:
@@ -9464,6 +9795,21 @@ def cost_ledger_summary(os_evidence):
         item for item in metrics
         if item.get("metric_type") == "benchmark"
     ]
+    # `token-telemetry` reports a CUMULATIVE figure for the whole run window, so
+    # summing two of its records double-counts the same tokens — and it is safe to
+    # run twice (mid-task, then before close), which the docs invite. Records
+    # carrying `window_start` are cumulative by definition: keep the newest and
+    # treat the rest as superseded. Manually recorded per-phase llm_usage (no
+    # window_start) stays additive.
+    cumulative = [item for item in real_llm if non_empty_string(item.get("window_start"))]
+    superseded = 0
+    if len(cumulative) > 1:
+        newest = max(cumulative, key=lambda item: str(item.get("recorded_at") or ""))
+        superseded = len(cumulative) - 1
+        real_llm = [
+            item for item in real_llm
+            if item is newest or not non_empty_string(item.get("window_start"))
+        ]
     real_tokens = None
     if real_llm:
         real_tokens = {
@@ -9473,12 +9819,27 @@ def cost_ledger_summary(os_evidence):
             "cache_creation_input_tokens": sum(metric_int(item.get("cache_creation_input_tokens")) for item in real_llm),
             "cache_read_input_tokens": sum(metric_int(item.get("cache_read_input_tokens")) for item in real_llm),
             "cost_usd": round(sum(metric_float(item.get("cost_usd")) for item in real_llm), 6),
+            # Complete only if EVERY contributing record says so. A record with no
+            # cost_usd at all also leaves the total a floor, so absence counts as
+            # incomplete rather than as agreement.
+            "cost_complete": all(
+                item.get("cost_complete") is True for item in real_llm
+            ),
+            "unpriced_models": sorted({
+                str(name).strip()
+                for item in real_llm
+                for name in (item.get("unpriced_models") or [])
+                if str(name).strip()
+            }),
         }
     return {
         "schema_version": 1,
         "metric_records": len(metrics),
         "real_tokens": real_tokens if real_tokens is not None else "unavailable",
         "real_token_telemetry": bool(real_llm),
+        # Disclosed rather than silent: an earlier cumulative snapshot was dropped
+        # in favour of the newest one instead of being added to it.
+        "superseded_token_snapshots": superseded,
         "token_unavailable_reasons": sorted(set(
             str(item.get("unavailable_reason", "")).strip()
             for item in unavailable_llm
@@ -9528,14 +9889,27 @@ def budget_status(contract, os_evidence):
             "reason": "no real token telemetry / cost recorded yet (run token-telemetry)",
             "max_usd": max_usd,
         }
-    return {
+    complete = real.get("cost_complete") is True
+    status = {
         "advisory": True,
         "max_usd": max_usd,
         "spent_usd": round(float(spent), 6),
         "remaining_usd": round(max_usd - float(spent), 6),
+        # A subtotal can only prove the budget IS exceeded, never that it isn't.
         "over_budget": float(spent) > max_usd,
+        "cost_complete": complete,
         "note": "advisory only — does not block os-close",
     }
+    if not complete:
+        status["spent_is_floor"] = True
+        status["note"] = (
+            "advisory only — does not block os-close; spent_usd is a FLOOR "
+            "(some turns ran on models missing from runtime/model-pricing.json)"
+        )
+        unpriced = real.get("unpriced_models") or []
+        if unpriced:
+            status["unpriced_models"] = unpriced
+    return status
 
 
 def record_checkpoint_from_evidence(state, evidence):
@@ -9791,11 +10165,17 @@ def os_start(argv):
             "energy_budget": scheduler.get("energy_budget") if isinstance(scheduler, dict) else "",
         },
         "asset_routing": route,
-        "evidence_router": evidence_router,
+        # The full decision is already persisted in the run state and in the
+        # contract.json named above, so stdout carries the digest rather than a
+        # second copy of the same ~2k tokens.
+        "evidence_router": evidence_route_digest(evidence_router),
     })
 
 
 def os_status(argv=None):
+    argv = list(argv or [])
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if not a.startswith("--")]
     task_id = argv[0] if argv else None
     state, path = load_os_state(task_id)
     if not state:
@@ -9809,7 +10189,15 @@ def os_status(argv=None):
         "state_path": path.relative_to(REPO_ROOT).as_posix() if path else "",
         "lifecycle": state.get("lifecycle", []),
         "affected_layers": state.get("affected_layers", []),
-        "allowed_paths": state.get("allowed_paths", []),
+        # build_os_contract assigns both from the same resolved path list, and
+        # target_paths declares allowed_paths as one of its aliases — so they are
+        # identical unless the target repo differs from the control plane. Print
+        # the alias only when it actually carries different information.
+        **(
+            {"allowed_paths": state.get("allowed_paths", [])}
+            if state.get("allowed_paths", []) != state.get("target_paths", [])
+            else {}
+        ),
         "target_paths": state.get("target_paths", []),
         "target": state.get("target", {}),
         "evidence_profile": state.get("evidence_profile", "generic"),
@@ -9825,7 +10213,10 @@ def os_status(argv=None):
         "required_gates": state.get("required_gates", []),
         "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
         "model_hints": (state.get("contract") or {}).get("model_hints", {}),
-        "evidence_router": state.get("evidence_router", {}),
+        "evidence_router": (
+            state.get("evidence_router", {}) if verbose
+            else evidence_route_digest(state.get("evidence_router", {}))
+        ),
         "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
         "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
         "prototype": state.get("prototype", {}),
@@ -10378,7 +10769,9 @@ def os_report(argv):
         "target_footprint": target_footprint if isinstance(target_footprint, dict) else {},
         "target_diff": target_diff if isinstance(target_diff, dict) else {},
         "target_seal_sha256": target_seal.get("target_seal_sha256", "") if isinstance(target_seal, dict) else "",
-        "evidence_router": state.get("evidence_router", {}),
+        # Same reason as os-status: the full decision stays in state, and the
+        # router limitations it carries are repeated under `limitations` below.
+        "evidence_router": evidence_route_digest(state.get("evidence_router", {})),
         "required_gates": state.get("required_gates", []),
         "evidence_count": len(evidence),
         "limitations": [
@@ -11656,6 +12049,7 @@ GUARD_HANDLERS = {
     "evidence-route": evidence_route,
     "route-task": route_task,
     "context-budget": context_budget,
+    "payload-budget": payload_budget,
     "codebase-index": codebase_index,
     "codebase-status": codebase_status,
     "codebase-query": codebase_query,

@@ -206,11 +206,17 @@ def os_start(argv):
             "energy_budget": scheduler.get("energy_budget") if isinstance(scheduler, dict) else "",
         },
         "asset_routing": route,
-        "evidence_router": evidence_router,
+        # The full decision is already persisted in the run state and in the
+        # contract.json named above, so stdout carries the digest rather than a
+        # second copy of the same ~2k tokens.
+        "evidence_router": evidence_route_digest(evidence_router),
     })
 
 
 def os_status(argv=None):
+    argv = list(argv or [])
+    verbose = "--verbose" in argv
+    argv = [a for a in argv if not a.startswith("--")]
     task_id = argv[0] if argv else None
     state, path = load_os_state(task_id)
     if not state:
@@ -224,7 +230,15 @@ def os_status(argv=None):
         "state_path": path.relative_to(REPO_ROOT).as_posix() if path else "",
         "lifecycle": state.get("lifecycle", []),
         "affected_layers": state.get("affected_layers", []),
-        "allowed_paths": state.get("allowed_paths", []),
+        # build_os_contract assigns both from the same resolved path list, and
+        # target_paths declares allowed_paths as one of its aliases — so they are
+        # identical unless the target repo differs from the control plane. Print
+        # the alias only when it actually carries different information.
+        **(
+            {"allowed_paths": state.get("allowed_paths", [])}
+            if state.get("allowed_paths", []) != state.get("target_paths", [])
+            else {}
+        ),
         "target_paths": state.get("target_paths", []),
         "target": state.get("target", {}),
         "evidence_profile": state.get("evidence_profile", "generic"),
@@ -240,7 +254,10 @@ def os_status(argv=None):
         "required_gates": state.get("required_gates", []),
         "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
         "model_hints": (state.get("contract") or {}).get("model_hints", {}),
-        "evidence_router": state.get("evidence_router", {}),
+        "evidence_router": (
+            state.get("evidence_router", {}) if verbose
+            else evidence_route_digest(state.get("evidence_router", {}))
+        ),
         "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
         "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
         "prototype": state.get("prototype", {}),
@@ -793,7 +810,9 @@ def os_report(argv):
         "target_footprint": target_footprint if isinstance(target_footprint, dict) else {},
         "target_diff": target_diff if isinstance(target_diff, dict) else {},
         "target_seal_sha256": target_seal.get("target_seal_sha256", "") if isinstance(target_seal, dict) else "",
-        "evidence_router": state.get("evidence_router", {}),
+        # Same reason as os-status: the full decision stays in state, and the
+        # router limitations it carries are repeated under `limitations` below.
+        "evidence_router": evidence_route_digest(state.get("evidence_router", {})),
         "required_gates": state.get("required_gates", []),
         "evidence_count": len(evidence),
         "limitations": [

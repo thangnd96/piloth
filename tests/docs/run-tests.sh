@@ -133,7 +133,11 @@ shutil.copytree(
     ignore=shutil.ignore_patterns(".git", ".DS_Store", "__pycache__", "pilothOS/.backup"),
 )
 PY
-(cd "$TMP/repo" && bash scripts/bump-version.sh 1.11.0 > "$TMP/bump.log")
+# Exercises the no-op branch (new == current), so read the version instead of
+# hardcoding it — a literal here breaks on every release bump, and also trips the
+# bump audit that scans the tree for leftovers of the previous version.
+CUR_VER=$(python3 -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+(cd "$TMP/repo" && bash scripts/bump-version.sh "$CUR_VER" > "$TMP/bump.log")
 grep -Fq "verified .claude-plugin/plugin.json" "$TMP/bump.log"
 echo "D2 PASS"
 

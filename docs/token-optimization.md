@@ -10,7 +10,7 @@ Piloth coi token, context window, tool runtime và build/test là **tài nguyên
 hạn**. Agent chỉ nên tiêu chúng khi làm tăng Evidence của task. Chi tiết policy:
 [`pilothOS/runtime/energy-token-policy.md`](../pilothOS/runtime/energy-token-policy.md).
 
-Ba đòn bẩy chính, từ tác động lớn tới nhỏ:
+Các đòn bẩy chính, từ tác động lớn tới nhỏ:
 
 1. **Progressive context loading (routing)** — không nạp cả kernel vào context;
    chỉ nạp bootstrap set + đúng index/context layer cho `task_signal`.
@@ -19,10 +19,19 @@ Ba đòn bẩy chính, từ tác động lớn tới nhỏ:
 3. **OS adaptive mode** (`lean` / `standard` / `strict`) — chọn mode nhẹ nhất vẫn
    chứng minh được task; `lean` cho task UI/docs/test hẹp **và task code blast-radius
    nhỏ** (≤3 file cụ thể) — tự động, không cần khai. Ví dụ: helper + test (2 file)
-   tự thành `lean` (7→3 gates, context ~5.845→~4.850 tok).
+   tự thành `lean` (7→3 gates, context ~6.668→~4.894 tok).
 4. **Codebase intelligence có điều kiện** — graph route các câu hỏi cấu trúc tới
    candidate nhỏ, sau đó đọc live source. Không index nếu chi phí build lớn hơn
    giá trị của task.
+5. **Digest thay vì blob** — mọi command in phần *hành động được* của quyết định
+   router; chi tiết đầy đủ nằm trên đĩa (`contract.json`, OS state) và lấy qua
+   `--verbose`. Đĩa miễn phí về token, context thì không.
+6. **Adapter phải được nhận diện** — đây là đòn bẩy **capability**, không phải
+   token: `adapter: unknown` cho 15 capability đều `unavailable`, nên `enforced`
+   tự hạ thành `advisory` và specialist có `adapter_support` bị disqualify. Router
+   tự detect qua env (chi tiết:
+   [`evidence-router.md`](../pilothOS/runtime/evidence-router.md)); harness lạ khai
+   bằng `PILOTHOS_ADAPTER`.
 
 ## Codebase retrieval proxy
 
@@ -50,19 +59,30 @@ Kết quả trả về `loaded_bytes`, `loaded_tokens_est`, `full_kernel_tokens_
 
 ### Số đo tham chiếu
 
-Trần full-kernel: **68 file, ~57.9k token ước lượng**. Với routing:
+Hai denominator, **cùng báo cáo** để không tự khen:
 
-| task_signal      | files | bytes  | est tokens | tiết kiệm vs full-kernel |
-|------------------|:-----:|:------:|:----------:|:------------------------:|
-| not_applicable   |   7   | 19,875 |    4,969   |          91.4%           |
-| UI/component     |   8   | 21,600 |    5,400   |          90.7%           |
-| API/backend      |   8   | 23,379 |    5,845   |          89.9%           |
-| release/deploy   |   9   | 24,850 |    6,213   |          89.3%           |
-| bug fix          |   9   | 27,862 |    6,966   |          88.0%           |
+- `full_kernel_*` — **77 file, ~74.7k token**: mọi `.md` dưới `pilothOS/`, tức
+  trần "nạp tất cả" một cách ngây thơ.
+- `routable_kernel_*` — **52 file, ~36.7k token**: bỏ `skills/**` (chỉ mở khi
+  chính skill đó chạy, chiếm 45% trần) và `README`/`VALIDATION` (tài liệu cho
+  người, không phải instruction cho task). **Đây là con số nên trích dẫn.**
 
-Nói cách khác: một task được route chỉ kéo **~9-12%** kernel vào context thay vì
-100%. Đây là guardrail có unit test (`tests/unit/test_guard_context_budget.py`) —
-nếu routing phình to trong tương lai, test sẽ fail.
+| task_signal      | files | bytes  | est tokens | vs full-kernel | vs routable |
+|------------------|:-----:|:------:|:----------:|:--------------:|:-----------:|
+| not_applicable   |   7   | 22,084 |    5,521   |     92.6%      |    85.0%    |
+| UI/component     |   8   | 23,809 |    5,953   |     92.0%      |    83.8%    |
+| API/backend      |   8   | 26,669 |    6,668   |     91.1%      |    81.8%    |
+| release/deploy   |   9   | 28,995 |    7,249   |     90.3%      |    80.3%    |
+| bug fix          |   9   | 32,276 |    8,069   |     89.2%      |    78.0%    |
+
+Nói cách khác: một task được route kéo **~15-22%** routable kernel vào context
+thay vì 100%.
+
+Guardrail: `CONTEXT_TOKEN_CEILINGS` trong `tests/unit/test_guard_context_budget.py`
+đặt **ceiling theo token cho từng (task_signal, mode)** — chỉ được hạ, không được
+nâng. Trước đó test chỉ chặn số **file** (`loaded_count <= 12`) nên bootstrap từng
+phình +2.209 byte (+552 tok/task) mà không ai thấy: số file không đổi, còn
+denominator cũng lớn lên nên tỷ lệ phần trăm thậm chí đẹp hơn.
 
 ### Mode-aware context (lean nạp ít hơn)
 
@@ -76,9 +96,9 @@ python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug f
 
 | task_signal | standard | lean (lazy rot) | micro |
 |---|:---:|:---:|:---:|
-| bug fix | ~6,966 | ~4,169 (−40%) | **~3,215 (−54%)** |
-| API/backend | ~5,845 | ~4,271 (−27%) | ~3,317 (−43%) |
-| UI/component | ~5,400 | ~3,826 (−29%) | ~2,872 (−47%) |
+| bug fix | ~8,069 | ~4,522 (−44%) | **~3,568 (−56%)** |
+| API/backend | ~6,668 | ~4,894 (−27%) | ~3,940 (−41%) |
+| UI/component | ~5,953 | ~4,179 (−30%) | ~3,225 (−46%) |
 
 `lean`/`micro` còn dùng **lazy rot**: thay vì nạp cả bảng `rot/registry.md` (~579 tok),
 gọi `rot-status` (chỉ scope quá hạn — thường "healthy", ~20 tok).
@@ -91,6 +111,81 @@ gọi `rot-status` (chỉ scope quá hạn — thường "healthy", ~20 tok).
 ```bash
 python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"micro"}'
 ```
+
+## Đo footprint tool output (`payload-budget`)
+
+`context-budget` chỉ đo **một nửa** hoá đơn: text kernel nạp vào context. Nửa còn
+lại là **JSON mà guard in ra** — nó vào context y như một file được đọc. Từ khi
+Evidence Router ra đời, nửa này lớn hơn nhiều mà không meter hay test nào thấy.
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py payload-budget
+python3 pilothOS/scripts/pilothos_guard.py payload-budget '{"task_signal":"UI/component"}'
+```
+
+Số đo cho một task `bug fix`, **đường adapter `claude` đã detect** (đúng cái một
+consumer chạy Claude Code nhận được):
+
+| command | trước | sau | ghi chú |
+|---|---:|---:|---|
+| `route-task` | 20.591 B | **11.860 B** | wrapper V1 từng nhúng cả decision 5.850 B; cộng thêm nén 4 view asset (dưới) |
+| `scheduler-suggest` | 10.386 B | **4.732 B** | như trên |
+| `evidence-route` | 7.342 B | **2.196 B** | digest là default, `--verbose` cho blob đầy đủ |
+| `codebase-status` | 347 B | 347 B | đã gọn |
+| `rot-status` | 108 B | 108 B | đã gọn |
+
+Trong `adapter_capabilities` (block lớn nhất của decision), 15 key từng được phát
+**ba lần**: map `capabilities`, 15 câu `limitations` boilerplate, và map `sources`
+toàn `missing` — 2.137 B. Giờ chỉ còn map `capabilities` đầy đủ + **một** dòng
+limitation tổng hợp + `sources` lọc bỏ `missing` kèm `sources_summary`.
+
+`os-start`, `os-report` và **mỗi lần** `os-status` cũng từng in lại nguyên
+decision; giờ in digest, tiết kiệm ~5.3 KB (~1.3k tok) mỗi lần in. Blob đầy đủ
+luôn nằm trong `contract.json` + OS state, nên không mất thông tin nào.
+
+Trên đường `adapter: unknown` (harness Piloth chưa nhận diện), digest là 2.405 B
+— nhích lên vì còn 2 limitation thật: capability nào `unavailable`, và việc
+`enforced` bị hạ thành `advisory`.
+
+Guardrail: `PAYLOAD_BYTE_CEILINGS` trong `tests/unit/test_guard_payload_budget.py`
+— cùng cơ chế ratchet như context, chỉ được hạ.
+
+### Bốn view song song trên cùng tập asset trong `route-task`
+
+`route-task` từng in bốn mảng cho cùng một tập asset (~9,6 KB cho 16 asset). Chỉ
+**hai** trong số đó là contract:
+
+| mảng | trước | sau | vì sao |
+|---|---:|---:|---|
+| `detected_assets` | 2.971 B | **2.094 B** | pure output, không validator/doc → bỏ `health_reason` (lặp lại đường dẫn) và `handling` (gần như luôn là `index`); chi tiết lấy từ `asset-scan`/`asset-health` khi cần |
+| `skipped_assets` | 2.148 B | **830 B** | "receipt guidance", không validator → chỉ giữ `asset`+`type`; lý do bỏ qua giống nhau mọi row nên nêu một lần ở `skipped_reason` |
+| `consumer_asset_routing` | 2.219 B | **1.963 B** | **shape giữ nguyên** (validator bắt buộc cả 4 key non-empty); chỉ bỏ phần `reason` lặp lại `task_signal` — chính nó đã là field trên cùng row |
+| `context_evidence` | 2.278 B | **2.054 B** | như trên: `source` đã có đường dẫn, routing entry đã có signal → `reason` chỉ còn nêu asset type |
+
+Tổng `route-task`: **20.591 → 11.860 B** (−42%).
+
+Hai ratchet, mỗi cái cho một loại rò rỉ:
+`test_route_task_asset_rows_stay_minimal` chặn **thêm field** vào 2 mảng pure-output;
+`test_contract_view_reasons_do_not_restate_their_own_row` chặn `reason` **lặp lại lần
+nữa** field đã có structural. Cả hai theo shape/nội dung, không theo byte — byte của
+`route-task` phụ thuộc số asset trong repo nên ceiling byte sẽ vỡ chỉ vì thêm một script.
+
+### Vì sao không nén tiếp
+
+Còn ~4 KB trong hai mảng contract, và nó **cố tình** ở đó:
+
+- **Shape là hợp đồng.** `validate_object_list` bắt buộc `{task_signal, asset_type,
+  decision, reason}` và `{source, reason, finding}` đều là string non-empty. Bỏ field
+  nào cũng là breaking change với receipt mà consumer đang viết.
+- **Nén input ở đây làm tăng output.** Hai mảng này là **deliverable của model** —
+  `route-task` in ra để model copy vào contract/receipt. Cắt template đi thì model
+  phải tự dựng lại, tức chuyển chi phí từ input sang **output token (đắt hơn ~5×)**.
+- **Không lọc bớt asset.** Có thể chỉ in asset "đáng chú ý" (risk cao / cần approval)
+  và bỏ phần còn lại, nhưng đó là silent cap — đúng thứ chính tài liệu này cấm: nếu
+  bỏ bớt coverage thì phải khai, và một asset bị ẩn là một asset model không cân nhắc.
+
+`asset-scan --format json` (17.9 KB) vẫn là command nặng nhất, nhưng nó **manual**,
+không nằm trong đường per-task.
 
 ## Chọn profile nhẹ cho task nhỏ
 
@@ -110,10 +205,23 @@ hoặc khai `"operational_preset": "light"` trong task contract / receipt.
 - `strict` — dùng cho scope rộng, release/deploy, hoặc claim tuyệt đối; yêu cầu
   verification sạch, không chấp nhận skipped/failed.
 
-## Bật `real_token_telemetry` (mở khóa cost claim)
+## `real_token_telemetry` — token thật, đo bằng một command
 
-Cơ chế đã sẵn: ghi evidence `llm_usage` với số token THẬT từ adapter, rồi cost
-claim mới được os-close chấp nhận. Contract:
+Trên Claude Code **không cần khai tay**: command `token-telemetry` đọc transcript
+session (`~/.claude/projects/<slug>/<session>.jsonl`), lấy `message.usage` thật của
+từng turn (`input`/`output`/`cache_creation`/`cache_read` + `model` + `timestamp`),
+định giá qua `runtime/model-pricing.json`, rồi ghi evidence
+`llm_usage real_token_telemetry=true` cho run đang mở:
+
+```bash
+python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--transcript <path>]
+```
+
+Chi tiết cơ chế: [`energy-token-policy.md`](../pilothOS/runtime/energy-token-policy.md).
+Đây là số API thật, không phải ước lượng byte.
+
+Harness khác (chưa expose per-turn usage) thì khai tay — `token-telemetry` fail-soft
+sang `real_token_telemetry=false` + `unavailable_reason`:
 
 ```bash
 python3 pilothOS/scripts/pilothos_guard.py os-evidence '{
@@ -124,18 +232,24 @@ python3 pilothOS/scripts/pilothos_guard.py os-evidence '{
 }'
 ```
 
-- `metric_name` bắt buộc (mọi metric evidence). `real_token_telemetry` phải là
-  `true` **và** số token phải từ telemetry thật của harness (prompt/completion),
-  không phải ước lượng byte/artifact.
-- Đã kiểm chứng end-to-end: khi có evidence này, os-close **chấp nhận** cost claim
-  (telemetry gate PASS → `os_closed`). Không có nó, claim "rẻ hơn" bị từ chối.
-- `consumer_superiority` chỉ ra `consumer_value` (thay vì `consumer_value_failed`)
-  khi thêm benchmark cho thấy consumer win trên metric bắt buộc.
+- `metric_name` bắt buộc (mọi metric evidence). `real_token_telemetry` chỉ được
+  `true` khi số token đến từ telemetry thật của harness, không phải ước lượng.
+- Có evidence này thì os-close **chấp nhận** cost claim (telemetry gate PASS).
 
-**Điều kiện phụ thuộc harness:** adapter (vd Claude Code hook) phải expose được
-prompt/completion token. Chừng nào chưa có nguồn số thật, Piloth cố tình để
-`real_tokens: unavailable` và **từ chối** mọi claim "rẻ hơn" — đây là thiết kế,
-không phải thiếu sót.
+### Ba giới hạn phải đọc kèm
+
+1. **Token thật ≠ chứng minh consumer tiết kiệm.** Claim "rẻ hơn khi không dùng
+   Piloth" vẫn cần benchmark `had-piloth` vs `none-piloth`; real token chỉ mở khóa
+   phần cost, không thay thế phép so sánh.
+2. **Chỉ main session** (`subagent_scope=main_session_only`). Transcript của
+   background subagent là file riêng, **không** được cộng vào — con số per-turn là
+   thật, con số per-task là tổng trong cửa sổ run.
+3. **Cost phụ thuộc price map.** Model không có trong `runtime/model-pricing.json`
+   không làm mất số cost của cả run nữa — phần có giá vẫn được cộng, kèm
+   `cost_complete: false` + `unpriced_models` + `unpriced_tokens`, và
+   `budget_status` gắn nhãn `spent_usd` là **sàn**. `cost_usd: null` chỉ còn khi
+   **không** turn nào định giá được. Price map cũng **không phủ fast mode**
+   (Opus 5 fast là $10/$50, map chưa có chiều `speed`) → session fast bị tính thấp.
 
 ## Giới hạn trung thực (đọc kỹ)
 
@@ -145,12 +259,14 @@ không phải thiếu sót.
 - Con số `*_tokens_est` là **ước lượng ~4 bytes/token**, dùng để so sánh tương đối
   và bắt bloat, không phải hóa đơn token chính xác.
 - Một tuyên bố kiểu "Piloth rẻ hơn / tiết kiệm token so với không dùng Piloth"
-  **chỉ hợp lệ khi** run ghi lại `llm_usage` với `real_token_telemetry=true` từ
-  adapter thật. Ước lượng byte/artifact không đủ để back claim đó — gate
-  truth-in-seal sẽ từ chối (xem `pilothOS/VALIDATION.md`).
+  **chỉ hợp lệ khi** run ghi lại `llm_usage` với `real_token_telemetry=true`.
+  Ước lượng byte/artifact không đủ để back claim đó — gate truth-in-seal sẽ từ
+  chối (xem `pilothOS/VALIDATION.md`).
 
-Nói ngắn gọn: Piloth cho bạn bằng chứng rằng nó **nạp ít context hơn**; để tuyên bố
-**tổng token model thấp hơn**, cần telemetry thật từ harness.
+Nói ngắn gọn: `context-budget` và `payload-budget` chứng minh Piloth **nạp và in ít
+hơn**; `token-telemetry` cho **token/cost thật của session**. Mảnh còn thiếu để nói
+"Piloth rẻ hơn" là **phép so sánh** — benchmark `had-piloth` vs `none-piloth` — chứ
+không còn là chuyện harness có expose được token hay không.
 
 ## State retention & janitor (dọn rác)
 

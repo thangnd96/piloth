@@ -229,7 +229,9 @@ def scheduler_suggest_payload(payload):
     # Compatibility wrapper for one major version. Existing scheduler fields
     # remain unchanged; new consumers should use evidence-route directly.
     if payload.get("_router_compat_only") is not True:
-        result["evidence_router"] = evidence_route_payload(payload)
+        result["evidence_router"] = evidence_route_digest(
+            evidence_route_payload(payload),
+        )
     return result
 
 
