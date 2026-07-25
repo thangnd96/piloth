@@ -11,6 +11,9 @@ import re
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 TOKEN_DOC = REPO / "docs" / "token-optimization.md"
+# The SHIPPED home of token/cost policy. docs/ is vendor-side — it is not in
+# dist-manifest.json, so anything documented only there is invisible to consumers.
+ENERGY_DOC = REPO / "pilothOS" / "runtime" / "energy-token-policy.md"
 
 # Absolute-claim terms the runtime docs (quality-gates / task-lifecycle /
 # os-control-plane) state os-close rejects. If the matcher stops catching one,
@@ -146,6 +149,91 @@ def test_documented_kernel_denominators_match_the_meter(guard):
             f"~{stated[files]}k but the meter says {tokens} tok; re-run "
             "context-budget and update it."
         )
+
+
+# ------------------- cost ledger / budget fields must ship their documentation
+
+# Grandfathered: ledger metrics that predate this gate. May only SHRINK — the
+# companion test below fails if one of these is documented but left listed.
+# Deliberately not documented in bulk: energy-token-policy.md is routable kernel
+# context, and adding ~700 bytes of field glossary would work against the very
+# footprint the release measures. The gate exists to stop NEW consumer-visible
+# fields from shipping undocumented, which is the failure that actually happened.
+UNDOCUMENTED_LEDGER_KEYS = {
+    "benchmark_results",
+    "context_loads",
+    "duration_ms",
+    "metric_records",
+    "note",
+    "real_tokens",
+    "repairs",
+    "retries",
+    "schema_version",
+    "token_unavailable_reasons",
+    "tool_output_chars",
+}
+
+
+def _ledger_and_budget_keys(guard):
+    """Every key `os-status` / `os-report` expose from the cost ledger + budget.
+
+    Derived by calling the producers instead of hardcoding a list, so a field
+    added later is caught automatically with nothing to keep in sync.
+    """
+    llm = {
+        "kind": "metric", "metric_type": "llm_usage",
+        "metric_name": "session-token-usage", "real_token_telemetry": True,
+        "input_tokens": 1, "output_tokens": 1, "total_tokens": 2,
+        "cache_creation_input_tokens": 1, "cache_read_input_tokens": 1,
+        "cost_usd": 0.1, "cost_complete": False,
+        "unpriced_models": ["x-model"], "unpriced_tokens": 5,
+        "window_start": "2026-01-01T00:00:00Z",
+        "recorded_at": "2026-01-01T00:01:00Z",
+    }
+    ledger = guard.cost_ledger_summary([llm])
+    budget = guard.budget_status({"budget": {"max_usd": 1.0}}, [llm])
+    keys = set(ledger) | set(budget)
+    real = ledger.get("real_tokens")
+    if isinstance(real, dict):
+        keys |= set(real)
+    return keys
+
+
+def test_cost_ledger_fields_are_documented_in_a_shipped_doc(guard):
+    """A consumer-visible field documented only in docs/ never reaches consumers.
+
+    That already happened once: the cost subtotal semantics landed in
+    docs/token-optimization.md, which dist-manifest does not ship. Checking "any
+    shipped doc" would be too weak — a field name can appear in a shipped
+    rot/review-log.md row without being documented at all — so this binds to the
+    doc that owns the topic.
+    """
+    doc = ENERGY_DOC.read_text(encoding="utf-8")
+    missing = sorted(
+        key for key in _ledger_and_budget_keys(guard)
+        if key not in UNDOCUMENTED_LEDGER_KEYS and key not in doc
+    )
+    assert not missing, (
+        "cost ledger/budget fields exposed to consumers but absent from "
+        f"{ENERGY_DOC.relative_to(REPO)}: {missing}. Document them there (docs/ "
+        "is vendor-side and is not shipped), or grandfather them explicitly."
+    )
+
+
+def test_undocumented_ledger_allowlist_only_shrinks(guard):
+    """Document a grandfathered key and it must leave the allowlist."""
+    doc = ENERGY_DOC.read_text(encoding="utf-8")
+    keys = _ledger_and_budget_keys(guard)
+    stale = sorted(k for k in UNDOCUMENTED_LEDGER_KEYS if k in doc)
+    assert not stale, (
+        "these are documented now — remove them from UNDOCUMENTED_LEDGER_KEYS to "
+        f"keep the ratchet honest: {stale}"
+    )
+    gone = sorted(k for k in UNDOCUMENTED_LEDGER_KEYS if k not in keys)
+    assert not gone, (
+        "these are no longer emitted by the ledger/budget — drop them from "
+        f"UNDOCUMENTED_LEDGER_KEYS: {gone}"
+    )
 
 
 def test_required_contract_receipt_fields_are_documented(guard):

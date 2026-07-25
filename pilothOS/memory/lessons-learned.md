@@ -68,4 +68,5 @@ For cross-project lessons, append `upstream` to a real target, for example
 | Date | Context | Lesson | Promoted To |
 |---|---|---|---|
 | 2026-07-26 | Kiểm ai đọc một field trước khi cắt nó khỏi output | Grep `src/` + `pilothOS/**` là chưa đủ — `tests/` cũng là consumer. Tôi kết luận `skipped_assets[].reason` không ai đọc rồi xoá, E19 vỡ. Quét cả tests/ trước khi bỏ field. | not_applicable |
+| 2026-07-26 | Vá một call site rồi tưởng xong | Sửa `tests/unit/run-tests.sh` cho hết `.pytest_cache` nhưng còn `tests/benchmark/codebase-memory/run-tests.sh` cũng gọi pytest — verify vẫn sinh artifact. Grep hết call site trước khi vá, và cho test **quét** thay vì hardcode danh sách đã biết. | not_applicable |
 

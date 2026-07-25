@@ -11,4 +11,12 @@ if ! python3 -m pytest --version >/dev/null 2>&1; then
   exit 0
 fi
 
-python3 -m pytest "$REPO/tests/unit" -q
+# Keep pytest's caches OUT of the repo. artifact-janitor treats .pytest_cache and
+# __pycache__ as local artifacts needing explicit cleanup, so a suite that writes
+# them makes control-plane-check fail immediately after the verification command
+# the self-hosting contract requires — verify -> check could never be green
+# without an artifact-janitor --fix wedged in between. Same convention the
+# benchmark suites already use (PYTHONPYCACHEPREFIX=/tmp/piloth-*).
+# cache_dir is redirected rather than disabled so --lf/--ff still work.
+PYTHONPYCACHEPREFIX=/tmp/piloth-unit-pycache \
+  python3 -m pytest "$REPO/tests/unit" -q -o cache_dir=/tmp/piloth-unit-pytest-cache

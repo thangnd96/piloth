@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Vá hai lỗ quy trình lộ ra khi dogfood v1.12.0** (không đổi surface consumer):
+  - Field consumer thấy nhưng chỉ được doc ở `docs/` — mà `docs/` **không nằm trong
+    `dist-manifest`**, nên consumer không bao giờ đọc được. Đã doc
+    `superseded_token_snapshots` + `total_tokens` vào `runtime/energy-token-policy.md`
+    (doc shipped, sở hữu chủ đề token/cost), và thêm ratchet
+    `test_cost_ledger_fields_are_documented_in_a_shipped_doc`: key được **derive
+    runtime** từ `cost_ledger_summary()` + `budget_status()` nên field mới tự động bị
+    soi, không có list nào để drift. Key có sẵn từ trước được grandfather trong
+    `UNDOCUMENTED_LEDGER_KEYS` + test allowlist-chỉ-co — doc đủ 11 key sẽ thêm ~700 B
+    vào một doc *routable*, đi ngược mục tiêu cắt context.
+  - `bash tests/run_all.sh` — lệnh verify **bắt buộc** theo self-hosting contract — tự
+    sinh `.pytest_cache`, mà `artifact-janitor` coi đó là artifact phải dọn tường minh.
+    Nên thứ tự tự nhiên verify → `control-plane-check` **không bao giờ** xanh, phải chèn
+    `artifact-janitor --fix` vào giữa. Đã redirect cache ra `/tmp` ở **cả hai** call site
+    pytest (`tests/unit/`, `tests/benchmark/codebase-memory/` — vá một chỗ thì còn chỗ
+    kia), theo đúng convention `PYTHONPYCACHEPREFIX` mà các suite khác đã dùng. Test
+    `test_every_pytest_call_site_keeps_its_caches_out_of_the_repo` **quét** thay vì
+    hardcode, nên call site pytest mới cũng bị soi.
+
 ## v1.12.0 — 2026-07-26
 
 Cắt footprint tool-output + mở khóa cost evidence.

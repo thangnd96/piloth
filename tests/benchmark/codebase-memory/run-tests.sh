@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
-python3 -m pytest tests/unit/test_guard_codebase_intelligence.py -q
+# Caches stay out of the repo — see tests/unit/run-tests.sh for why (artifact
+# janitor counts them, so the mandated verification command must not create any).
+PYTHONPYCACHEPREFIX=/tmp/piloth-codebase-memory-pycache \
+  python3 -m pytest tests/unit/test_guard_codebase_intelligence.py -q \
+  -o cache_dir=/tmp/piloth-codebase-memory-pytest-cache
 
 python3 - <<'PY'
 import importlib.util

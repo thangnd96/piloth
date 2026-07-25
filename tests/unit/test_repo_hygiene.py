@@ -90,6 +90,40 @@ def test_engine_budgets_stay_close_to_the_measurement():
         )
 
 
+def test_every_pytest_call_site_keeps_its_caches_out_of_the_repo():
+    """The mandated verification command must not create work for the janitor.
+
+    `bash tests/run_all.sh` is what the self-hosting contract requires before
+    delivery, and artifact-janitor counts `.pytest_cache` / `__pycache__` as local
+    artifacts requiring explicit cleanup. A suite that writes them makes
+    control-plane-check fail *because* verification had just run — the natural
+    order (verify, then check the control plane) could never be green.
+
+    Every call site is discovered by scanning rather than listed: fixing only the
+    one suite that was noticed left a second, and a hardcoded list would go stale
+    the next time someone adds a pytest invocation.
+    """
+    offenders = {}
+    for script in sorted((REPO / "tests").rglob("run-tests.sh")):
+        text = script.read_text(encoding="utf-8")
+        invokes = [
+            line for line in text.splitlines()
+            if "-m pytest" in line and not line.lstrip().startswith("#")
+        ]
+        if not invokes:
+            continue
+        missing = [
+            setting for setting in ("PYTHONPYCACHEPREFIX=/tmp/", "cache_dir=/tmp/")
+            if setting not in text
+        ]
+        if missing:
+            offenders[str(script.relative_to(REPO))] = missing
+    assert not offenders, (
+        "these suites run pytest without redirecting its caches out of the repo, "
+        f"so verification leaves artifacts behind: {offenders}"
+    )
+
+
 def test_every_skill_has_title_and_purpose():
     for skill in sorted((REPO / "pilothOS" / "skills").rglob("SKILL.md")):
         text = skill.read_text(encoding="utf-8")

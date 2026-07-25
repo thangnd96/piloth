@@ -88,7 +88,13 @@ python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--tran
 
 - **Attribution:** main-session transcript only; background subagent transcripts
   are separate files and are not summed (disclosed via `subagent_scope`). The
-  per-turn numbers are real; the per-task figure is a sum over the run window.
+  per-turn numbers are real; the per-task figure (`total_tokens` = input + output)
+  is a sum over the run window.
+- **Safe to run twice.** Each run re-sums the whole window, so the figure is
+  *cumulative*, not a delta — adding two of them would count the same tokens twice.
+  The ledger keeps the newest and reports how many it replaced as
+  `superseded_token_snapshots`. Hand-recorded per-phase `llm_usage` (no
+  `window_start`) is a delta and stays additive.
 - **Fail-soft:** no transcript / harness without per-turn telemetry → records
   `real_token_telemetry=false` + `unavailable_reason`.
 - **Unlocks cost claims:** with a real `llm_usage` metric present, `os-close` no
