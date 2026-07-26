@@ -71,7 +71,6 @@ pilothOS/
 ├── governance/            # Kiểm soát vận hành cắt ngang
 ├── evaluation/            # Quality gates và evidence
 ├── templates/             # Contract mẫu
-└── examples/              # Ví dụ áp dụng
 ```
 
 Mapping giữa PilothOS và từng native tool nằm ở adapter directory tại root của

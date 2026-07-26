@@ -776,21 +776,16 @@ def production_review_result():
         "no release-noise markers or stale host terms in shipped release paths" if not noise else noise[:20],
     )
 
-    state = state_doctor_result()
-    add_check(
-        "state-doctor",
-        state.get("result") == "state_doctor_passed",
-        state.get("result", "unknown"),
-    )
-
-    janitor = artifact_janitor_result(fix=False)
-    add_check(
-        "artifact janitor",
-        janitor.get("result") == "artifact_janitor_passed",
-        janitor,
-    )
-
+    # control-plane-check already runs the artifact janitor and the state doctor.
+    # Re-running them here walked the repo twice and left room for two verdicts
+    # on one tree, so lift their results out of that single run instead.
     control_plane = control_plane_check_result(active_policy="never")
+    nested = {c["name"]: c for c in control_plane.get("checks", [])}
+    for label, nested_name in (("state-doctor", "state doctor"),
+                               ("artifact janitor", "artifact janitor")):
+        sub = nested.get(nested_name)
+        add_check(label, sub and sub.get("ok"),
+                  sub.get("detail") if sub else f"{nested_name} missing from control-plane-check")
     add_check(
         "control-plane infrastructure",
         control_plane.get("result") == "control_plane_passed",

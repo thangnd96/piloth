@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "piloth_version": "1.12.0",
- "generated_at": "2026-07-26T13:41:03.520404+00:00",
+ "generated_at": "2026-07-26T14:41:34.343801+00:00",
  "files": [
   {
    "path": ".antigravity/README.md",
@@ -129,10 +129,6 @@
    "class": "verbatim"
   },
   {
-   "path": "pilothOS/examples/task-routing.md",
-   "class": "verbatim"
-  },
-  {
    "path": "pilothOS/governance/index.md",
    "class": "verbatim"
   },
@@ -141,19 +137,7 @@
    "class": "verbatim"
   },
   {
-   "path": "pilothOS/knowledge/architecture/README.md",
-   "class": "verbatim"
-  },
-  {
-   "path": "pilothOS/knowledge/domain/README.md",
-   "class": "verbatim"
-  },
-  {
    "path": "pilothOS/knowledge/index.md",
-   "class": "verbatim"
-  },
-  {
-   "path": "pilothOS/knowledge/standards/README.md",
    "class": "verbatim"
   },
   {
@@ -280,10 +264,6 @@
    "class": "verbatim"
   },
   {
-   "path": "pilothOS/skills/integration/README.md",
-   "class": "verbatim"
-  },
-  {
    "path": "pilothOS/skills/workflow/README.md",
    "class": "verbatim"
   },
@@ -341,10 +321,6 @@
   },
   {
    "path": "pilothOS/tools/index.md",
-   "class": "verbatim"
-  },
-  {
-   "path": "pilothOS/tools/mcp/README.md",
    "class": "verbatim"
   }
  ]

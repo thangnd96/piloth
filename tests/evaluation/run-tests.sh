@@ -17,6 +17,16 @@ fresh_case() {
   printf '%s\n' "$dir"
 }
 
+# Sets $W and $G and cds in. Must be called directly, not in a command
+# substitution, or the cd lands in a subshell — which is why all 32 cases used to
+# repeat these three lines by hand. E8 still needs the printing form: it compares
+# two case dirs at once.
+enter_case() {
+  W="$(fresh_case "$1")"
+  cd "$W"
+  G="pilothOS/scripts/pilothos_guard.py"
+}
+
 reuse_receipt='
   "reuse_discipline": {
     "existing_code_checked": "pilothOS/scripts/pilothos_guard.py",
@@ -57,9 +67,7 @@ judgment_receipt='
   }'
 
 echo "== E1 contract requires context evidence for code, docs-only remains optional =="
-W="$(fresh_case e1)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e1
 cat > missing-context.json <<'JSON'
 {
   "task_scope": "code edit",
@@ -88,9 +96,7 @@ python3 "$G" contract-write docs-contract.json >/dev/null
 [ -z "$(printf '%s' '{"tool_input":{"file_path":"README.md"}}' | python3 "$G" pre-edit)" ]
 
 echo "== E2 reuse evidence required for code contracts =="
-W="$(fresh_case e2)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e2
 cat > missing-reuse.json <<'JSON'
 {
   "task_scope": "code edit",
@@ -132,9 +138,7 @@ python3 "$G" contract-write valid-code-contract.json >/dev/null
 [ -z "$(printf '%s' '{"tool_input":{"file_path":"pilothOS/scripts/pilothos_guard.py"}}' | python3 "$G" pre-edit)" ]
 
 echo "== E3 UI design-system evidence required for UI paths =="
-W="$(fresh_case e3)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e3
 mkdir -p src/components
 cat > ui-no-ds.json <<'JSON'
 {
@@ -189,9 +193,7 @@ python3 "$G" contract-write ui-with-ds.json >/dev/null
 [ -z "$(printf '%s' '{"tool_input":{"file_path":"src/components/Button.tsx"}}' | python3 "$G" pre-edit)" ]
 
 echo "== E4 receipt reuse discipline required for code facts =="
-W="$(fresh_case e4)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e4
 cat > valid-code-contract.json <<'JSON'
 {
   "task_scope": "guard receipt",
@@ -299,9 +301,7 @@ printf '%s' "{
 }" | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E5 dependency warnings require reason checklist =="
-W="$(fresh_case e5)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e5
 cat > package.json <<'JSON'
 {"name":"dep-test","version":"0.0.0"}
 JSON
@@ -397,9 +397,7 @@ grep -q "Asset | Type | Owner | Capability | Config/Path | Risk | Load When | He
 grep -q "Consumer Asset Registry" pilothOS/tools/index.md
 grep -q "Consumer assets" pilothOS/tools/index.md
 python3 pilothOS/scripts/pilothos_guard.py self-check | grep -q "consumer asset registry hop le"
-W="$(fresh_case e7bad)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e7bad
 python3 - <<'PY'
 import pathlib
 path = pathlib.Path("pilothOS/runtime/consumer-assets.md")
@@ -431,9 +429,7 @@ grep -q "receipt_rejected" <<< "$out"
 grep -q "pilothOS/scripts/pilothos_guard.py" <<< "$out"
 
 echo "== E9 tool-control receipt enforcement =="
-W="$(fresh_case e9)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e9
 printf '%s' '{
   "tool": "scripts/test.sh",
   "command": "bash scripts/test.sh",
@@ -701,9 +697,7 @@ printf '%s' '{
 }' | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E11 operational presets =="
-W="$(fresh_case e11)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e11
 printf '%s' '{"tool_input":{"file_path":"pilothOS/scripts/pilothos_guard.py"}}' | python3 "$G" post-edit >/dev/null
 out=$(printf '%s' '{
   "changed_files": ["pilothOS/scripts/pilothos_guard.py"],
@@ -719,9 +713,7 @@ printf '%s' '{
   "verification_command": "smoke",
   "result": "passed"
 }' | env PILOTHOS_PRESET=light python3 "$G" receipt-write | grep -q "deliver receipt recorded"
-W="$(fresh_case e11strict)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e11strict
 out=$(printf '%s' '{
   "changed_files": ["README.md"],
   "affected_layers": ["Docs"],
@@ -739,9 +731,7 @@ printf '%s' '{
 }' | env PILOTHOS_PRESET=strict python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E12 UI receipt requires DS fields and new-component warning reason =="
-W="$(fresh_case e12)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e12
 mkdir -p src/components
 cat > ui-contract.json <<'JSON'
 {
@@ -885,9 +875,7 @@ printf '%s' '{
 }' | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E13 large delta warning requires checklist =="
-W="$(fresh_case e13)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e13
 git init -q
 mkdir -p src
 cat > large-contract.json <<'JSON'
@@ -991,9 +979,7 @@ printf '%s' '{
 }' | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E14 receipt paths must stay inside task contract scope =="
-W="$(fresh_case e14)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e14
 cat > docs-contract.json <<'JSON'
 {
   "task_scope": "docs edit",
@@ -1020,9 +1006,7 @@ printf '%s' '{
 }' | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E15 learning review vocabulary is enforced =="
-W="$(fresh_case e15)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e15
 mkdir -p src
 cat > learning-contract.json <<'JSON'
 {
@@ -1223,9 +1207,7 @@ printf '%s' '{
 }' | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E16 contract evidence vocabularies are enforced =="
-W="$(fresh_case e16)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e16
 mkdir -p src/components
 out=$(printf '%s' '{
   "task_scope": "invalid vocabulary contract",
@@ -1296,9 +1278,7 @@ printf '%s' '{
 }' | python3 "$G" contract-write | grep -q "task contract recorded"
 
 echo "== E17 log-append lesson promotion target vocabulary is enforced =="
-W="$(fresh_case e17)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e17
 before=$(wc -l < pilothOS/memory/lessons-learned.md)
 out=$(python3 "$G" log-append lesson "Wrong tool" "Route tool behavior through tools index" "maybe")
 grep -q "FAIL log-append lesson: PromotedTo" <<< "$out"
@@ -1308,9 +1288,7 @@ python3 "$G" log-append lesson "Wrong tool" "Route tool behavior through tools i
 grep -q "| Wrong tool | Route tool behavior through tools index | tools/index.md, upstream |" pilothOS/memory/lessons-learned.md
 
 echo "== E18 receipt template is gate-aware and vocabulary stays in sync =="
-W="$(fresh_case e18)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e18
 mkdir -p src/components
 printf 'export const Widget = () => null;\n' > src/components/Widget.tsx
 printf '%s' '{"tool_input":{"file_path":"src/components/Widget.tsx"}}' | python3 "$G" post-edit >/dev/null
@@ -1324,9 +1302,7 @@ for needle in '"design_system_checked"' '"consumer_asset_routing"' \
 done
 
 echo "== E19 os-start routes consumer assets into the contract =="
-W="$(fresh_case e19)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e19
 mkdir -p .claude/skills/design-system src/components
 printf '# Design skill\n' > .claude/skills/design-system/SKILL.md
 cat > package.json <<'JSON'
@@ -1362,9 +1338,7 @@ out=$(python3 "$G" os-start '{"task_id":"e19-bad","intent":"x","task_signal":"un
 grep -q '"result": "os_start_rejected"' <<< "$out"
 
 echo "== E20 docs/test exemption is path-aware =="
-W="$(fresh_case e20)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e20
 mkdir -p src docs tests
 cat > mismatched-doc-code.json <<'JSON'
 {
@@ -1403,9 +1377,7 @@ JSON
 python3 "$G" contract-write valid-test-paths.json >/dev/null
 
 echo "== E21 post-edit emits expanded diff facts =="
-W="$(fresh_case e21)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e21
 mkdir -p src/components tests docs
 cat > diff-facts-contract.json <<'JSON'
 {
@@ -1453,9 +1425,7 @@ grep -Fq '"component_like_files_changed": ["src/components/FactsButton.tsx"]' <<
 grep -q '".gitignore"' <<< "$out"
 
 echo "== E22 self-host check verifies dogfood docs/tests/manifest =="
-W="$(fresh_case e22)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e22
 out=$(python3 "$G" self-host-check)
 grep -q '"result": "self_host_check_passed"' <<< "$out"
 grep -q 'guard mode os-start' <<< "$out"
@@ -1467,9 +1437,7 @@ grep -q '"result": "self_host_check_failed"' <<< "$out"
 grep -q "self-hosting.md" <<< "$out"
 
 echo "== E23 asset scan, health, and sync preserve manual notes =="
-W="$(fresh_case e23)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e23
 cat > package.json <<'JSON'
 {
   "scripts": {
@@ -1497,9 +1465,7 @@ grep -q "PILOTHOS-GENERATED-ASSETS:END" pilothOS/runtime/consumer-assets.md
 grep -q "MANUAL-NOTE: preserve me" pilothOS/runtime/consumer-assets.md
 
 echo "== E24 receipts require explicit reuse and design-system decisions =="
-W="$(fresh_case e24)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e24
 mkdir -p src/helpers src/components src/tokens
 cat > src/helpers/date-helper.ts <<'TS'
 export function formatDateHelper(value: Date) {
@@ -1621,9 +1587,7 @@ printf '%s' '{
 }' | python3 "$G" receipt-write | grep -q "deliver receipt recorded"
 
 echo "== E27 asset scan exposes signals and manifest health metadata =="
-W="$(fresh_case e27)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e27
 cat > package.json <<'JSON'
 {
   "scripts": {
@@ -1640,9 +1604,7 @@ grep -q '"manifest_status": "indexed"' <<< "$out"
 grep -q '"status": "healthy"' <<< "$out"
 
 echo "== E31 dynamic asset discovery and JSON errors for new modes =="
-W="$(fresh_case e31)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e31
 mkdir -p .agents/skills/release-check .codex/commands scripts
 printf '# Release check skill\n' > .agents/skills/release-check/SKILL.md
 printf '# Ship command\n' > .codex/commands/ship.md
@@ -1661,9 +1623,7 @@ out=$(python3 "$G" asset-sync)
 grep -q '"result": "asset_sync_rejected"' <<< "$out"
 
 echo "== E33 installer layer is first-class for scheduler and edit facts =="
-W="$(fresh_case e33)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e33
 mkdir -p .claude-plugin scripts
 printf '{"version":"0.0.0"}\n' > .claude-plugin/plugin.json
 printf 'print("stage")\n' > scripts/stage.py
@@ -1708,9 +1668,7 @@ for rel in ("scripts/stage.py", "scripts/build_manifest.py"):
 PY
 
 echo "== E34 source-only installer classification does not relabel consumer scripts =="
-W="$(fresh_case e34)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e34
 mkdir -p scripts
 printf 'print("consumer stage")\n' > scripts/stage.py
 cat > consumer-script-contract.json <<'JSON'
@@ -1749,9 +1707,7 @@ assert "piloth-owned" not in item["detected_signals"], item
 PY
 
 echo "== E35 DRY/KISS gate cannot fail on a passed receipt =="
-W="$(fresh_case e35)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e35
 mkdir -p src
 printf 'export function newHelper() { return 1 }\n' > src/new-helper.ts
 cat > dry-kiss-contract.json <<'JSON'
@@ -1814,9 +1770,7 @@ grep -q "reuse_non_duplication.result cannot be FAIL" <<< "$out"
 grep -q "limitation is required when quality_gates.reuse_non_duplication.result is FAIL" <<< "$out"
 
 echo "== E36 receipt seal detects post-delivery tampering =="
-W="$(fresh_case e36)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e36
 printf 'sealed docs\n' > README.md
 cat > seal-contract.json <<'JSON'
 {
@@ -1852,9 +1806,7 @@ grep -q '"recorded_to": "pilothOS/memory/state/receipt-seals.jsonl"' recorded-se
 [ -f pilothOS/memory/state/receipt-seals.jsonl ]
 
 echo "== E37 production-review blocks stale artifacts and noisy release tokens =="
-W="$(fresh_case e37)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e37
 out=$(python3 "$G" production-review)
 grep -q '"result": "production_review_passed"' <<< "$out"
 printf 'print("stale")\n' > pilothOS/scripts/pilothos_hostd.py
@@ -1868,9 +1820,7 @@ grep -q '"result": "production_review_failed"' <<< "$out"
 grep -q 'production noise scan' <<< "$out"
 
 echo "== E38 state-doctor checks repo-local state health =="
-W="$(fresh_case e38)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e38
 out=$(python3 "$G" state-doctor)
 grep -q '"result": "state_doctor_passed"' <<< "$out"
 grep -q 'repo-local state excluded from manifest' <<< "$out"
@@ -1895,9 +1845,7 @@ grep -q '"result": "production_review_passed"' <<< "$out"
 grep -q 'state-doctor' <<< "$out"
 
 echo "== E39 artifact-janitor detects and cleans deterministic local artifacts =="
-W="$(fresh_case e39)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e39
 out=$(python3 "$G" artifact-janitor)
 grep -q '"result": "artifact_janitor_passed"' <<< "$out"
 printf 'local artifact\n' > .DS_Store
@@ -1914,9 +1862,7 @@ out=$(python3 "$G" artifact-janitor)
 grep -q '"result": "artifact_janitor_passed"' <<< "$out"
 
 echo "== E40 control-plane-check gates manifest, active receipt and recorded seal =="
-W="$(fresh_case e40)"
-cd "$W"
-G="pilothOS/scripts/pilothos_guard.py"
+enter_case e40
 printf 'obsolete baseline docs\n' > obsolete.md
 git init -q
 git config user.email "pilothos@example.test"

@@ -19,12 +19,27 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 # (name, source, target): the block between the START/END markers in `target`
-# is regenerated verbatim from the whole of `source`.
+# is regenerated from `source`.
+#
+# `source` is either a whole file, or `path#REGION` to take only the region
+# between that file's own START/END markers. The second form exists because the
+# canonical copy usually lives inside a doc that is read on its own — the layer
+# table belongs in the Constitution, not in a fragment file nobody opens.
 DERIVATIONS = [
     (
         "IDENTITY",
         "pilothOS/skills/workflow/pilothos-init/payloads/identity-block.md",
         "templates/CLAUDE.md",
+    ),
+    (
+        "LAYER-TABLE",
+        "pilothOS/PilothOS.md#LAYER-TABLE",
+        "README.md",
+    ),
+    (
+        "CROSS-CUTTING",
+        "pilothOS/PilothOS.md#CROSS-CUTTING",
+        "README.md",
     ),
 ]
 
@@ -34,6 +49,25 @@ def _sentinels(name):
         f"PILOTHOS-GENERATED:{name}:START",
         f"PILOTHOS-GENERATED:{name}:END",
     )
+
+
+def _extract(text, name):
+    """The lines strictly between this file's own START/END markers for `name`."""
+    start_key, end_key = _sentinels(name)
+    lines = text.splitlines(keepends=True)
+    start = next((i for i, l in enumerate(lines) if start_key in l), None)
+    end = next((i for i, l in enumerate(lines) if end_key in l), None)
+    if start is None or end is None or end < start:
+        raise SystemExit(f"sync_docs: source markers for {name} not found/ordered")
+    return "".join(lines[start + 1:end])
+
+
+def _source_text(spec):
+    """Whole file for `path`, or just the marked region for `path#REGION`."""
+    if "#" in spec:
+        rel, region = spec.split("#", 1)
+        return _extract((REPO / rel).read_text(encoding="utf-8"), region)
+    return (REPO / spec).read_text(encoding="utf-8")
 
 
 def _render(target_text, name, source_text):
@@ -53,7 +87,7 @@ def main(argv):
     check = "--check" in argv
     stale = []
     for name, source_rel, target_rel in DERIVATIONS:
-        source = (REPO / source_rel).read_text(encoding="utf-8")
+        source = _source_text(source_rel)
         target_path = REPO / target_rel
         current = target_path.read_text(encoding="utf-8")
         rendered = _render(current, name, source)

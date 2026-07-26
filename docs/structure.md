@@ -161,37 +161,13 @@ pilothOS/
 ├── rot/                      # Health registry và review history
 ├── scripts/                  # Installer engine và guard enforcement
 ├── templates/                # Contract mẫu cho artifact mới
-└── examples/                 # Ví dụ routing và sử dụng
 ```
 
 ## Seven Core Layers
 
-```text
-Identity
-    ↓
-Rules & Hooks
-    ↓
-Memory & Knowledge
-    ↓
-Skills
-    ↓
-Runtime
-    ↓
-Agents
-    ↓
-Tools / MCP / CLI
-```
-
-| Layer | Responsibility | Nội dung chính |
-|---|---|---|
-| Identity | WHY | Persona, mục tiêu, giá trị, ranh giới |
-| Rules & Hooks | POLICY | Quy tắc hành vi và enforcement |
-| Memory | CONTEXT | Trạng thái, lịch sử, lessons của implementation |
-| Knowledge | FACT | Architecture, domain và standards |
-| Skills | CAPABILITY | Workflow hoặc integration capability tái sử dụng |
-| Runtime | ORCHESTRATION | Task lifecycle, context loading, team coordination |
-| Agents | EXECUTION | Role, model, permission và responsibility |
-| Tools | INTEGRATION | API, MCP, CLI và external services |
+Bảng layer responsibility là bản gốc trong
+[`pilothOS/PilothOS.md`](../pilothOS/PilothOS.md) — không nhắc lại ở đây.
+Cây thư mục ngay trên đã cho biết mỗi layer chứa gì.
 
 Các hệ thống cắt ngang:
 

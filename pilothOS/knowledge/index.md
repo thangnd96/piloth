@@ -18,9 +18,14 @@ Lưu FACT: specification, documentation, standards và domain knowledge lâu dà
 
 | Path | Scope |
 |---|---|
-| `architecture/` | Quyết định và mô tả kiến trúc, gồm codebase intelligence |
+| `architecture/` | Quyết định và mô tả kiến trúc |
 | `domain/` | Thuật ngữ và fact nghiệp vụ |
 | `standards/` | Standards được dự án chấp nhận |
+
+Ba thư mục trên **chưa tồn tại trên đĩa** — tạo khi có fact đầu tiên cần ghi.
+Bản trước ship mỗi thư mục kèm một README ba dòng lặp lại đúng ô mô tả ở bảng
+này; một thư mục chỉ chứa lời giải thích về sự trống rỗng của nó thì bảng này
+nói được rồi.
 
 ## Convention
 

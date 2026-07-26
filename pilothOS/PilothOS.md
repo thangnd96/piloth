@@ -4,30 +4,15 @@
 
 PilothOS là kiến trúc vận hành trung lập với model dành cho hệ thống AI Agent. Mỗi layer có trách nhiệm, vòng đời và mức độ thay đổi riêng.
 
-## Architecture
-
-```text
-Identity
-    ↓
-Rules & Hooks
-    ↓
-Memory & Knowledge
-    ↓
-Skills
-    ↓
-Runtime
-    ↓
-Agents
-    ↓
-Tools / MCP / CLI
-```
-
-Governance, Evaluation, Adapters và Agent Teams là các hệ thống **cắt ngang**.
+<!-- PILOTHOS-GENERATED:CROSS-CUTTING:START — bản gốc; README nhận bản sao qua scripts/sync_docs.py -->
+Governance, Evaluation, Rot Management và Adapters là các hệ thống **cắt ngang**.
+Chúng không thay thế trách nhiệm của bảy layer cốt lõi.
 
 - **Governance** kiểm soát quyền hạn, rủi ro và escalation.
 - **Evaluation** xác nhận chất lượng bằng Evidence.
+- **Rot Management** theo dõi cadence review và phát hiện tài liệu lệch implementation.
 - **Adapters** bridge PilothOS sang từng native agent tooling, không định nghĩa lại source of truth.
-- **Agent Teams** mô tả role composition đã validate cho task phức tạp; team là composition tạm thời của Agents do Runtime điều phối, không thay thế responsibility của Runtime hoặc Agents.
+<!-- PILOTHOS-GENERATED:CROSS-CUTTING:END -->
 
 ## Core Philosophy
 
@@ -45,6 +30,7 @@ Governance, Evaluation, Adapters và Agent Teams là các hệ thống **cắt n
 
 ## Layer Responsibility
 
+<!-- PILOTHOS-GENERATED:LAYER-TABLE:START — bản gốc; README nhận bản sao qua scripts/sync_docs.py -->
 | Layer | Responsibility |
 |---|---|
 | Identity | WHY |
@@ -55,6 +41,7 @@ Governance, Evaluation, Adapters và Agent Teams là các hệ thống **cắt n
 | Runtime | ORCHESTRATION |
 | Agents | EXECUTION |
 | Tools / MCP / CLI | INTEGRATION |
+<!-- PILOTHOS-GENERATED:LAYER-TABLE:END -->
 
 > Thành phần nằm sai responsibility phải được flag và refactor về đúng layer.
 

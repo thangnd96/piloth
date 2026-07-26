@@ -6,22 +6,6 @@ Piloth biến AI coding agent từ một công cụ viết code thành một h�
 
 Piloth cung cấp một kernel thống nhất cho **Claude Code, Codex, Cursor và Antigravity**, để các agent cùng tuân theo một cách làm việc thay vì mỗi công cụ tự suy diễn quy trình riêng.
 
-```text
-Task
-  ↓
-Understand
-  ↓
-Plan
-  ↓
-Execute
-  ↓
-Review
-  ↓
-Repair
-  ↓
-Deliver with Evidence
-```
-
 ## Quickstart
 
 ### Claude Code
@@ -105,8 +89,8 @@ hữu hoặc overwrite chúng.
 
 Control plane này dùng **Evidence Router**: classify task/risk, kiểm adapter
 capability, chọn bằng chứng nhỏ nhất đủ tin cậy, ưu tiên consumer specialist,
-rồi mới quyết định single/team và model tier. `os-start` gọi router trực tiếp;
-`route-task` và `scheduler-suggest` được giữ làm compatibility wrappers.
+rồi mới quyết định model tier. `os-start` gọi router trực tiếp và ghi quyết định
+vào task contract.
 
 ## Cách Piloth hoạt động
 
@@ -166,13 +150,6 @@ Execute and verify
 
 Cơ chế này giảm token cost, hạn chế instruction conflict và giữ context tập trung vào công việc hiện tại.
 
-Với câu hỏi cấu trúc như caller/callee, impact hoặc cross-file architecture,
-Piloth có thêm codebase intelligence local theo luồng
-`status -> search -> coverage -> trace -> live snippet`. Graph là derived cache,
-không phải source of truth; stale hoặc partial result bắt buộc fallback về source.
-Xem [deep scout](docs/codebase-memory-deep-scout.md) và
-[delivery plan](docs/codebase-memory-plan.md).
-
 ### 4. Verify trước khi tuyên bố hoàn thành
 
 Piloth phân biệt rõ:
@@ -231,30 +208,6 @@ Installer:
 
 Chi tiết: [workflow.md](docs/workflow.md)
 
-## Agent Teams
-
-Piloth không mặc định biến mọi task thành multi-agent workflow.
-
-Agent Team chỉ được kích hoạt khi task có đủ độ phức tạp hoặc cần vai trò độc lập để tạo, đánh giá và ra quyết định.
-
-Team mặc định đã được migrate và validate là **Piloth Team**:
-
-| Role | Trách nhiệm |
-|---|---|
-| Lead Solution Architect | Làm rõ mục tiêu, điều phối team, sở hữu quyết định cuối cùng |
-| Solution Generator | Tạo phương án và giải pháp khả thi |
-| Critical Evaluator | Phản biện assumptions, risks, quality và Evidence |
-
-Mỗi handoff phải chứa:
-
-- decision hoặc output;
-- Evidence;
-- risks;
-- unresolved questions;
-- next owner.
-
-Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution role.
-
 ## Khả năng chính
 
 - **Model-neutral kernel** — một hệ thống vận hành dùng cho nhiều coding agents.
@@ -264,10 +217,7 @@ Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution r
 - **Measurable token optimization** — đo footprint context (bytes/token) mỗi task nạp vs kernel routable; routing tiết kiệm **77,7–84,8%** so với 50 file routable (144.895 B). Đây là `context_load` footprint, không phải token telemetry thật. Xem [token-optimization.md](docs/token-optimization.md).
 - **Rules & Hooks** — instruction-level policies và mechanical enforcement khi có thể.
 - **Evidence-first delivery** — verify trước khi claim completion.
-- **Governed Visual Review** — companion tool review trực quan (annotron-faithful, zero-dep) + gate `human_review`: structured feedback thành evidence, `os-close` chặn Seal khi chưa duyệt. Bind `--task`/`--govern` để thêm pipeline/gate stepper + option-picker. Xem `pilothOS/tools/review/`.
-- **Prototype phase & Discovery gate** — skill `piloth-prototype` sinh ≥2 UI options rồi human chọn (tái dùng `human_review`, gate `prototype` kiểm invariant); skill `piloth-discovery` hỏi-xác nhận câu hỏi mở đầu phase, fold vào contract. Recipe `phase_plan_suggestion` khuyến nghị (advisory, không auto-enable).
 - **Rot Management** — cadence, next due, owner, checklist và append-only review log.
-- **Agent Teams** — composition, role contract, handoff và stop condition.
 - **Safe uninstall** — khôi phục dựa trên installation evidence.
 
 ## Hỗ trợ công cụ
@@ -310,17 +260,28 @@ piloth/
 
 ### Bảy layer cốt lõi
 
+<!-- PILOTHOS-GENERATED:LAYER-TABLE:START — không sửa tay; nguồn: pilothOS/PilothOS.md; chạy `python3 scripts/sync_docs.py` -->
 | Layer | Responsibility |
 |---|---|
 | Identity | WHY |
 | Rules & Hooks | POLICY |
-| Memory & Knowledge | CONTEXT + FACT |
+| Memory | CONTEXT |
+| Knowledge | FACT |
 | Skills | CAPABILITY |
 | Runtime | ORCHESTRATION |
 | Agents | EXECUTION |
 | Tools / MCP / CLI | INTEGRATION |
+<!-- PILOTHOS-GENERATED:LAYER-TABLE:END -->
 
-Governance, Evaluation, Rot Management và Adapters là các hệ thống cắt ngang, không thay thế trách nhiệm của bảy layer cốt lõi.
+<!-- PILOTHOS-GENERATED:CROSS-CUTTING:START — không sửa tay; nguồn: pilothOS/PilothOS.md; chạy `python3 scripts/sync_docs.py` -->
+Governance, Evaluation, Rot Management và Adapters là các hệ thống **cắt ngang**.
+Chúng không thay thế trách nhiệm của bảy layer cốt lõi.
+
+- **Governance** kiểm soát quyền hạn, rủi ro và escalation.
+- **Evaluation** xác nhận chất lượng bằng Evidence.
+- **Rot Management** theo dõi cadence review và phát hiện tài liệu lệch implementation.
+- **Adapters** bridge PilothOS sang từng native agent tooling, không định nghĩa lại source of truth.
+<!-- PILOTHOS-GENERATED:CROSS-CUTTING:END -->
 
 Chi tiết: [structure.md](docs/structure.md)
 
