@@ -259,11 +259,11 @@ import pathlib
 # The base adapter used to be the one bridge nobody checked: D7 covered cursor,
 # antigravity and codex but not adapters/claude, i.e. the bridge every install
 # ships was free to fork policy.
+# AGENTS.md is the only bridge left for non-Claude harnesses: Piloth stopped
+# shipping cursor/codex/antigravity adapter dirs, which had no hooks and no exec
+# surface, so the "equivalent enforcement" they implied was never true.
 checks = [
     pathlib.Path("templates/AGENTS.md"),
-    pathlib.Path("adapters/cursor/rules/pilothos-core.mdc"),
-    pathlib.Path("adapters/antigravity/rules/pilothos-core.md"),
-    pathlib.Path("adapters/codex/config.toml"),
 ]
 claude_bridges = sorted(pathlib.Path("adapters/claude").rglob("*.md"))
 assert claude_bridges, "adapters/claude has no bridge files to check"

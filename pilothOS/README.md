@@ -11,7 +11,7 @@ PilothOS là một **Agentic Operating System** trung lập với model, dùng �
 PilothOS được phân phối theo hai lớp:
 
 1. **OS Source of Truth**: toàn bộ kiến trúc, rules, runtime, rot và contracts nằm trong `pilothOS/`.
-2. **Native Tool Adapters**: các thư mục như `.claude/`, `.cursor/`, `.codex/`, `.antigravity/` chỉ là bridge để từng tool đọc được PilothOS. Adapter không được định nghĩa lại source of truth.
+2. **Native Tool Adapters**: `.claude/` là adapter duy nhất Piloth ship — bridge để Claude Code đọc được PilothOS, không định nghĩa lại source of truth. Harness khác đọc `AGENTS.md`. Nếu project đã có `.cursor/`, `.codex/` hay `.antigravity/` của riêng nó, đó là tài sản consumer: Piloth index chúng và không ghi đè.
 
 PilothOS là control plane. Tài sản consumer như skills, hooks, tools, MCP,
 commands, design system và project conventions là userland apps/drivers:
@@ -49,11 +49,8 @@ License: xem `LICENSE`.
 
 ```text
 CLAUDE.md                  # Identity cho Claude Code
-AGENTS.md                  # Entry point chung cho Codex/Cursor-compatible agents
+AGENTS.md                  # Entry point cho harness đọc chuẩn AGENTS.md
 .claude/                   # Claude Code adapter
-.cursor/                   # Cursor adapter
-.codex/                    # Codex adapter
-.antigravity/              # Antigravity adapter
 pilothOS/
 ├── bootstrap.md           # Entry point và context routing
 ├── PilothOS.md            # Hiến pháp kiến trúc

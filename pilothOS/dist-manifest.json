@@ -1,30 +1,10 @@
 {
  "schema_version": 1,
  "piloth_version": "1.12.0",
- "generated_at": "2026-07-26T15:16:45.078975+00:00",
+ "generated_at": "2026-07-26T15:47:08.966217+00:00",
  "files": [
   {
-   "path": ".antigravity/README.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".antigravity/rules/pilothos-core.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".antigravity/rules/pilothos-evidence.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".antigravity/rules/pilothos-team-routing.md",
-   "class": "verbatim"
-  },
-  {
    "path": ".claude/agents/README.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".claude/commands/pilothos-adapter.md",
    "class": "verbatim"
   },
   {
@@ -40,40 +20,12 @@
    "class": "verbatim"
   },
   {
-   "path": ".claude/rules/00-pilothos-bridge.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".claude/rules/10-coding-behavior.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".claude/rules/20-evidence.md",
-   "class": "verbatim"
-  },
-  {
-   "path": ".claude/rules/30-layer-boundary.md",
-   "class": "verbatim"
-  },
-  {
    "path": ".claude/settings.json",
    "class": "consumer-owned"
   },
   {
    "path": ".claude/skills/pilothos-init/SKILL.md",
    "class": "installer-facade"
-  },
-  {
-   "path": ".codex/config.toml",
-   "class": "verbatim"
-  },
-  {
-   "path": ".cursor/rules/pilothos-coding.mdc",
-   "class": "verbatim"
-  },
-  {
-   "path": ".cursor/rules/pilothos-core.mdc",
-   "class": "verbatim"
   },
   {
    "path": ".gitignore",
@@ -265,10 +217,6 @@
   },
   {
    "path": "pilothOS/skills/workflow/README.md",
-   "class": "verbatim"
-  },
-  {
-   "path": "pilothOS/skills/workflow/pilothos-adapter/SKILL.md",
    "class": "verbatim"
   },
   {

@@ -114,9 +114,11 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   `skills/workflow/pilothos-init/brownfield.md`).
 - Việc nhận diện ĐÚNG nội dung đáng ghi log thuộc judgment của model; gate chỉ
   đảm bảo câu hỏi luôn được đặt ra.
-- Codex/Cursor/Antigravity không có cùng native hook surface như Claude Code;
-  mức enforcement tương đương phụ thuộc việc adapter/harness gọi cùng guard CLI
-  (`contract-write`, `pre-edit`, `post-edit`, `receipt-write`, `stop-check`).
+- Piloth chỉ ship adapter cho Claude Code. Harness khác đọc `AGENTS.md` và
+  không có hook: mức enforcement tương đương hoàn toàn phụ thuộc việc harness tự
+  gọi guard CLI (`contract-write`, `pre-edit`, `post-edit`, `receipt-write`,
+  `stop-check`). Evidence Router khai các capability đó là `unavailable` thay vì
+  suy đoán chúng có.
 - The design-system scan is evidence-assisted. It does not decide semantic
   correctness; it only requires the receipt to record a decision for generated
   high-confidence candidates.

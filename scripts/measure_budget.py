@@ -19,6 +19,7 @@ adapter's own usage records.
 Usage:
     python3 scripts/measure_budget.py context '{"task_signal":"bug fix"}'
     python3 scripts/measure_budget.py payload '{"task_signal":"bug fix"}'
+    python3 scripts/measure_budget.py sync-table   # rewrite the doc's reference table
 """
 import importlib.util
 import json
@@ -230,7 +231,56 @@ def payload_budget_payload(payload=None):
     }
 
 
+REFERENCE_SIGNALS = (
+    "not_applicable", "UI/component", "API/backend", "release/deploy", "bug fix",
+)
+
+
+def emit_reference_table():
+    """Regenerate the reference table in docs/token-optimization.md in place.
+
+    Every edit to a routed kernel doc shifts these numbers, and transcribing them
+    by hand drifted three times in one session before this existed. The gate in
+    tests/unit/test_docs_vs_guard.py compares the table to this same meter, so
+    the doc and the measurement cannot disagree unless someone edits the table by
+    hand — which is now never necessary.
+    """
+    import re
+
+    doc = REPO_ROOT / "docs" / "token-optimization.md"
+    rows = []
+    for signal in REFERENCE_SIGNALS:
+        m = context_budget_payload({"task_signal": signal})
+        rows.append(
+            f"| {signal:16} |   {m['loaded_count']}   | {m['loaded_bytes']:,} "
+            f"|    {m['loaded_tokens_est']:,}   |     "
+            f"{m['savings_pct_vs_full_kernel']}%      |    "
+            f"{m['savings_pct_vs_routable_kernel']}%    |"
+        )
+    ceilings = context_budget_payload({})
+    text = doc.read_text(encoding="utf-8")
+    text = re.sub(
+        r"\| not_applicable.*?\| bug fix\s+\|\s+\d+\s+\| [\d,]+ \|\s+[\d,]+\s+"
+        r"\|\s+[\d.]+%\s+\|\s+[\d.]+%\s+\|",
+        "\n".join(rows), text, flags=re.S,
+    )
+    for key, label in (("full", "mọi `.md`"), ("routable", "bỏ `skills/**`")):
+        text = re.sub(
+            rf"\*\*\d+ file, ~[\d.]+k token\*\*: {re.escape(label)}",
+            f"**{ceilings[f'{key}_kernel_files']} file, "
+            f"~{ceilings[f'{key}_kernel_tokens_est'] / 1000:.1f}k token**: {label}",
+            text,
+        )
+    doc.write_text(text, encoding="utf-8")
+    print(f"synced docs/token-optimization.md from the meter "
+          f"(full {ceilings['full_kernel_files']} files / "
+          f"{ceilings['full_kernel_bytes']:,} B)")
+    return 0
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "sync-table":
+        return emit_reference_table()
     if len(sys.argv) < 2 or sys.argv[1] not in {"context", "payload"}:
         print(__doc__.strip(), file=sys.stderr)
         return 1

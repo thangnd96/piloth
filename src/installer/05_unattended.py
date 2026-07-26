@@ -1,8 +1,11 @@
 # --------------------------------------------------------------- unattended
 
 def adapter_set(value):
-    """Chuẩn hoá adapter selection từ list (plan.adapters) hoặc chuỗi CSV
-    (--adapters). None/rỗng → cả bốn. Reject adapter lạ."""
+    """Chuẩn hoá adapter selection từ list (plan.adapters) hoặc chuỗi CSV.
+
+    Giữ lại để plan cũ khai `adapters` vẫn parse được; giờ chỉ `claude` hợp lệ,
+    nên một plan xin cursor/codex/antigravity bị từ chối thay vì im lặng không
+    cài gì."""
     if value is None:
         return set(ALLOWED_ADAPTERS)
     if isinstance(value, str):
@@ -23,24 +26,6 @@ def adapter_set(value):
 
 def selected_adapters(raw):
     return adapter_set(raw)
-
-
-def optional_adapter_removal_steps(adapters, skip_targets=()):
-    """remove_path steps cho các optional adapter KHÔNG chọn mà còn trên đĩa.
-    Bỏ qua target đã có step (idempotent)."""
-    skip = set(skip_targets)
-    out = []
-    for name, target in OPTIONAL_ADAPTER_PATHS.items():
-        if (name not in adapters and target not in skip
-                and (REPO_ROOT / target).exists()):
-            out.append({"op": "remove_path", "target": target})
-    return out
-
-
-def add_optional_adapter_removals(steps, adapters):
-    existing = {s.get("target") for s in steps
-                if isinstance(s, dict) and s.get("op") == "remove_path"}
-    steps.extend(optional_adapter_removal_steps(adapters, existing))
 
 
 def _insert_before_marker(steps, new_steps):
@@ -92,11 +77,6 @@ def normalize_plan(plan):
     if not isinstance(steps, list):
         return False
     new_steps = []
-    if "adapters" in plan:
-        existing = {s.get("target") for s in steps
-                    if isinstance(s, dict) and s.get("op") == "remove_path"}
-        new_steps += optional_adapter_removal_steps(
-            adapter_set(plan.get("adapters")), existing)
     gi_step = gitignore_append_step(plan, steps)
     if gi_step:
         new_steps.append(gi_step)
@@ -119,7 +99,7 @@ def build_unattended_plan(argv):
     parser.add_argument("--persona", default="")
     parser.add_argument("--goals", default="")
     parser.add_argument("--owner", default="")
-    parser.add_argument("--adapters", default="claude,cursor,codex,antigravity")
+    parser.add_argument("--adapters", default="claude")
     parser.add_argument("--statusline", choices=("consumer", "pilothos", "chain"))
     parser.add_argument("--gitignore-scope", choices=GITIGNORE_SCOPES,
                         default=DEFAULT_GITIGNORE_SCOPE)

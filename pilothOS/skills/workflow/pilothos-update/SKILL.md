@@ -12,7 +12,6 @@ Kiến trúc như init: **Claude làm judgment + UI**, **staging/engine làm det
 - Ghi nhận: qua engine plan `mode=upgrade` (`write_marker`) — đóng dấu version mới vào
   `.initialized`/manifest. Uninstall vẫn phục hồi được (backup trong manifest).
 
-Thêm/bớt adapter (không phải full upgrade) → `/piloth:adapter` (`pilothos-adapter`), nhẹ hơn.
 
 ## Preconditions
 

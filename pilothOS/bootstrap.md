@@ -55,9 +55,9 @@ Nếu tài liệu thiếu, mâu thuẫn hoặc lỗi thời:
 
 ## Adapter Loading
 
-Adapter files (`.claude/`, `.cursor/`, `.codex/`, `.antigravity/`) chỉ giúp native tooling tìm tới PilothOS.
+Adapter files (`.claude/`, và bất kỳ thư mục tool nào của consumer) chỉ giúp native tooling tìm tới PilothOS.
 
 - Không xem adapter là source of truth.
 - Không sửa adapter để thay đổi policy; sửa đúng file trong `pilothOS/` trước.
-- Adapter là các thư mục tool ở root (`.claude/`, `.cursor/`, `.codex/`, `.antigravity/`) — bridge mỏng, chỉ xem khi có tool integration conflict.
+- Adapter là các thư mục tool ở root — bridge mỏng, chỉ xem khi có tool integration conflict. Piloth ship `.claude/`; các thư mục tool khác thuộc consumer.
 

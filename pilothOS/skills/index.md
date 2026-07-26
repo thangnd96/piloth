@@ -21,7 +21,6 @@ Mô tả CAPABILITY có thể tái sử dụng.
 |---|---|
 | `workflow/` | Quy trình reasoning nhiều bước |
 | `workflow/pilothos-init/` | Installer assets (payloads, manifest-spec) + /pilothos-uninstall. Docs init tự dọn sau khi cài (self-prune) |
-| `workflow/pilothos-adapter/` | Add/remove tool adapter (cursor/codex/antigravity) sau init — targeted, không đụng kernel |
 | `workflow/pilothos-update/` | Upgrade bản đã init lên version plugin hiện tại (re-stage `--upgrade` + engine `mode=upgrade`), giữ customization + state |
 | `integration/` | Wrapper deterministic cho API/CLI/MCP — tạo khi có skill đầu tiên |
 

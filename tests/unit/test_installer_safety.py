@@ -40,12 +40,18 @@ def test_fill_placeholders_only_on_allowed_pilothos_file(installer):
         installer.check_target_writable_zone("pilothOS/rules/index.md", "fill_placeholders")
 
 
-def test_remove_path_restricted_to_allowlist(installer):
-    # adapter dirs are removable
-    assert installer.check_target_writable_zone(".cursor", "remove_path") is None
-    # arbitrary paths are not
-    with pytest.raises(installer.PlanError):
-        installer.check_target_writable_zone("src/app.py", "remove_path")
+def test_remove_path_restricted_to_self_prune_whitelist(installer):
+    """The one destructive op the engine has, now at its tightest.
+
+    `.cursor` / `.codex` / `.antigravity` used to be removable so a plan could
+    drop an unselected optional adapter. Those adapters are no longer shipped, so
+    nothing outside the self-prune whitelist is a legitimate target any more.
+    """
+    allowed = sorted(installer.SELF_PRUNE_ALLOWED)[0]
+    assert installer.check_target_writable_zone(allowed, "remove_path") is None
+    for denied in (".cursor", ".codex", ".antigravity", "src/app.py"):
+        with pytest.raises(installer.PlanError):
+            installer.check_target_writable_zone(denied, "remove_path")
 
 
 def test_consumer_root_file_write_allowed(installer):
@@ -96,15 +102,25 @@ def test_hooks_merge_consumer_first_and_dedup(installer):
 # --------------------------------------------------------------- adapter_set
 
 def test_adapter_set_from_list_and_csv(installer):
-    assert installer.adapter_set(["claude", "codex"]) == {"claude", "codex"}
-    assert installer.adapter_set("claude,codex") == {"claude", "codex"}
+    assert installer.adapter_set(["claude"]) == {"claude"}
+    assert installer.adapter_set("claude") == {"claude"}
 
 
-def test_adapter_set_none_or_empty_is_all(installer):
-    allf = {"claude", "cursor", "codex", "antigravity"}
-    assert installer.adapter_set(None) == allf
-    assert installer.adapter_set("") == allf
-    assert installer.adapter_set([]) == allf
+def test_adapter_set_rejects_adapters_piloth_no_longer_ships(installer):
+    """A plan asking for cursor/codex/antigravity must fail loudly.
+
+    Silently installing nothing for them is how a consumer ends up believing an
+    adapter is active when no file was ever written.
+    """
+    for name in ("cursor", "codex", "antigravity"):
+        with pytest.raises(installer.PlanError):
+            installer.adapter_set(["claude", name])
+
+
+def test_adapter_set_none_or_empty_is_the_base_adapter(installer):
+    assert installer.adapter_set(None) == {"claude"}
+    assert installer.adapter_set("") == {"claude"}
+    assert installer.adapter_set([]) == {"claude"}
 
 
 def test_adapter_set_rejects_unknown(installer):
@@ -125,18 +141,9 @@ def staged_repo(installer, monkeypatch, tmp_path):
     return tmp_path
 
 
-def test_normalize_injects_removals_for_unselected(installer, staged_repo):
-    plan = {"plan_version": 1, "mode": "greenfield",
-            "adapters": ["claude", "codex"], "steps": [{"op": "write_marker"}]}
-    assert installer.normalize_plan(plan) is True
-    removed = {s["target"] for s in plan["steps"] if s["op"] == "remove_path"}
-    assert removed == {".cursor", ".antigravity"}   # codex kept, claude never optional
-    assert plan["steps"][-1]["op"] == "write_marker"  # marker stays last
-
-
 def test_normalize_gitignore_defaults_to_all(installer, staged_repo):
     plan = {"plan_version": 1, "mode": "greenfield",
-            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "adapters": ["claude"],
             "steps": [{"op": "write_marker"}]}
     installer.normalize_plan(plan)
     gi = [s for s in plan["steps"]
@@ -150,7 +157,7 @@ def test_normalize_gitignore_runtime_scope_is_explicit_opt_in(
     installer, staged_repo,
 ):
     plan = {"plan_version": 1, "mode": "greenfield",
-            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "adapters": ["claude"],
             "options": {"gitignore_scope": "runtime"},
             "steps": [{"op": "write_marker"}]}
     installer.normalize_plan(plan)
@@ -162,7 +169,7 @@ def test_normalize_gitignore_runtime_scope_is_explicit_opt_in(
 
 def test_normalize_gitignore_all_scope(installer, staged_repo):
     plan = {"plan_version": 1, "mode": "greenfield",
-            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "adapters": ["claude"],
             "options": {"gitignore_scope": "all"}, "steps": [{"op": "write_marker"}]}
     installer.normalize_plan(plan)
     gi = [s for s in plan["steps"]
@@ -186,7 +193,7 @@ def test_normalize_gitignore_skips_when_all_present(installer, monkeypatch, tmp_
         "\n".join(installer.PILOTHOS_GITIGNORE_LINES) + "\n", encoding="utf-8")
     monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
     plan = {"plan_version": 1, "mode": "greenfield",
-            "adapters": ["claude", "cursor", "codex", "antigravity"],
+            "adapters": ["claude"],
             "steps": [{"op": "write_marker"}]}
     installer.normalize_plan(plan)
     assert [s for s in plan["steps"] if s.get("target") == ".gitignore"] == []

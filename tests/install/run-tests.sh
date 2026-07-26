@@ -96,7 +96,7 @@ cat > conflict-plan.json <<'JSON'
 {
   "plan_version": 1,
   "mode": "brownfield",
-  "adapters": ["claude", "cursor", "codex", "antigravity"],
+  "adapters": ["claude"],
   "steps": [
     {"op": "merge_settings", "payload": "settings.json", "target": ".claude/settings.json"},
     {"op": "write_marker"}
@@ -156,7 +156,7 @@ cat > hook-merge-plan.json <<'JSON'
 {
   "plan_version": 1,
   "mode": "brownfield",
-  "adapters": ["claude", "cursor", "codex", "antigravity"],
+  "adapters": ["claude"],
   "steps": [
     {"op": "merge_settings", "payload": "settings.json", "target": ".claude/settings.json"},
     {"op": "write_marker"}
@@ -186,15 +186,16 @@ diff -r $W/ch1 $W/ch2 > /dev/null && echo "C10c PASS: plugin-env va clone-path r
 
 echo "== C10d completeness bao dung khi thieu =="
 cd $W/gf && rm AGENTS.md
-printf '{"plan_version":1,"mode":"greenfield","fill":{"PERSONA":"P","GOALS":"G","OWNER":"O"},"adapters":["claude","cursor","codex","antigravity"],"steps":[{"op":"fill_placeholders","target":"CLAUDE.md"},{"op":"write_marker"}]}' > /tmp/c10d.json
+printf '{"plan_version":1,"mode":"greenfield","fill":{"PERSONA":"P","GOALS":"G","OWNER":"O"},"adapters":["claude"],"steps":[{"op":"fill_placeholders","target":"CLAUDE.md"},{"op":"write_marker"}]}' > /tmp/c10d.json
 python3 pilothOS/scripts/pilothos_installer.py apply /tmp/c10d.json > /tmp/c10d-receipt.json
 grep -q '"AGENTS.md"' /tmp/c10d-receipt.json && echo "C10d PASS (engine receipt that, khong duplicate logic)"
 
 echo "== C10e unattended install + upgrade/re-init =="
 mkdir -p $W/unatt && bash "$REPO/scripts/stage.sh" "$W/unatt" > /dev/null && cd $W/unatt
-python3 pilothOS/scripts/pilothos_installer.py unattended --mode greenfield --persona P --goals G --owner O --adapters claude,codex > receipt.json
+python3 pilothOS/scripts/pilothos_installer.py unattended --mode greenfield --persona P --goals G --owner O --adapters claude > receipt.json
 grep -q '"result": "applied"' receipt.json
-[ -f pilothOS/.initialized ] && [ -d .codex ] && [ ! -d .cursor ] && [ ! -d .antigravity ]
+# claude is the only adapter Piloth ships; nothing else may appear on disk
+[ -f pilothOS/.initialized ] && [ -d .claude ] && [ ! -d .codex ] && [ ! -d .cursor ] && [ ! -d .antigravity ]
 out=$(python3 pilothOS/scripts/pilothos_installer.py validate pilothOS/.pending-plan.json 2>&1 || true)
 grep -q "re-init/upgrade" <<< "$out"
 printf '{"plan_version":1,"mode":"upgrade","steps":[{"op":"write_marker"}]}' > upgrade-plan.json
@@ -202,29 +203,18 @@ out=$(python3 pilothOS/scripts/pilothos_installer.py dry-run upgrade-plan.json)
 grep -q '"result": "plan_valid"' <<< "$out"
 grep -A2 '"target": "pilothOS/.initialized"' <<< "$out" | grep -q '"kind": "modify"'
 bash "$REPO/scripts/stage.sh" --upgrade "$W/unatt" > /dev/null
-[ -f pilothOS/.initialized ] && [ -d .codex ] && [ ! -d .cursor ] && [ ! -d .antigravity ]
+[ -f pilothOS/.initialized ] && [ -d .claude ] && [ ! -d .codex ] && [ ! -d .cursor ]
 mkdir -p $W/stageflag
 bash "$REPO/scripts/stage.sh" --unattended --dry-run "$W/stageflag" > /dev/null
 [ -f $W/stageflag/pilothOS/.pending-plan.json ] && [ ! -f $W/stageflag/pilothOS/.initialized ]
 out=$(python3 pilothOS/scripts/pilothos_installer.py unattended --mode upgrade --adapters codez --dry-run 2>&1 || true)
 grep -q "unknown adapter" <<< "$out"
+# an adapter Piloth stopped shipping must be rejected, not silently ignored:
+# installing nothing while the plan says otherwise is how a consumer ends up
+# believing a bridge exists when no file was written
+out=$(python3 pilothOS/scripts/pilothos_installer.py unattended --mode upgrade --adapters claude,cursor --dry-run 2>&1 || true)
+grep -q "unknown adapter" <<< "$out"
 echo "C10e PASS"
-
-echo "== C10f add-adapter targeted (post-init) =="
-cd $W/unatt
-[ ! -d .cursor ] && [ -d .codex ]   # tu C10e: init claude,codex
-before=$(find pilothOS -type f | wc -l)
-bash "$REPO/scripts/stage.sh" --add-adapters cursor "$W/unatt" > /dev/null
-[ -d .cursor ] && [ -d .codex ] && [ ! -d .antigravity ]
-after=$(find pilothOS -type f | wc -l)
-[ "$before" = "$after" ]   # kernel khong bi dung
-mkdir -p $W/noinit
-set +e
-bash "$REPO/scripts/stage.sh" --add-adapters cursor "$W/noinit" > /dev/null 2>&1
-rc=$?
-set -e
-[ "$rc" -ne 0 ]   # add tren project chua init phai fail
-echo "C10f PASS: targeted add copies only the missing adapter, kernel untouched"
 
 echo "== C10g gitignore default: existing .gitignore ignores full pilothOS =="
 mkdir -p $W/gi && cd $W/gi && printf 'node_modules/\n' > .gitignore

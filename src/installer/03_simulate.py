@@ -20,20 +20,8 @@ def validate_and_simulate(plan):
         raise PlanError(f"option la: {sorted(set(options) - OPTION_FIELDS)}")
     if "gitignore_scope" in options and options["gitignore_scope"] not in GITIGNORE_SCOPES:
         raise PlanError(f"options.gitignore_scope phai la {GITIGNORE_SCOPES}")
-    if "adapters" in plan:
-        if "claude" not in adapter_set(plan.get("adapters")):
-            raise PlanError("'adapters' phai gom 'claude' (khong the go adapter claude)")
-    elif plan.get("mode") in ("greenfield", "brownfield"):
-        # Bắt buộc khai báo selection KHI có optional adapter đã staging — đúng
-        # bối cảnh init thật (staging luôn copy đủ .cursor/.codex/.antigravity).
-        # Plan engine tối giản (không staging adapter) không bị ràng buộc.
-        staged = sorted(t for t in OPTIONAL_ADAPTER_PATHS.values()
-                        if (REPO_ROOT / t).exists())
-        if staged:
-            raise PlanError(
-                "co optional adapter da staging (%s) nhung plan khong khai bao "
-                "'adapters' — khai bao list adapter giu lai (gom 'claude') de engine "
-                "sinh remove_path cho adapter khong chon" % ", ".join(staged))
+    if "adapters" in plan and "claude" not in adapter_set(plan.get("adapters")):
+        raise PlanError("'adapters' phai gom 'claude' (adapter duy nhat Piloth ship)")
     fill = plan.get("fill") or {}
     if MARKER.exists() and plan.get("mode") != "upgrade":
         raise PlanError("pilothOS/.initialized da ton tai — re-init/upgrade can mode=upgrade")

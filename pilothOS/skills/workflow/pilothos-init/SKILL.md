@@ -21,7 +21,7 @@ thứ engine thực thi, byte-identical — không có khe hở diễn giải l�
 |---|---|---|
 | Preflight | `python3 pilothOS/scripts/pilothos_guard.py preflight` — FAIL → dừng. | ✅ |
 | Detect | `... pilothos_guard.py detect` → trình VERDICT + EVIDENCE, **confirm bằng AskUserQuestion**. `dirty` → xử lý theo NOTE rồi dừng; `re-init` → dùng upgrade flow nếu user muốn nâng cấp. | ✅ |
-| Audit + Elicit | Nạp đúng MỘT file nhánh (`greenfield.md`/`brownfield.md`). Audit tài sản (judgment). Elicit bằng AskUserQuestion: Persona, Mục tiêu, **tool adapters muốn giữ** (Claude/Cursor/Codex/Antigravity → field `adapters` gồm `claude`; engine tự sinh `remove_path` cho adapter không chọn ở dry-run), **.gitignore scope** (all mặc định / runtime compatibility opt-in). | ✅ |
+| Audit + Elicit | Nạp đúng MỘT file nhánh (`greenfield.md`/`brownfield.md`). Audit tài sản (judgment). Elicit bằng AskUserQuestion: Persona, Mục tiêu, **.gitignore scope** (all mặc định / runtime compatibility opt-in). | ✅ |
 | Plan | Soạn `pilothOS/.pending-plan.json` (schema + ops: xem `installer explain`). Chạy `installer dry-run` — phải `plan_valid`. Trình bản render (effects + quyết định merge) → **approve bằng AskUserQuestion**; "Approve kèm điều chỉnh" → sửa plan → dry-run lại → trình lại. | ✅ |
 | Apply | `installer apply pilothOS/.pending-plan.json`. Engine tự: backup → manifest → thực thi → self-check → archive plan → RECEIPT. Exit 4 (needs_judgment) → xử lý đúng items rồi lặp từ Plan. Exit 3 → đã auto-rollback, báo user. | ✅ |
 | Verify | Đọc RECEIPT — kiểm cả trường `completeness_missing` (phải vắng mặt); đối chiếu effects vs plan; xóa `.pending-plan.json`; in **First-Boot Checklist**. | ✅ |
@@ -50,10 +50,6 @@ Nâng bản đã init lên version mới → `/piloth:update` (skill `pilothos-u
 của upgrade flow (`stage.sh --upgrade` + engine plan `mode=upgrade`, giữ customization +
 state). KHÔNG chạy lại greenfield/brownfield plan trên project đã có `.initialized`.
 
-**Thêm/bớt adapter sau init (không phải full upgrade):** dùng `/piloth:adapter`
-(skill `pilothos-adapter`) — ADD copy targeted qua `stage.sh --add-adapters`,
-REMOVE qua engine `remove_path`. Nhẹ hơn re-stage toàn bộ.
-
 ## Unattended Install
 
 Engine hỗ trợ install không tương tác khi tất cả judgment input đã được truyền
@@ -65,7 +61,6 @@ python3 pilothOS/scripts/pilothos_installer.py unattended \
   --persona "..." \
   --goals "..." \
   --owner "..." \
-  --adapters claude,codex
 ```
 
 `unattended --dry-run` sinh `pilothOS/.pending-plan.json` và chỉ validate;
@@ -87,7 +82,6 @@ không bỏ qua simulate/backup/manifest/receipt.
    python3 pilothOS/scripts/pilothos_guard.py self-check
 3. Rà Persona/Mục tiêu trong CLAUDE.md.
 4. Sau mọi lần sửa .claude/settings.json: chạy self-check trước khi mở session.
-5. Muốn thêm/bớt tool adapter sau này: /piloth:adapter (không cần re-init).
 ```
 
 ## Supporting Files

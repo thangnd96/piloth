@@ -16,7 +16,7 @@
 | Governance | <owner> | Medium | 1–3 tháng | <init> | <init> | 🟢 Healthy | Approval, budget, risk hoặc escalation đổi |
 | Evaluation | <owner> | High | 2–4 tuần | <init> | <init> | 🟢 Healthy | Quality gate, metric hoặc acceptance đổi |
 | Context Loading | <owner> | High | 2–4 tuần | <init> | <init> | 🟢 Healthy | Context bloat, thiếu context hoặc routing sai |
-| Adapters | <owner> | Medium | Theo native tool change | <init> | Event | 🟢 Event-based | Claude/Codex/Cursor/Antigravity thay đổi cách đọc rules/settings |
+| Adapters | <owner> | Medium | Theo native tool change | <init> | Event | 🟢 Event-based | Claude Code thay đổi cách đọc rules/settings/hooks |
 | Agent Teams | <owner> | High | Theo validated workflow | <init> | Event | 🟢 Event-based | Workflow cần multi-role hoặc team contract thay đổi |
 
 ### Status

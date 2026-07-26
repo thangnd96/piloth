@@ -14,9 +14,6 @@ import pathlib
 MAP = [
     ("pilothOS", "pilothOS"),
     ("adapters/claude", ".claude"),
-    ("adapters/cursor", ".cursor"),
-    ("adapters/codex", ".codex"),
-    ("adapters/antigravity", ".antigravity"),
     ("templates/CLAUDE.md", "CLAUDE.md"),
     ("templates/AGENTS.md", "AGENTS.md"),
     ("templates/gitignore", ".gitignore"),

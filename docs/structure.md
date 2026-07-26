@@ -57,7 +57,6 @@ Các command được expose bởi plugin:
 commands/
 ├── init.md                   # /piloth:init
 ├── update.md                 # /piloth:update
-├── adapter.md                # /piloth:adapter
 └── uninstall.md              # /piloth:uninstall
 ```
 
@@ -69,13 +68,17 @@ Bridge PilothOS sang cấu trúc native của từng tool:
 
 ```text
 adapters/
-├── claude/                   # Rules, commands, skills, agents cho Claude Code
-├── cursor/                   # Cursor rules
-├── codex/                    # Codex config / AGENTS contract
-└── antigravity/              # Antigravity rules
+└── claude/                   # Commands, skills, agents cho Claude Code
 ```
 
-Adapter không phải source of truth và không được định nghĩa lại policy. Khi có mâu thuẫn, `pilothOS/` luôn được ưu tiên.
+Adapter không phải source of truth và không được định nghĩa lại policy. Khi có
+mâu thuẫn, `pilothOS/` luôn được ưu tiên.
+
+Piloth chỉ ship adapter cho Claude Code. Harness khác vẫn đọc được `AGENTS.md`
+và vẫn được Evidence Router lập hồ sơ năng lực trung thực — Piloth chỉ không cài
+file thay chúng nữa. Bản trước ship thêm `cursor/`, `codex/` và `antigravity/`,
+nhưng không cái nào có hook hay exec surface: enforcement phụ thuộc việc model
+tự nguyện gõ lệnh, và không test nào từng chạy một task qua chúng.
 
 ### `scripts/`
 
@@ -231,9 +234,6 @@ consumer-project/
 ├── CLAUDE.md                 # Identity đã được điền cho implementation
 ├── AGENTS.md                 # Entry point đa công cụ
 ├── .claude/                  # Claude native adapter + hooks
-├── .cursor/                  # Cursor adapter nếu được chọn
-├── .codex/                   # Codex adapter nếu được chọn
-├── .antigravity/             # Antigravity adapter nếu được chọn
 └── pilothOS/                 # Kernel, runtime, engine, logs và contracts
 ```
 

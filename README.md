@@ -4,7 +4,7 @@
 
 Piloth biến AI coding agent từ một công cụ viết code thành một hệ thống làm việc có **kiến trúc, quy tắc, bằng chứng, kiểm chứng và khả năng tự cải tiến**.
 
-Piloth cung cấp một kernel thống nhất cho **Claude Code, Codex, Cursor và Antigravity**, để các agent cùng tuân theo một cách làm việc thay vì mỗi công cụ tự suy diễn quy trình riêng.
+Piloth cung cấp một kernel thống nhất để coding agent tuân theo một cách làm việc thay vì tự suy diễn quy trình riêng. Enforcement máy móc hiện chỉ có trên **Claude Code**; harness khác đọc cùng kernel qua `AGENTS.md` nhưng không có hook.
 
 ## Quickstart
 
@@ -37,7 +37,7 @@ Kết quả mong đợi:
 SELF-CHECK PASSED
 ```
 
-### Codex, Cursor và Antigravity
+### Harness khác (Codex, Cursor, …)
 
 Clone Piloth và stage vào project:
 
@@ -45,6 +45,10 @@ Clone Piloth và stage vào project:
 git clone https://github.com/thangnd96/piloth /tmp/piloth
 /tmp/piloth/scripts/stage.sh /path/to/your/project
 ```
+
+Piloth **không ship adapter** cho các harness này: chúng đọc `AGENTS.md`, vốn trỏ
+vào `pilothOS/bootstrap.md`. Không có hook, nên enforcement phụ thuộc việc agent
+tự gọi guard CLI — Evidence Router khai điều đó ra thay vì giả vờ ngược lại.
 
 Mở coding agent trong project và yêu cầu agent thực hiện skill:
 
@@ -71,9 +75,9 @@ Coding agents thường thất bại không phải vì thiếu khả năng viế
 Piloth giải quyết các vấn đề này bằng một **Agentic Operating System** và các adapter mỏng:
 
 ```text
-Claude Code · Codex · Cursor · Antigravity
+Claude Code (hooks)   ·   harness khác (AGENTS.md)
                      ↓
-                Native Adapters
+                    Adapters
                      ↓
                    PilothOS
                      ↓
@@ -211,7 +215,7 @@ Chi tiết: [workflow.md](docs/workflow.md)
 ## Khả năng chính
 
 - **Model-neutral kernel** — một hệ thống vận hành dùng cho nhiều coding agents.
-- **Native adapters** — Claude Code, Codex, Cursor và Antigravity.
+- **Native adapter cho Claude Code** — hooks, statusline, slash commands.
 - **Transactional installation** — plan, approval, backup, manifest, receipt và rollback.
 - **Progressive context loading** — chỉ nạp đúng context cần thiết.
 - **Measurable token optimization** — đo footprint context (bytes/token) mỗi task nạp vs kernel routable; routing tiết kiệm **77,7–84,8%** so với 50 file routable (144.895 B). Đây là `context_load` footprint, không phải token telemetry thật. Xem [token-optimization.md](docs/token-optimization.md).
@@ -222,16 +226,21 @@ Chi tiết: [workflow.md](docs/workflow.md)
 
 ## Hỗ trợ công cụ
 
-| Capability | Claude Code | Codex | Cursor | Antigravity |
-|---|:---:|:---:|:---:|:---:|
-| PilothOS kernel | ✅ | ✅ | ✅ | ✅ |
-| Identity, Rules, Knowledge và Skills | ✅ | ✅ | ✅ | ✅ |
-| Native adapter | ✅ | ✅ | ✅ | ✅ |
-| Transactional init / uninstall | ✅ | ✅ | ✅ | ✅ |
-| Native hooks và statusline | ✅ | Contract | Contract | Contract |
-| Plugin UI installation | ✅ | — | — | — |
+| Capability | Claude Code | Harness khác |
+|---|:---:|:---:|
+| PilothOS kernel | ✅ | ✅ (qua `AGENTS.md`) |
+| Identity, Rules, Knowledge và Skills | ✅ | ✅ |
+| Transactional init / uninstall | ✅ | ✅ |
+| Adapter do Piloth ship | ✅ | — |
+| Native hooks và statusline | ✅ | — |
+| Plugin UI installation | ✅ | — |
 
-`Contract` nghĩa là harness đọc và tuân theo PilothOS adapter, nhưng chưa có cùng mức native mechanical enforcement như Claude Code.
+Bản trước liệt kê Codex, Cursor và Antigravity thành ba cột riêng với "Native
+adapter ✅". Không đúng: ba adapter đó là văn bản thuần, không hook, không exec
+surface, và không test nào từng chạy một task qua chúng — enforcement phụ thuộc
+việc model tự nguyện gõ lệnh. Chúng đã được gỡ. Harness khác vẫn dùng được
+Piloth qua `AGENTS.md`, và `runtime/adapter-capabilities.json` khai đúng những gì
+chúng không làm được.
 
 ## Cấu trúc repository
 
@@ -308,18 +317,6 @@ Sau đó nâng bản PilothOS đã init trong project lên version mới — kh�
 `update` re-stage kernel + adapter từ nguồn plugin (`stage.sh --upgrade`) rồi đóng dấu version mới qua engine (`mode=upgrade`); GIỮ nguyên `CLAUDE.md`/`AGENTS.md`/`.gitignore`/`.claude/settings.json` + state. Chi tiết: `pilothOS/skills/workflow/pilothos-update/SKILL.md`.
 
 Trước khi nâng cấp: đọc `CHANGELOG.md` + migration notes, bảo đảm working tree sạch; sau update chạy `self-check`. Không ghi đè installation hiện tại bằng cách copy file thủ công.
-
-## Quản lý tool adapters (sau init)
-
-Chọn thiếu adapter khi init, hoặc muốn bật thêm sau này? Dùng lệnh (không cần re-init):
-
-```text
-/piloth:adapter
-```
-
-ADD copy targeted đúng adapter thiếu (`cursor`/`codex`/`antigravity`) từ nguồn Piloth,
-không đụng kernel; REMOVE qua engine (`remove_path`, có backup, uninstall khôi phục được).
-`claude` là adapter nền, luôn giữ. Chi tiết: `pilothOS/skills/workflow/pilothos-adapter/SKILL.md`.
 
 ## Uninstall
 

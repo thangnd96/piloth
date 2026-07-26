@@ -47,7 +47,6 @@ GUARD = SCRIPT_DIR / "pilothos_guard.py"
 OPS = {"create_from_payload", "prepend_block", "append_lines",
        "merge_settings", "write_marker", "remove_path", "fill_placeholders"}
 FILL_PILOTHOS_ALLOWED = {"pilothOS/rot/registry.md"}
-REMOVE_ALLOWLIST = (".cursor", ".codex", ".antigravity")
 # Self-prune: installer tự dọn mặt tiền install sau khi cài (mặc định).
 # CHỈ các path chính xác dưới đây — payloads/ và manifest-spec.md KHÔNG BAO GIỜ
 # xóa được (uninstall và engine cần chúng).
@@ -59,12 +58,10 @@ SELF_PRUNE_ORDER = [
     "pilothOS/skills/workflow/pilothos-init/brownfield.md",
 ]
 SELF_PRUNE_ALLOWED = set(SELF_PRUNE_ORDER)
-OPTIONAL_ADAPTER_PATHS = {
-    "cursor": ".cursor",
-    "codex": ".codex",
-    "antigravity": ".antigravity",
-}
-ALLOWED_ADAPTERS = {"claude", "cursor", "codex", "antigravity"}
+# Claude is the only adapter Piloth ships. Other harnesses still read
+# `AGENTS.md` and are still profiled honestly by the Evidence Router; Piloth just
+# no longer installs files on their behalf.
+ALLOWED_ADAPTERS = {"claude"}
 # SSOT .gitignore của PilothOS. Consumer mặc định coi pilothOS/ là tooling cục
 # bộ và ignore toàn cây. `runtime` được giữ như compatibility opt-in cho team
 # muốn commit kernel nhưng bỏ qua state phát sinh.
@@ -102,10 +99,10 @@ OPS (bộ từ vựng đóng — ngoài bộ này là việc của judgment, kh�
 - append_lines{target,lines[]}: nối các dòng ngắn vào cuối (tạo file nếu chưa có).
 - merge_settings{payload,target?}: merge settings.json theo semantics trên.
 - write_marker{}: ghi pilothOS/.initialized (chỉ engine được ghi vào pilothOS/).
-- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- remove_path{target}: xóa có backup; CHỈ cho phép dưới: %s,
-  hoặc self-prune whitelist (mặt tiền installer: command init + docs nhánh —
-  payloads/ và manifest-spec.md không bao giờ xóa được). Uninstall phục hồi tất cả.
-""" % ", ".join(REMOVE_ALLOWLIST)
+- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- remove_path{target}: xóa có backup; CHỈ cho phép trong self-prune whitelist
+  (mặt tiền installer: command init + docs nhánh — payloads/ và manifest-spec.md
+  không bao giờ xóa được). Uninstall phục hồi tất cả.
+"""
 
 
 class PlanError(Exception):
@@ -148,11 +145,8 @@ def check_target_writable_zone(path_str, op):
     if op == "remove_path":
         if path_str in SELF_PRUNE_ALLOWED:
             return
-        if path_str.startswith(REMOVE_ALLOWLIST):
-            return
         raise PlanError(
-            f"remove_path chi cho phep duoi {REMOVE_ALLOWLIST} "
-            f"hoac self-prune whitelist: {path_str}")
+            f"remove_path chi cho phep trong self-prune whitelist: {path_str}")
     if inside_pilothos:
         raise PlanError(
             f"target trong pilothOS/ bi cam voi op {op}: {path_str} "

@@ -47,7 +47,6 @@ GUARD = SCRIPT_DIR / "pilothos_guard.py"
 OPS = {"create_from_payload", "prepend_block", "append_lines",
        "merge_settings", "write_marker", "remove_path", "fill_placeholders"}
 FILL_PILOTHOS_ALLOWED = {"pilothOS/rot/registry.md"}
-REMOVE_ALLOWLIST = (".cursor", ".codex", ".antigravity")
 # Self-prune: installer tự dọn mặt tiền install sau khi cài (mặc định).
 # CHỈ các path chính xác dưới đây — payloads/ và manifest-spec.md KHÔNG BAO GIỜ
 # xóa được (uninstall và engine cần chúng).
@@ -59,12 +58,10 @@ SELF_PRUNE_ORDER = [
     "pilothOS/skills/workflow/pilothos-init/brownfield.md",
 ]
 SELF_PRUNE_ALLOWED = set(SELF_PRUNE_ORDER)
-OPTIONAL_ADAPTER_PATHS = {
-    "cursor": ".cursor",
-    "codex": ".codex",
-    "antigravity": ".antigravity",
-}
-ALLOWED_ADAPTERS = {"claude", "cursor", "codex", "antigravity"}
+# Claude is the only adapter Piloth ships. Other harnesses still read
+# `AGENTS.md` and are still profiled honestly by the Evidence Router; Piloth just
+# no longer installs files on their behalf.
+ALLOWED_ADAPTERS = {"claude"}
 # SSOT .gitignore của PilothOS. Consumer mặc định coi pilothOS/ là tooling cục
 # bộ và ignore toàn cây. `runtime` được giữ như compatibility opt-in cho team
 # muốn commit kernel nhưng bỏ qua state phát sinh.
@@ -102,10 +99,10 @@ OPS (bộ từ vựng đóng — ngoài bộ này là việc của judgment, kh�
 - append_lines{target,lines[]}: nối các dòng ngắn vào cuối (tạo file nếu chưa có).
 - merge_settings{payload,target?}: merge settings.json theo semantics trên.
 - write_marker{}: ghi pilothOS/.initialized (chỉ engine được ghi vào pilothOS/).
-- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- remove_path{target}: xóa có backup; CHỈ cho phép dưới: %s,
-  hoặc self-prune whitelist (mặt tiền installer: command init + docs nhánh —
-  payloads/ và manifest-spec.md không bao giờ xóa được). Uninstall phục hồi tất cả.
-""" % ", ".join(REMOVE_ALLOWLIST)
+- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- remove_path{target}: xóa có backup; CHỈ cho phép trong self-prune whitelist
+  (mặt tiền installer: command init + docs nhánh — payloads/ và manifest-spec.md
+  không bao giờ xóa được). Uninstall phục hồi tất cả.
+"""
 
 
 class PlanError(Exception):
@@ -148,11 +145,8 @@ def check_target_writable_zone(path_str, op):
     if op == "remove_path":
         if path_str in SELF_PRUNE_ALLOWED:
             return
-        if path_str.startswith(REMOVE_ALLOWLIST):
-            return
         raise PlanError(
-            f"remove_path chi cho phep duoi {REMOVE_ALLOWLIST} "
-            f"hoac self-prune whitelist: {path_str}")
+            f"remove_path chi cho phep trong self-prune whitelist: {path_str}")
     if inside_pilothos:
         raise PlanError(
             f"target trong pilothOS/ bi cam voi op {op}: {path_str} "
@@ -301,20 +295,8 @@ def validate_and_simulate(plan):
         raise PlanError(f"option la: {sorted(set(options) - OPTION_FIELDS)}")
     if "gitignore_scope" in options and options["gitignore_scope"] not in GITIGNORE_SCOPES:
         raise PlanError(f"options.gitignore_scope phai la {GITIGNORE_SCOPES}")
-    if "adapters" in plan:
-        if "claude" not in adapter_set(plan.get("adapters")):
-            raise PlanError("'adapters' phai gom 'claude' (khong the go adapter claude)")
-    elif plan.get("mode") in ("greenfield", "brownfield"):
-        # Bắt buộc khai báo selection KHI có optional adapter đã staging — đúng
-        # bối cảnh init thật (staging luôn copy đủ .cursor/.codex/.antigravity).
-        # Plan engine tối giản (không staging adapter) không bị ràng buộc.
-        staged = sorted(t for t in OPTIONAL_ADAPTER_PATHS.values()
-                        if (REPO_ROOT / t).exists())
-        if staged:
-            raise PlanError(
-                "co optional adapter da staging (%s) nhung plan khong khai bao "
-                "'adapters' — khai bao list adapter giu lai (gom 'claude') de engine "
-                "sinh remove_path cho adapter khong chon" % ", ".join(staged))
+    if "adapters" in plan and "claude" not in adapter_set(plan.get("adapters")):
+        raise PlanError("'adapters' phai gom 'claude' (adapter duy nhat Piloth ship)")
     fill = plan.get("fill") or {}
     if MARKER.exists() and plan.get("mode") != "upgrade":
         raise PlanError("pilothOS/.initialized da ton tai — re-init/upgrade can mode=upgrade")
@@ -518,8 +500,11 @@ def do_apply(plan, plan_path):
 # --------------------------------------------------------------- unattended
 
 def adapter_set(value):
-    """Chuẩn hoá adapter selection từ list (plan.adapters) hoặc chuỗi CSV
-    (--adapters). None/rỗng → cả bốn. Reject adapter lạ."""
+    """Chuẩn hoá adapter selection từ list (plan.adapters) hoặc chuỗi CSV.
+
+    Giữ lại để plan cũ khai `adapters` vẫn parse được; giờ chỉ `claude` hợp lệ,
+    nên một plan xin cursor/codex/antigravity bị từ chối thay vì im lặng không
+    cài gì."""
     if value is None:
         return set(ALLOWED_ADAPTERS)
     if isinstance(value, str):
@@ -540,24 +525,6 @@ def adapter_set(value):
 
 def selected_adapters(raw):
     return adapter_set(raw)
-
-
-def optional_adapter_removal_steps(adapters, skip_targets=()):
-    """remove_path steps cho các optional adapter KHÔNG chọn mà còn trên đĩa.
-    Bỏ qua target đã có step (idempotent)."""
-    skip = set(skip_targets)
-    out = []
-    for name, target in OPTIONAL_ADAPTER_PATHS.items():
-        if (name not in adapters and target not in skip
-                and (REPO_ROOT / target).exists()):
-            out.append({"op": "remove_path", "target": target})
-    return out
-
-
-def add_optional_adapter_removals(steps, adapters):
-    existing = {s.get("target") for s in steps
-                if isinstance(s, dict) and s.get("op") == "remove_path"}
-    steps.extend(optional_adapter_removal_steps(adapters, existing))
 
 
 def _insert_before_marker(steps, new_steps):
@@ -609,11 +576,6 @@ def normalize_plan(plan):
     if not isinstance(steps, list):
         return False
     new_steps = []
-    if "adapters" in plan:
-        existing = {s.get("target") for s in steps
-                    if isinstance(s, dict) and s.get("op") == "remove_path"}
-        new_steps += optional_adapter_removal_steps(
-            adapter_set(plan.get("adapters")), existing)
     gi_step = gitignore_append_step(plan, steps)
     if gi_step:
         new_steps.append(gi_step)
@@ -636,7 +598,7 @@ def build_unattended_plan(argv):
     parser.add_argument("--persona", default="")
     parser.add_argument("--goals", default="")
     parser.add_argument("--owner", default="")
-    parser.add_argument("--adapters", default="claude,cursor,codex,antigravity")
+    parser.add_argument("--adapters", default="claude")
     parser.add_argument("--statusline", choices=("consumer", "pilothos", "chain"))
     parser.add_argument("--gitignore-scope", choices=GITIGNORE_SCOPES,
                         default=DEFAULT_GITIGNORE_SCOPE)

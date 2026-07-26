@@ -22,7 +22,7 @@
 
 2. Liệt kê tài sản hiện có:
    - agent docs: `CLAUDE.md`, `AGENTS.md`;
-   - adapters: `.claude`, `.cursor`, `.codex`, `.antigravity`;
+   - adapter dirs của consumer (`.claude` do Piloth ship; `.cursor`, `.codex`, `.antigravity` nếu consumer tự có — index, không đụng);
    - skills, hooks, commands;
    - MCP/tool configs;
    - test/build/lint scripts;
@@ -61,12 +61,9 @@
 - `write_marker` (cuối, bắt buộc)
 
 Deterministic — Claude KHÔNG gõ tay, engine tự chèn ở dry-run:
-- Field `adapters` (BẮT BUỘC, list adapter giữ lại gồm `claude`, từ multi-select) →
-  engine sinh `remove_path` cho adapter optional KHÔNG chọn.
 - `append_lines → .gitignore` từ SSOT theo `options.gitignore_scope`
   (`all` mặc định — ignore toàn bộ `pilothOS/`; `runtime` là compatibility
   opt-in để chỉ ignore state). Elicit thêm câu này như greenfield.
-- Thêm/bớt adapter SAU init: `/piloth:adapter` (skill `pilothos-adapter`).
 
 ## Heuristics tích lũy từ vận hành
 
