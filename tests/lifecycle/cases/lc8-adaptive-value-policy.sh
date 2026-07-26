@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$1"
 G="pilothOS/scripts/pilothos_guard.py"
 
-echo "== adaptive UI task starts lean and records cost metrics =="
+echo "== UI task records cost metrics under standard mode =="
 cat > adaptive-ui-request.json <<'JSON'
 {
   "task_id": "lc8-adaptive-ui",
@@ -17,7 +17,7 @@ cat > adaptive-ui-request.json <<'JSON'
 JSON
 out=$(python3 "$G" os-start adaptive-ui-request.json)
 grep -q '"result": "os_started"' <<< "$out"
-grep -q '"mode": "lean"' <<< "$out"
+grep -q '"mode": "standard"' <<< "$out"
 grep -q '"design_system"' <<< "$out"
 
 cat > figma-node.json <<'JSON'
@@ -129,9 +129,22 @@ bad=$(printf '%s' '{
   "affected_layers": ["Consumer"],
   "verification_command": "browser smoke",
   "result": "passed",
+  "scope_evidence": "index.html and styles.css are both declared target_paths",
+  "context_used": [{"source": "pilothOS/runtime/os-control-plane.md", "reason": "OS lifecycle contract", "finding": "task closes through os-close"}],
+  "consumer_asset_routing": [{"task_signal": "UI/component", "asset_type": "not_applicable", "decision": "not_applicable", "reason": "fixture repo has no consumer design system"}],
+  "learning_review": {"mistake_checked": "none", "lesson_decision": "none", "promoted_to": "not_applicable", "reason": "fixture task, nothing reusable"},
+  "reuse_discipline": {"existing_code_checked": "fixture repo scanned, no prior UI files", "existing_component_checked": "not_applicable", "existing_pattern_followed": "plain semantic HTML + CSS grid", "new_code_reason": "greenfield fixture files", "duplicate_risk": "none; fixture has no other UI", "kiss_dry_rationale": "two flat files, no abstraction introduced"},
+  "design_system_checked": "fixture repo scanned; no consumer design system or token source exists",
+  "component_reuse_decision": "not_applicable",
+  "token_reuse_decision": "not_applicable",
+  "design_system_candidate_review": [{"candidate": "all", "decision": "not_applicable", "reason": "fixture has no design-system assets to reuse"}],
   "quality_gates": {
     "scope": {"result": "PASS", "evidence": "index.html and styles.css are inside target_paths."},
     "correctness": {"result": "PASS", "evidence": "browser-smoke passed."},
+    "traceability": {"result": "PASS", "evidence": "contract, diff facts and os-run evidence trace every change."},
+    "architecture": {"result": "NOT_APPLICABLE", "evidence": "consumer fixture files, no PilothOS layer touched."},
+    "reuse_non_duplication": {"result": "PASS", "evidence": "fixture has no prior UI assets to reuse."},
+    "regression": {"result": "PASS", "evidence": "browser smoke covers the rendered page."},
     "disclosure": {"result": "PASS", "evidence": "Exact visual parity and token telemetry are not claimed."},
     "design_system": {"result": "PASS", "evidence": "figma-node records source context; no consumer DS existed in this fixture."},
     "ui_quality": {"result": "PASS", "evidence": "ui-quality records viewport, console/page errors, image failures and overflow checks."}
@@ -153,9 +166,22 @@ good=$(printf '%s' '{
   "affected_layers": ["Consumer"],
   "verification_command": "browser smoke",
   "result": "passed",
+  "scope_evidence": "index.html and styles.css are both declared target_paths",
+  "context_used": [{"source": "pilothOS/runtime/os-control-plane.md", "reason": "OS lifecycle contract", "finding": "task closes through os-close"}],
+  "consumer_asset_routing": [{"task_signal": "UI/component", "asset_type": "not_applicable", "decision": "not_applicable", "reason": "fixture repo has no consumer design system"}],
+  "learning_review": {"mistake_checked": "none", "lesson_decision": "none", "promoted_to": "not_applicable", "reason": "fixture task, nothing reusable"},
+  "reuse_discipline": {"existing_code_checked": "fixture repo scanned, no prior UI files", "existing_component_checked": "not_applicable", "existing_pattern_followed": "plain semantic HTML + CSS grid", "new_code_reason": "greenfield fixture files", "duplicate_risk": "none; fixture has no other UI", "kiss_dry_rationale": "two flat files, no abstraction introduced"},
+  "design_system_checked": "fixture repo scanned; no consumer design system or token source exists",
+  "component_reuse_decision": "not_applicable",
+  "token_reuse_decision": "not_applicable",
+  "design_system_candidate_review": [{"candidate": "all", "decision": "not_applicable", "reason": "fixture has no design-system assets to reuse"}],
   "quality_gates": {
     "scope": {"result": "PASS", "evidence": "index.html and styles.css are inside target_paths."},
     "correctness": {"result": "PASS", "evidence": "browser-smoke passed."},
+    "traceability": {"result": "PASS", "evidence": "contract, diff facts and os-run evidence trace every change."},
+    "architecture": {"result": "NOT_APPLICABLE", "evidence": "consumer fixture files, no PilothOS layer touched."},
+    "reuse_non_duplication": {"result": "PASS", "evidence": "fixture has no prior UI assets to reuse."},
+    "regression": {"result": "PASS", "evidence": "browser smoke covers the rendered page."},
     "disclosure": {"result": "PASS", "evidence": "Exact visual parity and token telemetry are not claimed."},
     "design_system": {"result": "PASS", "evidence": "figma-node records source context; no consumer DS existed in this fixture."},
     "ui_quality": {"result": "PASS", "evidence": "ui-quality records viewport, console/page errors, image failures and overflow checks."}
@@ -171,9 +197,9 @@ good=$(printf '%s' '{
 }' | python3 "$G" os-close)
 grep -q '"result": "os_closed"' <<< "$good"
 
-out=$(python3 "$G" os-report)
-grep -q '"result": "os_report"' <<< "$out"
-grep -q '"mode": "lean"' <<< "$out"
+out=$(python3 "$G" os-status)
+grep -q '"result": "os_status"' <<< "$out"
+grep -q '"mode": "standard"' <<< "$out"
 grep -q '"real_tokens": "unavailable"' <<< "$out"
 grep -q '"tool_output_chars": 2048' <<< "$out"
 grep -q '"result": "consumer_value_failed"' <<< "$out"

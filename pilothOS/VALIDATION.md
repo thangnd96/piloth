@@ -35,19 +35,17 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   deterministic `detected_signals` and Piloth-owned `manifest_status`. Discovery
   covers well-known assets and dynamic agent skill/command/script/test-runner
   locations.
-- **Semantic/DS evidence**: `reuse-scan` and `ds-scan` produce deterministic
-  candidates. Guards block only when high-confidence candidates exist in receipt
-  evidence but no explicit review decision is recorded. `reuse-scan` also emits
-  learning suggestions for high-confidence and repeated duplicate candidates
-  based on local scheduler history. Receipts that declare
-  `quality_gates.reuse_non_duplication.result` as `FAIL` cannot also mark the
-  delivery as successful without a documented limitation.
+- **Design-system evidence**: the receipt gate runs a deterministic
+  design-system scan and blocks only when high-confidence candidates exist in
+  receipt evidence but no explicit review decision is recorded. Receipts that
+  declare `quality_gates.reuse_non_duplication.result` as `FAIL` cannot also mark
+  the delivery as successful without a documented limitation.
 - **Project-local OS controls**: `os-start`, `os-status`, `os-evidence`,
   `os-close` and `os-verify` provide the canonical task lifecycle. The control
   plane remains the repo containing `pilothOS/`, while a run can control an
   explicit target repo through absolute `target_repo` and target-relative
   `target_paths`. `os-start` writes repo-local run state, an active task
-  contract, asset routing, scheduler suggestions and `target-snapshot.json`.
+  contract, asset routing and `target-snapshot.json`.
   Git targets record dirty status; non-git targets record a deterministic file
   manifest/hash snapshot. `os-evidence` appends sanitized evidence without full
   command output or secrets and supports structured `command`, `figma_node`,
@@ -92,25 +90,13 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   deterministic local build/test/editor artifacts such as `.DS_Store`,
   `__pycache__`, cache directories, reports and coverage output. `--fix` removes
   only those known local artifacts and never rewrites consumer source files.
-- **Scheduler**: `scheduler-suggest` recommends context/assets/evidence/test
-  suites from affected paths and local history; corrupt/missing scheduler state
-  falls back to deterministic routing. Valid same-repo successful history can
-  add prior evidence commands, asset types and risk notes. Deprecated host-level
-  history is ignored so removed control-plane experiments do not steer future
-  project-local OS work. `scheduler-record` appends sanitized repo-local history
-  only, infers missing task signals from asset routing and does not preserve
-  deprecated cleanup paths in new learning summaries.
 - **Evidence Router**: `evidence-route` and `adapter-capabilities` are read-only
   canonical contracts. Golden/unit/property fixtures pin task/risk
   classification, complete evidence item fields, stale/partial graph fallback,
-  negative-claim coverage, specialist rank/disqualification, team score and
-  independence, model escalation, rollout downgrade, budget exhaustion and
-  hostile input containment. `os-start` persists the decision; `os-close`
+  negative-claim coverage, specialist rank/disqualification, model escalation,
+  rollout downgrade, budget exhaustion and hostile input containment. `os-start` persists the decision; `os-close`
   enforces required evidence only in effective `enforced` mode.
-- **Router statelessness**: read-only routing and OS lifecycle commands never
-  create a learning database. Optional `scheduler-record` compatibility history
-  remains sanitized, repo-local and unable to mutate router policy.
-- **State doctor**: `state-doctor` checks repo-local scheduler history, OS run
+- **State doctor**: `state-doctor` checks OS run
   state, receipt seal JSONL shape, receipt seal chain continuity and confirms
   generated runtime state is excluded from the distribution manifest.
 - **Production review**: `production-review` runs a mechanical release-readiness
@@ -120,11 +106,6 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
   Tool-control treats exact local read-only guard review commands as low-risk
   evidence while preserving high-risk handling for deploy/delete commands,
   production/deploy env context and composite shell command strings.
-- **Team control plane**: `team-contract-write`, role-aware `pre-edit`, and
-  `team-receipt-write` enforce team definition, role permissions, allowed paths,
-  handoff artifacts, QA verdicts and repair loop limits. Team receipts generate
-  repo-local role, QA, handoff and lead-decision artifacts under
-  `pilothOS/memory/state/team-runs/<task-id>/`.
 
 ## Giới hạn đã biết
 
@@ -136,13 +117,9 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
 - Codex/Cursor/Antigravity không có cùng native hook surface như Claude Code;
   mức enforcement tương đương phụ thuộc việc adapter/harness gọi cùng guard CLI
   (`contract-write`, `pre-edit`, `post-edit`, `receipt-write`, `stop-check`).
-- Semantic reuse and design-system scans are evidence-assisted. They do not
-  decide semantic correctness; they only require the receipt to record a decision
-  for generated high-confidence candidates.
-- Scheduler learning is local JSONL memory, not telemetry. Missing/corrupt state
-  is non-blocking and falls back to deterministic routing.
-- Team contracts enforce shape and mechanical path/role boundaries only; quality
-  of role reasoning remains a model/user judgment.
+- The design-system scan is evidence-assisted. It does not decide semantic
+  correctness; it only requires the receipt to record a decision for generated
+  high-confidence candidates.
 - OS seals and target seals are local delivery evidence only. They are not
   cryptographic code signing, notarization, host sandboxing, OS permissions,
   TCC/SIP enforcement or proof that code is production-ready beyond the recorded
@@ -153,10 +130,9 @@ giới hạn đã biết. Lịch sử thay đổi theo version: xem `CHANGELOG.m
 - Exact token totals are unavailable unless the adapter records real
   prompt/completion telemetry. Artifact bytes or rough token estimates are
   diagnostic only.
-- Codebase graph results are structural candidates unless the response reads a
-  live source snippet. The reference engine has deep Python and universal
-  shallow coverage only; it does not prove full language/tool parity. Retrieval
-  byte benchmarks cannot support token or end-to-end speed claims.
+- Piloth keeps no code index. Structural questions are answered by reading
+  source directly, and negative or exhaustive claims still require stated
+  coverage.
 - The deterministic Evidence Router corpus proves policy invariants, not the
   30% token or 20% latency resource targets. Those claims remain unavailable
   until external `none-piloth`/single/routed runs record quality results and

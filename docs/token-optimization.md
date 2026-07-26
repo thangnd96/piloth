@@ -16,42 +16,27 @@ Các đòn bẩy chính, từ tác động lớn tới nhỏ:
    chỉ nạp bootstrap set + đúng index/context layer cho `task_signal`.
 2. **Operational preset** (`light` / `standard` / `strict`) — điều chỉnh lượng
    Evidence mà deliver receipt bắt buộc; `light` bỏ qua các gate nặng cho task nhỏ.
-3. **OS adaptive mode** (`lean` / `standard` / `strict`) — chọn mode nhẹ nhất vẫn
-   chứng minh được task; `lean` cho task UI/docs/test hẹp **và task code blast-radius
-   nhỏ** (≤3 file cụ thể) — tự động, không cần khai. Ví dụ: helper + test (2 file)
-   tự thành `lean` (7→3 gates, context ~6.668→~4.894 tok).
-4. **Codebase intelligence có điều kiện** — graph route các câu hỏi cấu trúc tới
-   candidate nhỏ, sau đó đọc live source. Không index nếu chi phí build lớn hơn
-   giá trị của task.
-5. **Digest thay vì blob** — mọi command in phần *hành động được* của quyết định
+3. **OS mode** (`standard` / `strict`) — `strict` thêm gate cho scope rộng,
+   release/deploy hoặc claim tuyệt đối; nó **không** đổi lượng context nạp.
+4. **Digest thay vì blob** — mọi command in phần *hành động được* của quyết định
    router; chi tiết đầy đủ nằm trên đĩa (`contract.json`, OS state) và lấy qua
    `--verbose`. Đĩa miễn phí về token, context thì không.
-6. **Adapter phải được nhận diện** — đây là đòn bẩy **capability**, không phải
+5. **Adapter phải được nhận diện** — đây là đòn bẩy **capability**, không phải
    token: `adapter: unknown` cho 15 capability đều `unavailable`, nên `enforced`
    tự hạ thành `advisory` và specialist có `adapter_support` bị disqualify. Router
    tự detect qua env (chi tiết:
    [`evidence-router.md`](../pilothOS/runtime/evidence-router.md)); harness lạ khai
    bằng `PILOTHOS_ADAPTER`.
 
-## Codebase retrieval proxy
-
-Reference benchmark ở `tests/benchmark/codebase-memory/run-tests.sh` dùng corpus
-call-chain có ground truth để đo index/query và số byte evidence được trả. Nó
-giúp bắt regression trong retrieval contract, nhưng **không phải token
-telemetry** và không chứng minh Piloth tiết kiệm token hay nhanh hơn end-to-end.
-
-Các claim mục tiêu (median token/tool-call giảm 30%, end-to-end nhanh hơn 20%)
-chỉ được mở khóa khi benchmark corpus có telemetry thật từ adapter. Freshness,
-coverage và source fallback cũng phải pass để cost win không đổi lấy quality
-regression.
-
 ## Đo footprint context (deterministic)
 
-Command `context-budget` đo chính xác lượng kernel text mà một task sẽ nạp, so với
-"trần" nạp toàn bộ kernel:
+`scripts/measure_budget.py` đo chính xác lượng kernel text mà một task sẽ nạp, so
+với "trần" nạp toàn bộ kernel. Đây là **công cụ vendor**, không phải guard verb:
+đo kernel là việc của người làm ra kernel, nên consumer không phải mang theo code
+đo đạc mà họ không có lý do gì để chạy.
 
 ```bash
-python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix"}'
+python3 scripts/measure_budget.py context '{"task_signal":"bug fix"}'
 ```
 
 Kết quả trả về `loaded_bytes`, `loaded_tokens_est`, `full_kernel_tokens_est` và
@@ -61,11 +46,11 @@ Kết quả trả về `loaded_bytes`, `loaded_tokens_est`, `full_kernel_tokens_
 
 Hai denominator, **cùng báo cáo** để không tự khen:
 
-- `full_kernel_*` — **75 file, ~74.2k token**: mọi `.md` dưới `pilothOS/`, tức
+- `full_kernel_*` — **51 file, ~36.9k token**: mọi `.md` dưới `pilothOS/`, tức
   trần "nạp tất cả" một cách ngây thơ.
-- `routable_kernel_*` — **50 file, ~36.2k token**: bỏ `skills/**` (chỉ mở khi
-  chính skill đó chạy, chiếm 45% trần) và `README`/`VALIDATION` (tài liệu cho
-  người, không phải instruction cho task). **Đây là con số nên trích dẫn.**
+- `routable_kernel_*` — **38 file, ~26.5k token**: bỏ `skills/**` (chỉ mở khi
+  chính skill đó chạy) và `README`/`VALIDATION` (tài liệu cho người, không phải
+  instruction cho task). **Đây là con số nên trích dẫn.**
 - Cả hai trần đều **loại** `rot/review-log.md` + `memory/lessons-learned.md`: kích
   thước của chúng phản ánh install chạy bao lâu (auto-log gate append mỗi session),
   không phản ánh kernel to bao nhiêu — và chúng **ship trống**, nên với consumer mới
@@ -73,14 +58,26 @@ Hai denominator, **cùng báo cáo** để không tự khen:
 
 | task_signal      | files | bytes  | est tokens | vs full-kernel | vs routable |
 |------------------|:-----:|:------:|:----------:|:--------------:|:-----------:|
-| not_applicable   |   7   | 22,084 |    5,521   |     92.6%      |    84.8%    |
-| UI/component     |   8   | 23,809 |    5,953   |     92.0%      |    83.6%    |
-| API/backend      |   8   | 26,669 |    6,668   |     91.0%      |    81.6%    |
-| release/deploy   |   9   | 28,995 |    7,249   |     90.2%      |    80.0%    |
-| bug fix          |   9   | 32,276 |    8,069   |     89.1%      |    77.7%    |
+| not_applicable   |   7   | 21,607 |    5,402   |     85.4%      |    79.6%    |
+| UI/component     |   8   | 23,332 |    5,833   |     84.2%      |    78.0%    |
+| API/backend      |   8   | 25,662 |    6,416   |     82.6%      |    75.8%    |
+| release/deploy   |   9   | 27,544 |    6,886   |     81.3%      |    74.0%    |
+| bug fix          |   9   | 29,594 |    7,399   |     79.9%      |    72.1%    |
 
-Nói cách khác: một task được route kéo **~15-22%** routable kernel vào context
+Nói cách khác: một task được route kéo **~20-28%** routable kernel vào context
 thay vì 100%.
+
+### Vì sao tỷ lệ tiết kiệm GIẢM sau khi cắt kernel
+
+Trước v2 bảng này ghi 89-93% (full) và 78-85% (routable). Giờ thấp hơn, và đó là
+kết quả đúng chứ không phải hồi quy: **context thật sự nạp đã giảm** (bug fix
+32.276 → 29.594 B), nhưng mẫu số giảm mạnh hơn nhiều (full kernel 296.863 →
+147.507 B) vì phần lớn thứ bị xoá là doc chưa bao giờ được route.
+
+Đây là bản chất của mọi phép đo "tiết kiệm so với nạp tất cả": nó thưởng cho việc
+**có nhiều thứ để không nạp**. Một kernel phình to làm con số đẹp lên. Vì vậy tỷ
+lệ này chỉ dùng để bắt regression trong routing, không dùng để khoe — con số đáng
+quan tâm là **byte tuyệt đối** mà task nạp.
 
 Guardrail: `CONTEXT_TOKEN_CEILINGS` trong `tests/unit/test_guard_context_budget.py`
 đặt **ceiling theo token cho từng (task_signal, mode)** — chỉ được hạ, không được
@@ -88,75 +85,40 @@ nâng. Trước đó test chỉ chặn số **file** (`loaded_count <= 12`) nên
 phình +2.209 byte (+552 tok/task) mà không ai thấy: số file không đổi, còn
 denominator cũng lớn lên nên tỷ lệ phần trăm thậm chí đẹp hơn.
 
-### Mode-aware context (lean nạp ít hơn)
+## Đo footprint tool output
 
-`context-budget` và `route-task` nhận `mode`. Ở `mode=lean`, Piloth **bỏ các doc
-chỉ cần cho gate/asset** (`evaluation/quality-gates.md`, `runtime/consumer-assets.md`)
-vì lean chạy ít gate hơn:
-
-```bash
-python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"lean"}'
-```
-
-| task_signal | standard | lean (lazy rot) | micro |
-|---|:---:|:---:|:---:|
-| bug fix | ~8,069 | ~4,522 (−44%) | **~3,568 (−56%)** |
-| API/backend | ~6,668 | ~4,894 (−27%) | ~3,940 (−41%) |
-| UI/component | ~5,953 | ~4,179 (−30%) | ~3,225 (−46%) |
-
-`lean`/`micro` còn dùng **lazy rot**: thay vì nạp cả bảng `rot/registry.md` (~579 tok),
-gọi `rot-status` (chỉ scope quá hạn — thường "healthy", ~20 tok).
-
-- `micro` = pass-through cho **script vứt đi / không tác động kiến trúc**: bỏ thêm
-  Constitution (`PilothOS.md`) và `rot/registry.md` khỏi bootstrap, chỉ giữ orient
-  tối thiểu. Chỉ dùng khi task thật sự không đụng kiến trúc.
-- Default (không `mode`) = `standard` — không đổi hành vi cũ.
-
-```bash
-python3 pilothOS/scripts/pilothos_guard.py context-budget '{"task_signal":"bug fix","mode":"micro"}'
-```
-
-## Đo footprint tool output (`payload-budget`)
-
-`context-budget` chỉ đo **một nửa** hoá đơn: text kernel nạp vào context. Nửa còn
+Phép đo context chỉ là **một nửa** hoá đơn: text kernel nạp vào context. Nửa còn
 lại là **JSON mà guard in ra** — nó vào context y như một file được đọc. Từ khi
 Evidence Router ra đời, nửa này lớn hơn nhiều mà không meter hay test nào thấy.
 
 ```bash
-python3 pilothOS/scripts/pilothos_guard.py payload-budget
-python3 pilothOS/scripts/pilothos_guard.py payload-budget '{"task_signal":"UI/component"}'
+python3 scripts/measure_budget.py payload '{"task_signal":"bug fix"}'
 ```
 
-Số đo cho một task `bug fix`, **đường adapter `claude` đã detect** (đúng cái một
-consumer chạy Claude Code nhận được):
+Hai command mà một task được route thật sự in ra, đo trên đường `adapter: unknown`
+(worst case — còn mang limitation tổng hợp):
 
-| command | trước | sau | ghi chú |
-|---|---:|---:|---|
-| `route-task` | 20.591 B | **11.860 B** | wrapper V1 từng nhúng cả decision 5.850 B; cộng thêm nén 4 view asset (dưới) |
-| `scheduler-suggest` | 10.386 B | **4.732 B** | như trên |
-| `evidence-route` | 7.342 B | **2.196 B** | digest là default, `--verbose` cho blob đầy đủ |
-| `codebase-status` | 347 B | 347 B | đã gọn |
-| `rot-status` | 108 B | 108 B | đã gọn |
+| command | bytes | ghi chú |
+|---|---:|---|
+| `evidence-route` | **2.175 B** | digest là default, `--verbose` cho blob đầy đủ |
+| `adapter-capabilities` | **1.498 B** | 15 key từng được phát ba lần (2.137 B); giờ một map + một dòng limitation tổng hợp |
 
-Trong `adapter_capabilities` (block lớn nhất của decision), 15 key từng được phát
-**ba lần**: map `capabilities`, 15 câu `limitations` boilerplate, và map `sources`
-toàn `missing` — 2.137 B. Giờ chỉ còn map `capabilities` đầy đủ + **một** dòng
-limitation tổng hợp + `sources` lọc bỏ `missing` kèm `sources_summary`.
+Bảng này ngắn hơn v1.12.0 vì ba trong năm probe cũ (`route-task`,
+`scheduler-suggest`, `codebase-status`, `rot-status`) là verb đã bị gỡ. Riêng
+`route-task` từng in 20.591 B rồi giảm còn 11.860 B sau khi nén — giờ là 0 B vì
+routing chạy bên trong `os-start` và không in ra bản sao riêng nữa. Đó là dạng
+tiết kiệm tốt nhất: không phải nén một output, mà là không sinh ra nó.
 
-`os-start`, `os-report` và **mỗi lần** `os-status` cũng từng in lại nguyên
-decision; giờ in digest, tiết kiệm ~5.3 KB (~1.3k tok) mỗi lần in. Blob đầy đủ
-luôn nằm trong `contract.json` + OS state, nên không mất thông tin nào.
-
-Trên đường `adapter: unknown` (harness Piloth chưa nhận diện), digest là 2.405 B
-— nhích lên vì còn 2 limitation thật: capability nào `unavailable`, và việc
-`enforced` bị hạ thành `advisory`.
+`os-start` và **mỗi lần** `os-status` cũng từng in lại nguyên decision; giờ in
+digest, tiết kiệm ~5.3 KB (~1.3k tok) mỗi lần in. Blob đầy đủ luôn nằm trong
+`contract.json` + OS state, nên không mất thông tin nào.
 
 Guardrail: `PAYLOAD_BYTE_CEILINGS` trong `tests/unit/test_guard_payload_budget.py`
 — cùng cơ chế ratchet như context, chỉ được hạ.
 
-### Bốn view song song trên cùng tập asset trong `route-task`
+### Bốn view song song trên cùng tập asset khi routing
 
-`route-task` từng in bốn mảng cho cùng một tập asset (~9,6 KB cho 16 asset). Chỉ
+Routing từng in bốn mảng cho cùng một tập asset (~9,6 KB cho 16 asset). Chỉ
 **hai** trong số đó là contract:
 
 | mảng | trước | sau | vì sao |
@@ -166,13 +128,14 @@ Guardrail: `PAYLOAD_BYTE_CEILINGS` trong `tests/unit/test_guard_payload_budget.p
 | `consumer_asset_routing` | 2.219 B | **1.963 B** | **shape giữ nguyên** (validator bắt buộc cả 4 key non-empty); chỉ bỏ phần `reason` lặp lại `task_signal` — chính nó đã là field trên cùng row |
 | `context_evidence` | 2.278 B | **2.054 B** | như trên: `source` đã có đường dẫn, routing entry đã có signal → `reason` chỉ còn nêu asset type |
 
-Tổng `route-task`: **20.591 → 11.860 B** (−42%).
+Tổng payload routing: **20.591 → 11.860 B** (−42%), rồi về 0 khi verb bị gỡ
+và routing chỉ còn chạy bên trong `os-start`.
 
 Hai ratchet, mỗi cái cho một loại rò rỉ:
 `test_route_task_asset_rows_stay_minimal` chặn **thêm field** vào 2 mảng pure-output;
 `test_contract_view_reasons_do_not_restate_their_own_row` chặn `reason` **lặp lại lần
 nữa** field đã có structural. Cả hai theo shape/nội dung, không theo byte — byte của
-`route-task` phụ thuộc số asset trong repo nên ceiling byte sẽ vỡ chỉ vì thêm một script.
+routing phụ thuộc số asset trong repo nên ceiling byte sẽ vỡ chỉ vì thêm một script.
 
 ### Vì sao không nén tiếp
 
@@ -182,7 +145,7 @@ Còn ~4 KB trong hai mảng contract, và nó **cố tình** ở đó:
   decision, reason}` và `{source, reason, finding}` đều là string non-empty. Bỏ field
   nào cũng là breaking change với receipt mà consumer đang viết.
 - **Nén input ở đây làm tăng output.** Hai mảng này là **deliverable của model** —
-  `route-task` in ra để model copy vào contract/receipt. Cắt template đi thì model
+  `os-start` in ra để model copy vào contract/receipt. Cắt template đi thì model
   phải tự dựng lại, tức chuyển chi phí từ input sang **output token (đắt hơn ~5×)**.
 - **Không lọc bớt asset.** Có thể chỉ in asset "đáng chú ý" (risk cao / cần approval)
   và bỏ phần còn lại, nhưng đó là silent cap — đúng thứ chính tài liệu này cấm: nếu
@@ -277,14 +240,13 @@ không còn là chuyện harness có expose được token hay không.
 Rác của Piloth có **hai nhóm khác hẳn nhau** — chỉ một nhóm thật sự tốn token:
 
 - **Nhóm A — rác trên đĩa (KHÔNG trực tiếp tốn token LLM).**
-  `os-runs/<task-id>/` (state + evidence + `artifacts/` HTML/PNG),
-  `scheduler-history.jsonl`, `receipt-seals.jsonl`. Chúng bị `.gitignore` và
+  `os-runs/<task-id>/` (state + evidence + `artifacts/`), `receipt-seals.jsonl`. Chúng bị `.gitignore` và
   **không** được re-load vào context (mỗi task chỉ nạp một run active). Chúng làm
   phình đĩa và chậm I/O (glob quét mọi run), chứ không làm tốn token model.
 - **Nhóm B — rác thật sự làm token tăng dần.** `memory/lessons-learned.md` và
   `rot/review-log.md` bị append mỗi session rồi **re-load vào context** ở task cần
   memory/rot. Đây mới là "càng ngày càng tốn token". (`rot/registry.md` là bảng cố
-  định, update tại chỗ, đã lazy-drop ở `lean`/`micro`.)
+  định, update tại chỗ.)
 
 `state-janitor` xử lý cả hai (chi tiết cờ và policy ở
 `pilothOS/runtime/os-control-plane.md`):
@@ -296,20 +258,19 @@ python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix --kernel-logs  # 
 ```
 
 - **Nhóm A** tự chạy (safe subset) sau khi `os-close` seal thành công — fail-soft,
-  chỉ xoá `artifacts/` của run **đã seal** ngoài retention (giữ state/seal JSON) và
-  tail-truncate scheduler-history. `receipt-seals.jsonl` (hash-chain) chỉ WARN.
+  chỉ xoá `artifacts/` của run **đã seal** ngoài retention (giữ state/seal JSON).
+  `receipt-seals.jsonl` (hash-chain) chỉ WARN.
 - **Nhóm B** là opt-in (`--kernel-logs`), rotate **lossless** row cũ sang
   `*-archive.md` (không nằm trong context load set). Đây là đòn bẩy token thực sự
   cho install chạy lâu — chạy thủ công khi `state-doctor` báo `lessons_rows` /
   `review_log_rows` lớn.
 
 Retention mặc định: giữ run active + 10 run gần nhất + mọi run trong 14 ngày
-(`PILOTHOS_RETENTION_RUNS`, `PILOTHOS_RETENTION_DAYS`, `PILOTHOS_SCHEDULER_KEEP`,
-`PILOTHOS_KERNEL_LOG_KEEP`).
+(`PILOTHOS_RETENTION_RUNS`, `PILOTHOS_RETENTION_DAYS`, `PILOTHOS_KERNEL_LOG_KEEP`).
 
 ## Review checklist (cho reviewer)
 
-- Agent có nạp đúng context cần cho task không? (`context-budget` để kiểm chứng)
+- Agent có nạp đúng context cần cho task không? (`scripts/measure_budget.py context`)
 - Search có bắt đầu hẹp trước khi mở rộng không?
 - Mỗi build/test/tool có gắn với expected evidence không?
 - Full suite có được biện minh bởi blast radius không?

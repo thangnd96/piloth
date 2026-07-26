@@ -20,7 +20,7 @@ def os_start_schema_payload():
             "expected_evidence": {"required": False, "default": ["manual verification receipt"]},
             "out_of_scope_paths": {"required": False, "default": []},
             "evidence_profile": {"required": False, "default": "generic", "allowed": sorted(EVIDENCE_PROFILES)},
-            "mode": {"required": False, "default": "adaptive", "allowed": sorted(OS_MODE_REQUESTS), "aliases": ["os_mode", "piloth_mode"], "note": "adaptive/auto resolve to lean|standard|strict"},
+            "mode": {"required": False, "default": "standard", "allowed": sorted(OS_MODE_REQUESTS), "aliases": ["os_mode", "piloth_mode"], "note": "strict adds gates; it does not change context loading"},
             "operational_preset": {"required": False, "allowed": sorted(OPERATIONAL_PRESETS)},
             "target_footprint_policy": {"required": False, "allowed": sorted(TARGET_FOOTPRINT_POLICIES), "aliases": ["footprint_policy"], "default": "no_control_plane_files if explicit target else repo_local_state_allowed"},
             "execution_strategy": {"required": False, "default": "controlled_target if explicit target else repo_local"},
@@ -32,9 +32,6 @@ def os_start_schema_payload():
             "work_packages": {"required": False, "note": "independent work packages used by the scored team gate"},
             "user_overrides": {"required": False, "note": "rollout/execution override; safety review remains mandatory"},
             "success_metrics": {"required": False},
-            "requires_prototype": {"required": False, "default": False, "note": "true also forces requires_human_review"},
-            "requires_human_review": {"required": False, "default": False},
-            "requires_discovery": {"required": False, "default": False},
             "energy_budget_reason": {"required": "when expected_evidence names a full-suite/broad run", "note": "justify the blast radius of an expensive run"},
         },
     }
@@ -90,13 +87,7 @@ def os_start(argv):
         "adapter_capabilities": request.get("adapter_capabilities"),
         "_router_compat_only": True,
     })
-    scheduler = scheduler_suggest_payload({
-        "task_signal": routed_signal,
-        "affected_paths": paths,
-        "intent": request_intent(request),
-        "_router_compat_only": True,
-    })
-    contract = build_os_contract(request, route, scheduler, target=target)
+    contract = build_os_contract(request, route, target=target)
     contract["evidence_router"] = evidence_router
     contract["decision_id"] = evidence_router.get("decision_id")
     contract["evidence_plan"] = evidence_router.get("evidence_plan", [])
@@ -128,8 +119,6 @@ def os_start(argv):
         "control_plane_repo": str(REPO_ROOT.resolve()),
         "evidence_profile": contract.get("evidence_profile", "generic"),
         "mode": contract.get("mode", "standard"),
-        "adaptive_mode": bool(contract.get("adaptive_mode")),
-        "mode_decisions": contract.get("mode_decisions", []),
         "execution_strategy": contract.get("execution_strategy", ""),
         "target_footprint_policy": contract.get("target_footprint_policy", ""),
         "budget": contract.get("budget", {}),
@@ -154,7 +143,6 @@ def os_start(argv):
                 if row.get("status") not in {"healthy", "not_applicable"}
             ][:20],
         },
-        "scheduler_suggestion": scheduler,
         "evidence_router": evidence_router,
     }
     state_path = save_os_state(state)
@@ -197,14 +185,8 @@ def os_start(argv):
         "required_gates": state["required_gates"],
         "expected_evidence": contract["expected_evidence"],
         "mode": state["mode"],
-        "adaptive_mode": state["adaptive_mode"],
-        "mode_decisions": state["mode_decisions"],
         "execution_strategy": state.get("execution_strategy", ""),
         "target_footprint_policy": state.get("target_footprint_policy", ""),
-        "scheduler": {
-            "expected_evidence": scheduler.get("expected_evidence") if isinstance(scheduler, dict) else [],
-            "energy_budget": scheduler.get("energy_budget") if isinstance(scheduler, dict) else "",
-        },
         "asset_routing": route,
         # The full decision is already persisted in the run state and in the
         # contract.json named above, so stdout carries the digest rather than a
@@ -243,8 +225,6 @@ def os_status(argv=None):
         "target": state.get("target", {}),
         "evidence_profile": state.get("evidence_profile", "generic"),
         "mode": state.get("mode", ""),
-        "adaptive_mode": state.get("adaptive_mode", False),
-        "mode_decisions": state.get("mode_decisions", []),
         "execution_strategy": state.get("execution_strategy", ""),
         "target_footprint_policy": state.get("target_footprint_policy", ""),
         "budget": state.get("budget", {}),
@@ -252,17 +232,10 @@ def os_status(argv=None):
         "budget_status": budget_status(state.get("contract") or {}, evidence),
         "expected_evidence": state.get("expected_evidence", []),
         "required_gates": state.get("required_gates", []),
-        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
-        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
         "evidence_router": (
             state.get("evidence_router", {}) if verbose
             else evidence_route_digest(state.get("evidence_router", {}))
         ),
-        "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
-        "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
-        "prototype": state.get("prototype", {}),
-        "human_review": state.get("human_review", {}),
-        "discovery_recorded": latest_evidence_of_kind(evidence, "discovery") is not None,
         "evidence_count": len(evidence),
         "seal_sha256": state.get("seal_sha256", ""),
     })
@@ -381,25 +354,7 @@ def os_close_result(receipt, task_id=None, dry_run=False):
     errors.extend(evidence_router_receipt_errors(contract, receipt, os_evidence))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
     required_gates = state.get("required_gates") or required_gates_for_task(contract, receipt, mode=state.get("mode"))
-    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
-        required_gates = list(required_gates) + ["human_review"]
     errors.extend(validate_required_quality_gates(receipt, required_gates))
-    hr_errors, hr_summary = validate_human_review_gate(state, contract, receipt, os_evidence)
-    errors.extend(hr_errors)
-    state["human_review"] = hr_summary
-    if hr_summary.get("unresolved"):
-        state["repair_required"] = True
-        state["open_review_findings"] = hr_summary["unresolved"]
-        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review", "repair"]))
-    if isinstance(contract, dict) and contract.get("requires_prototype") and "prototype" not in required_gates:
-        required_gates = list(required_gates) + ["prototype"]
-        errors.extend(validate_required_quality_gates(receipt, ["prototype"]))
-    proto_summary = validate_prototype_gate(state, contract, receipt, os_evidence)
-    state["prototype"] = proto_summary
-    if proto_summary.get("result") == "FAIL":
-        errors.append("prototype gate failed: " + str(proto_summary.get("reason", "prototype evidence incomplete")))
-        state["prototype_incomplete"] = proto_summary.get("reason", "")
-        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["prototype", "repair"]))
     missing_evidence = validate_expected_evidence_present(contract, receipt, facts, os_evidence)
     errors.extend(missing_evidence)
     errors.extend(validate_design_token_receipt(receipt, contract, state, os_evidence))
@@ -541,161 +496,6 @@ def os_close(argv):
     json_print(os_close_result(receipt, dry_run=dry_run))
 
 
-def review_request(argv):
-    """Emit the review-request artifact for the active OS run (Review state).
-
-    Accepts an optional task id, or a JSON payload {task_id, questions}.
-    """
-    payload = {}
-    task_id = None
-    if argv:
-        arg = argv[0].strip()
-        if arg.startswith("{"):
-            try:
-                payload = json.loads(arg)
-            except Exception as e:
-                json_print({"result": "review_request_rejected", "errors": [str(e)]})
-                return
-            task_id = payload.get("task_id")
-        else:
-            task_id = argv[0]
-    state, _ = load_os_state(task_id)
-    if not state:
-        json_print({"result": "review_request_rejected", "errors": ["no active OS run; call os-start first"]})
-        return
-    task_id = state["task_id"]
-    contract = state.get("contract") or {}
-    active_contract, _ = load_task_contract({})
-    if isinstance(active_contract, dict):
-        contract = active_contract
-    required_gates = state.get("required_gates") or required_gates_for_task(contract, None, mode=state.get("mode"))
-    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
-        required_gates = list(required_gates) + ["human_review"]
-    changed = sorted(facts_paths(load_diff_facts({}), None))
-    contract_path = os_state_path(task_id, "contract.json")
-    body = {
-        "schema_version": 1,
-        "kind": "review_request",
-        "task_id": task_id,
-        "repo_key": REPO_KEY,
-        "under_review": {
-            "contract_path": contract_path.relative_to(REPO_ROOT).as_posix() if contract_path.exists() else "",
-            "changed_files": changed,
-        },
-        "gates": required_gates,
-        "questions": payload.get("questions") if isinstance(payload.get("questions"), list) else [],
-        "requested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    body["request_sha256"] = sha256_json({
-        "task_id": task_id, "under_review": body["under_review"],
-        "gates": required_gates, "questions": body["questions"],
-    })
-    path = os_state_path(task_id, "review-request.json")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, body)
-    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review"]))
-    save_os_state(state)
-    json_print({
-        "result": "review_requested",
-        "task_id": task_id,
-        "gates": required_gates,
-        "review_request_path": path.relative_to(REPO_ROOT).as_posix(),
-        "request_sha256": body["request_sha256"],
-    })
-
-
-def review_feedback(argv):
-    """Ingest a structured human-review round, record it as evidence, update state."""
-    try:
-        payload, _ = json_arg_or_stdin(argv, "review-feedback")
-    except Exception as e:
-        json_print({"result": "review_feedback_rejected", "errors": [str(e)]})
-        return
-    if not isinstance(payload, dict):
-        json_print({"result": "review_feedback_rejected", "errors": ["feedback must be a JSON object"]})
-        return
-    state, _ = load_os_state(payload.get("task_id"))
-    if not state:
-        json_print({"result": "review_feedback_rejected", "errors": ["no active OS run; call os-start first"]})
-        return
-    task_id = state["task_id"]
-    errors = validate_review_feedback(payload)
-    if errors:
-        json_print({"result": "review_feedback_rejected", "task_id": task_id, "errors": errors})
-        return
-    existing = review_feedback_records(task_id)
-    try:
-        review_round = int(payload.get("review_round"))
-    except (TypeError, ValueError):
-        review_round = len(existing) + 1
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    record = sanitize_state_value({
-        "schema_version": 1,
-        "kind": "human_review",
-        "task_id": task_id,
-        "repo_key": REPO_KEY,
-        "reviewer": payload.get("reviewer") or "",
-        "review_round": review_round,
-        "verdict": payload.get("verdict"),
-        "finalized": bool(payload.get("finalized")),
-        "message": payload.get("message") or "",
-        "findings": payload.get("findings") or [],
-        "recorded_at": now,
-    }, limit=4000)
-    append_review_feedback(task_id, record)
-    unresolved = [
-        finding.get("id")
-        for finding in record["findings"]
-        if isinstance(finding, dict)
-        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
-        and finding.get("disposition") == "request-changes"
-    ]
-    append_os_evidence(task_id, {
-        "id": f"hr-round-{review_round}",
-        "kind": "human_review",
-        "review_round": review_round,
-        "verdict": record["verdict"],
-        "finalized": record["finalized"],
-        "unresolved": unresolved,
-        "reviewer": record["reviewer"],
-        "recorded_at": now,
-    })
-    lifecycle_add = ["review"] + (["repair"] if unresolved else [])
-    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + lifecycle_add))
-    if unresolved:
-        state["repair_required"] = True
-        state["open_review_findings"] = unresolved
-    save_os_state(state)
-    json_print({
-        "result": "review_feedback_recorded",
-        "task_id": task_id,
-        "review_round": review_round,
-        "verdict": record["verdict"],
-        "finalized": record["finalized"],
-        "unresolved": unresolved,
-    })
-
-
-def review_verify(argv):
-    """Read-only status of the human_review gate for the active OS run."""
-    state, _ = load_os_state(argv[0] if argv else None)
-    if not state:
-        json_print({"result": "review_verify_failed", "errors": ["no active OS run"]})
-        return
-    contract = state.get("contract") or {}
-    active_contract, _ = load_task_contract({})
-    if isinstance(active_contract, dict):
-        contract = active_contract
-    os_evidence = os_evidence_records(state["task_id"])
-    hr_errors, hr_summary = validate_human_review_gate(state, contract, {}, os_evidence)
-    json_print({
-        "result": "review_verified" if not hr_errors else "review_incomplete",
-        "task_id": state["task_id"],
-        "human_review": hr_summary,
-        "errors": hr_errors,
-    })
-
-
 def os_verify(argv):
     task_id = argv[0] if argv else None
     state, _ = load_os_state(task_id)
@@ -763,64 +563,3 @@ def os_verify(argv):
     })
 
 
-def os_report(argv):
-    task_id = argv[0] if argv else None
-    state, path = load_os_state(task_id)
-    if not state:
-        json_print({"result": "os_report_missing", "errors": ["no OS run state found"]})
-        return
-    evidence = os_evidence_records(state.get("task_id"))
-    receipt, receipt_path = load_deliver_receipt({})
-    target_diff = load_json_file(os_state_path(state.get("task_id", ""), "target-diff.json"))
-    target_seal = state.get("target_seal")
-    if not isinstance(target_seal, dict):
-        target_seal = load_json_file(os_state_path(state.get("task_id", ""), "target-seal.json"))
-    target_footprint = state.get("target_footprint")
-    if not isinstance(target_footprint, dict) and isinstance(target_diff, dict):
-        target_footprint = target_footprint_report(state, target_diff)
-    superiority_payloads = consumer_superiority_payloads(receipt or {}, evidence)
-    superiority_passed = consumer_superiority_ok(receipt or {}, evidence)
-    if superiority_payloads:
-        superiority_result = "consumer_value_passed" if superiority_passed else "consumer_value_failed"
-    else:
-        superiority_result = "not_claimed"
-    json_print({
-        "result": "os_report",
-        "task_id": state.get("task_id"),
-        "status": state.get("status"),
-        "state_path": path.relative_to(REPO_ROOT).as_posix() if path else "",
-        "receipt_path": receipt_path.as_posix() if receipt_path else "",
-        "mode": state.get("mode", ""),
-        "adaptive_mode": state.get("adaptive_mode", False),
-        "mode_decisions": state.get("mode_decisions", []),
-        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
-        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
-        "execution_strategy": state.get("execution_strategy", ""),
-        "target_footprint_policy": state.get("target_footprint_policy", ""),
-        "budget": state.get("budget", {}),
-        "success_metrics": state.get("success_metrics", []),
-        "cost_ledger": cost_ledger_summary(evidence),
-        "budget_status": budget_status(state.get("contract") or {}, evidence),
-        "consumer_superiority": {
-            "result": superiority_result,
-            "payload_count": len(superiority_payloads),
-            "policy": "not worse on every mandatory metric, real token telemetry present, and win at least one consumer-visible metric before claiming consumer value",
-        },
-        "target": state.get("target", {}),
-        "target_footprint": target_footprint if isinstance(target_footprint, dict) else {},
-        "target_diff": target_diff if isinstance(target_diff, dict) else {},
-        "target_seal_sha256": target_seal.get("target_seal_sha256", "") if isinstance(target_seal, dict) else "",
-        # Same reason as os-status: the full decision stays in state, and the
-        # router limitations it carries are repeated under `limitations` below.
-        "evidence_router": evidence_route_digest(state.get("evidence_router", {})),
-        "required_gates": state.get("required_gates", []),
-        "evidence_count": len(evidence),
-        "limitations": [
-            "exact LLM token usage is unavailable unless llm_usage metrics record real_token_telemetry=true",
-            "artifact token estimates are not LLM cost telemetry",
-        ] + (
-            state.get("evidence_router", {}).get("limitations", [])
-            if isinstance(state.get("evidence_router"), dict)
-            else []
-        ),
-    })

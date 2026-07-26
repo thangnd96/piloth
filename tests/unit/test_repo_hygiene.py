@@ -22,8 +22,6 @@ KNOWN_LONG_FUNCTIONS = {
     "os_close_result",
     "os_start",
     "collect_consumer_asset_rows",
-    "pre_edit",
-    "state_doctor_result",
 }
 
 
@@ -65,8 +63,8 @@ def test_god_function_allowlist_only_shrinks():
 # LOWER only. Raising a budget is a deliberate call: split the work into a new
 # src/ fragment first and check whether the growth belongs in the engine at all.
 ENGINE_LINE_BUDGETS = {
-    GUARD: 12_500,
-    INSTALLER: 1_100,
+    GUARD: 9_500,
+    INSTALLER: 900,
 }
 
 

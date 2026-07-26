@@ -44,10 +44,6 @@ def required_gates_for_task(contract, receipt=None, mode=None):
     }, ensure_ascii=False).lower()
     if "release/deploy" in signal_text or "deploy" in signal_text:
         gates.append("operational_approval")
-    if isinstance(contract, dict) and contract.get("requires_human_review"):
-        gates.append("human_review")
-    if isinstance(contract, dict) and contract.get("requires_prototype"):
-        gates.append("prototype")
     return list(dict.fromkeys(gates))
 
 
@@ -71,148 +67,6 @@ def validate_required_quality_gates(receipt, required_gates):
             if not non_empty_string(receipt.get("limitation")):
                 errors.append(f"limitation is required when quality_gates.{gate}.result is FAIL")
     return errors
-
-
-def validate_review_feedback(value):
-    """Validate the structured human-review feedback artifact (schema + enums).
-
-    Faithful to annotron's structured feedback, translated into Piloth's gate
-    vocabulary: findings carry a location (file and/or gate), a note, a severity
-    and a disposition; the round carries a verdict and a finalized flag.
-    """
-    if not isinstance(value, dict):
-        return ["review feedback must be a JSON object"]
-    errors = []
-    if value.get("verdict") not in REVIEW_VERDICTS:
-        errors.append("verdict must be one of: " + ", ".join(sorted(REVIEW_VERDICTS)))
-    if not isinstance(value.get("finalized"), bool):
-        errors.append("finalized must be a boolean")
-    findings = value.get("findings")
-    if not isinstance(findings, list):
-        errors.append("findings must be a list")
-        return errors
-    errors.extend(validate_object_list_enums(
-        findings,
-        "findings",
-        ("id", "note", "severity", "disposition"),
-        {"severity": REVIEW_SEVERITIES, "disposition": REVIEW_DISPOSITIONS},
-    ))
-    for i, finding in enumerate(findings):
-        if not isinstance(finding, dict):
-            continue
-        loc = finding.get("location")
-        if not isinstance(loc, dict) or not (
-            non_empty_string(loc.get("file")) or non_empty_string(loc.get("gate"))
-        ):
-            errors.append(f"findings[{i}].location must include a file or a gate")
-            continue
-        if non_empty_string(loc.get("file")):
-            _, err = repo_relative_path(loc.get("file"))
-            if err:
-                errors.append(f"findings[{i}].location.file {err}")
-    return errors
-
-
-def validate_human_review_gate(state, contract, receipt, os_evidence):
-    """Machine cross-check for the human_review gate (anti-checkbox core).
-
-    The guard never judges whether a finding is correct — only that a real,
-    finalized, approving human artifact exists with no unresolved blocking
-    findings. Returns (errors, summary) where summary.result is
-    PASS / FAIL / NOT_APPLICABLE. Unresolved blocking findings surface in
-    summary.unresolved so os-close can route the task back to Repair.
-    """
-    required = isinstance(contract, dict) and bool(contract.get("requires_human_review"))
-    if not required:
-        return [], {"result": "NOT_APPLICABLE"}
-    task_id = state.get("task_id") if isinstance(state, dict) else None
-    feedback = latest_review_feedback(task_id)
-    if not feedback:
-        return (
-            ["human_review gate requires a review-feedback artifact; run review-request then review-feedback"],
-            {"result": "FAIL", "reason": "no review feedback recorded"},
-        )
-    ferrors = validate_review_feedback(feedback)
-    if ferrors:
-        return (
-            [f"review feedback invalid: {e}" for e in ferrors],
-            {"result": "FAIL", "reason": "invalid review feedback"},
-        )
-    review_round = feedback.get("review_round")
-    if feedback.get("finalized") is not True:
-        return (
-            ["human_review is not finalized (review round still open)"],
-            {"result": "FAIL", "reason": "not finalized", "review_round": review_round},
-        )
-    unresolved = [
-        finding.get("id")
-        for finding in feedback.get("findings", [])
-        if isinstance(finding, dict)
-        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
-        and finding.get("disposition") == "request-changes"
-    ]
-    if unresolved:
-        return (
-            ["human_review has unresolved blocking findings routed to Repair: "
-             + ", ".join(str(x) for x in unresolved)],
-            {"result": "FAIL", "reason": "unresolved blocking findings",
-             "unresolved": unresolved, "review_round": review_round},
-        )
-    if feedback.get("verdict") != "approve":
-        return (
-            ["human_review verdict is not approve"],
-            {"result": "FAIL", "reason": "verdict not approve",
-             "verdict": feedback.get("verdict"), "review_round": review_round},
-        )
-    summary = {
-        "result": "PASS",
-        "review_round": review_round,
-        "verdict": "approve",
-        "reviewer": feedback.get("reviewer", ""),
-    }
-    try:
-        summary["feedback_path"] = review_feedback_path(task_id).relative_to(REPO_ROOT).as_posix()
-    except (ValueError, TypeError):
-        pass
-    return [], summary
-
-
-def latest_evidence_of_kind(os_evidence, kind):
-    """Return the most recently recorded os-evidence record of a given kind."""
-    matches = [
-        item for item in (os_evidence or [])
-        if isinstance(item, dict) and item.get("kind") == kind
-    ]
-    if not matches:
-        return None
-    return sorted(matches, key=lambda item: str(item.get("recorded_at") or ""))[-1]
-
-
-def validate_prototype_gate(state, contract, receipt, os_evidence):
-    """Machine check for the thin prototype gate (evidence completeness only).
-
-    Prototype reuses the human_review round-trip for the human sign-off; this
-    gate only asserts prototype's own invariant — a valid design method, >=2
-    options generated, and one chosen among them — read from the recorded
-    prototype evidence. Anti-checkbox: a receipt that self-declares prototype
-    PASS with no backing evidence record still FAILs. Returns a summary dict
-    with result PASS / FAIL / NOT_APPLICABLE.
-    """
-    required = isinstance(contract, dict) and bool(contract.get("requires_prototype"))
-    if not required:
-        return {"result": "NOT_APPLICABLE"}
-    ev = latest_evidence_of_kind(os_evidence, "prototype")
-    if ev is None:
-        return {"result": "FAIL", "reason": "no prototype evidence recorded"}
-    everrors = validate_prototype_evidence(ev)
-    if everrors:
-        return {"result": "FAIL", "reason": "; ".join(everrors)}
-    return {
-        "result": "PASS",
-        "method": ev.get("method"),
-        "options": len([o for o in ev.get("options", []) if isinstance(o, dict)]),
-        "chosen": ev.get("chosen"),
-    }
 
 
 def evidence_text_blob(receipt, facts, os_evidence):
@@ -610,64 +464,6 @@ def evidence_payload_present(sanitized):
     return False
 
 
-def validate_prototype_evidence(evidence):
-    """Validate a prototype evidence record (kind=prototype).
-
-    Prototype's invariant: at least two design options were generated and one
-    was chosen, via a valid design method. The human sign-off itself flows
-    through the reused human_review round-trip, not here.
-    """
-    if not isinstance(evidence, dict) or evidence.get("kind") != "prototype":
-        return []
-    errors = []
-    if evidence.get("method") not in PROTOTYPE_METHODS:
-        errors.append("prototype evidence requires method one of: " + ", ".join(sorted(PROTOTYPE_METHODS)))
-    options = evidence.get("options")
-    if not isinstance(options, list):
-        errors.append("prototype evidence requires an options list")
-        return errors
-    ids = []
-    for i, opt in enumerate(options):
-        if not isinstance(opt, dict) or not non_empty_string(opt.get("id")):
-            errors.append(f"prototype options[{i}] requires an id")
-            continue
-        ids.append(opt.get("id"))
-    if len(ids) < 2:
-        errors.append("prototype evidence requires >=2 options with ids")
-    chosen = evidence.get("chosen")
-    if not non_empty_string(chosen):
-        errors.append("prototype evidence requires a chosen option id")
-    elif ids and chosen not in ids:
-        errors.append("prototype chosen must be one of the generated option ids")
-    return errors
-
-
-def validate_discovery_evidence(evidence):
-    """Validate a discovery evidence record (kind=discovery).
-
-    Discovery is a judgment gate the phase runs up front; the only mechanical
-    check is that the confirmed decisions are recorded as evidence the
-    Traceability gate can trace to. Each decision names its question, answer and
-    source (user vs a pre-ticked "decide for me" default).
-    """
-    if not isinstance(evidence, dict) or evidence.get("kind") != "discovery":
-        return []
-    errors = []
-    decisions = evidence.get("decisions")
-    if not isinstance(decisions, list) or not decisions:
-        errors.append("discovery evidence requires a non-empty decisions list")
-        return errors
-    for i, dec in enumerate(decisions):
-        if not isinstance(dec, dict):
-            errors.append(f"discovery decisions[{i}] must be an object")
-            continue
-        if not non_empty_string(dec.get("q")):
-            errors.append(f"discovery decisions[{i}] requires a question 'q'")
-        if not non_empty_string(dec.get("answer")):
-            errors.append(f"discovery decisions[{i}] requires an 'answer'")
-    return errors
-
-
 def sanitize_os_evidence_payload(payload):
     if not isinstance(payload, dict):
         return None, ["evidence payload must be a JSON object"]
@@ -722,12 +518,6 @@ def sanitize_os_evidence_payload(payload):
     metric_errors = validate_metric_evidence(sanitized)
     if metric_errors:
         return None, metric_errors
-    prototype_errors = validate_prototype_evidence(sanitized)
-    if prototype_errors:
-        return None, prototype_errors
-    discovery_errors = validate_discovery_evidence(sanitized)
-    if discovery_errors:
-        return None, discovery_errors
     evidence_id = (
         safe_evidence_id(sanitized.get("id"))
         or safe_evidence_id(sanitized.get("ref"))

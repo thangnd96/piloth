@@ -261,7 +261,7 @@ Runtime sở hữu orchestration. Agent definitions chỉ sở hữu execution r
 - **Native adapters** — Claude Code, Codex, Cursor và Antigravity.
 - **Transactional installation** — plan, approval, backup, manifest, receipt và rollback.
 - **Progressive context loading** — chỉ nạp đúng context cần thiết.
-- **Measurable token optimization** — `context-budget` đo footprint context (bytes/token) mỗi task nạp vs full kernel; routing tiết kiệm ~88–91% context. Xem [token-optimization.md](docs/token-optimization.md).
+- **Measurable token optimization** — đo footprint context (bytes/token) mỗi task nạp vs kernel routable; routing tiết kiệm **77,7–84,8%** so với 50 file routable (144.895 B). Đây là `context_load` footprint, không phải token telemetry thật. Xem [token-optimization.md](docs/token-optimization.md).
 - **Rules & Hooks** — instruction-level policies và mechanical enforcement khi có thể.
 - **Evidence-first delivery** — verify trước khi claim completion.
 - **Governed Visual Review** — companion tool review trực quan (annotron-faithful, zero-dep) + gate `human_review`: structured feedback thành evidence, `os-close` chặn Seal khi chưa duyệt. Bind `--task`/`--govern` để thêm pipeline/gate stepper + option-picker. Xem `pilothOS/tools/review/`.

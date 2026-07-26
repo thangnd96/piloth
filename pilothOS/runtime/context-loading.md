@@ -32,25 +32,22 @@ PilothOS điều phối tài sản consumer như OS điều phối userland apps
 `runtime/consumer-assets.md` hoặc index tương ứng trước; chỉ load asset cụ thể
 khi task signal cần nó.
 
-Scheduler helper:
+Routing chạy bên trong `os-start`: nó gọi Evidence Router, ghi
+`consumer_asset_routing` và `context_evidence` thẳng vào contract. Không cần gọi
+lệnh routing riêng — đọc contract mà `os-start` trả về.
 
-```bash
-python3 pilothOS/scripts/pilothos_guard.py route-task '{"task_signal":"UI/component"}'
-```
-
-`route-task` prints a deterministic routing suggestion from the consumer asset
-audit. It does not load files, run tools or write state; use its
-`context_evidence` and `consumer_asset_routing` output as contract input. Use
-`skipped_assets` as receipt guidance when an existing consumer asset was not
-loaded because the task signal did not need it.
+Tám task signal hợp lệ, khớp `TASK_SIGNAL_ROUTES` trong guard:
 
 | Task signal | Asset type to inspect | Load policy |
 |---|---|---|
-| UI/component | design-system, UI docs, component library | task-routed |
-| API/backend | backend conventions, API docs, test runner | task-routed |
-| Bug fix | relevant tests, logs, existing module patterns | task-routed |
-| Release/deploy | release commands, deploy tools | approval-required |
-| Tool/MCP work | tools index + MCP config | task-routed |
+| UI/component | design-system, doc, skill | task-routed |
+| API/backend | convention, doc, test-runner | task-routed |
+| bug fix | test-runner, convention, doc | task-routed |
+| release/deploy | command, tool, build-runner | approval-required |
+| tool/MCP | tool, mcp, command | task-routed |
+| architecture | specialist, agent, convention, doc | task-routed |
+| security | specialist, agent, tool, test-runner | approval-required |
+| not_applicable | not_applicable | never-auto |
 
 Rules:
 
@@ -63,19 +60,15 @@ Rules:
 
 ## Structural Code Routing
 
-Khi task cần caller/callee, impact hoặc cross-file architecture, load
-`runtime/codebase-intelligence.md` rồi kiểm `codebase-status`. Graph chỉ là
-candidate route:
+Khi task cần caller/callee, impact hoặc cross-file architecture: dùng search
+trực tiếp trên source (`rg`, glob, đọc file). Bắt đầu bằng truy vấn hẹp, chỉ mở
+rộng khi kết quả chưa đủ.
 
-1. search hẹp để tìm qualified symbol;
-2. kiểm coverage cho scope liên quan;
-3. trace có depth/limit;
-4. đọc live snippet/source trước khi edit hoặc kết luận;
-5. fallback về source search khi stale, partial, ambiguous hoặc cần kết luận âm.
-
-Không tự build index ở session start. Index chỉ được tạo khi expected information
-gain lớn hơn chi phí build và task contract cho phép. `candidate_only` không
-được ghi như source evidence.
+Piloth không duy trì code graph. Bản trước có một index SQLite chỉ parse sâu
+được Python và chưa từng được trích dẫn làm evidence trong bất kỳ task thật nào;
+nó bị gỡ thay vì tiếp tục ship một engine tự khai là chưa đạt SLA của chính mình.
+Kết luận âm ("không có chỗ nào gọi X") vẫn cần coverage rõ ràng: nêu đã tìm ở đâu
+và bằng cách nào.
 
 For non-doc/test work, contract and receipt should include:
 
@@ -83,7 +76,7 @@ For non-doc/test work, contract and receipt should include:
 {
   "consumer_asset_routing": [
     {
-      "task_signal": "UI/component|API/backend|bug fix|release/deploy|tool/MCP|not_applicable",
+      "task_signal": "UI/component|API/backend|bug fix|release/deploy|tool/MCP|architecture|security|not_applicable",
       "asset_type": "skill|hook|tool|mcp|command|design-system|doc|convention|test-runner|build-runner|not_applicable",
       "decision": "loaded|skipped|approval_required|not_applicable",
       "reason": "why exact asset was loaded or why not applicable"

@@ -290,12 +290,10 @@ for needle in ("Progressive loading", "tool-check", "large_delta_reason", "Build
 manifest = json.loads(pathlib.Path("pilothOS/dist-manifest.json").read_text(encoding="utf-8"))
 paths = {item["path"] for item in manifest["files"]}
 forbidden_manifest = {
-    "pilothOS/memory/state/scheduler-history.jsonl",
     "pilothOS/memory/state/receipt-seals.jsonl",
 }
 for forbidden in forbidden_manifest:
     assert forbidden not in paths, f"manifest must not ship local state: {forbidden}"
-assert not any(path.startswith("pilothOS/memory/state/team-runs/") for path in paths), "manifest must not ship team-runs local state"
 assert not any(path.startswith("pilothOS/memory/state/os-runs/") for path in paths), "manifest must not ship os-runs local state"
 assert "pilothOS/runtime/energy-token-policy.md" in paths, "manifest missing energy policy"
 print("D8 PASS")
@@ -342,16 +340,12 @@ for needle in (
 ):
     assert needle in consumer_assets, f"consumer-assets.md missing {needle}"
 self_hosting = pathlib.Path("pilothOS/runtime/self-hosting.md").read_text(encoding="utf-8")
-for needle in ("Self-Hosting Contract", "contract-write", "receipt-write", "route-task", "scheduler-suggest", "scheduler-record", "state-doctor", "team-contract-write", "team-receipt-write", "scripts/build_manifest.py", "detected_signals", "repo-local entries", "edited_paths", "learning_suggestions", "duplicated_helper", "receipt-seal", "receipt-verify", "allowed_entitlements", "project-local OS", "production-review", "artifact-janitor", "control-plane-check"):
+for needle in ("Self-Hosting Contract", "contract-write", "receipt-write", "state-doctor", "scripts/build_manifest.py", "detected_signals", "receipt-seal", "receipt-verify", "allowed_entitlements", "project-local OS", "production-review", "artifact-janitor", "control-plane-check"):
     assert needle in self_hosting, f"self-hosting.md missing {needle}"
 
 os_control = pathlib.Path("pilothOS/runtime/os-control-plane.md").read_text(encoding="utf-8")
 for needle in ("consumer project", "project-local OS", "allowed_entitlements", "receipt-seal", "receipt-verify", "SHA-256", "not code signing", "artifact-janitor", "control-plane-check"):
     assert needle in os_control, f"os-control-plane.md missing {needle}"
-
-team_runtime = pathlib.Path("pilothOS/runtime/team-orchestration.md").read_text(encoding="utf-8")
-for needle in ("role-<role>.md", "qa-verdict.md", "final-lead-decision.md", "edited_paths"):
-    assert needle in team_runtime, f"team-orchestration.md missing {needle}"
 print("D9 PASS")
 PY
 

@@ -98,9 +98,22 @@ good=$(printf '%s' '{
   "affected_layers": ["Consumer"],
   "verification_command": "browser smoke",
   "result": "passed",
+  "scope_evidence": "both files are inside the declared controlled target",
+  "context_used": [{"source": "pilothOS/runtime/os-control-plane.md", "reason": "controlled-target contract", "finding": "target footprint policy applies"}],
+  "consumer_asset_routing": [{"task_signal": "UI/component", "asset_type": "not_applicable", "decision": "not_applicable", "reason": "fixture target has no consumer assets"}],
+  "learning_review": {"mistake_checked": "none", "lesson_decision": "none", "promoted_to": "not_applicable", "reason": "fixture task"},
+  "reuse_discipline": {"existing_code_checked": "target scanned, no prior UI files", "existing_component_checked": "not_applicable", "existing_pattern_followed": "plain semantic HTML + CSS", "new_code_reason": "greenfield fixture target", "duplicate_risk": "none", "kiss_dry_rationale": "two flat files, no abstraction"},
+  "design_system_checked": "target scanned; no design system or token source exists",
+  "component_reuse_decision": "not_applicable",
+  "token_reuse_decision": "not_applicable",
+  "design_system_candidate_review": [{"candidate": "all", "decision": "not_applicable", "reason": "fixture target has no design-system assets"}],
   "quality_gates": {
     "scope": {"result": "PASS", "evidence": "target files are inside the fixture target."},
     "correctness": {"result": "PASS", "evidence": "browser-smoke passed."},
+    "traceability": {"result": "PASS", "evidence": "contract, target diff and os-run evidence trace the change."},
+    "architecture": {"result": "NOT_APPLICABLE", "evidence": "consumer target files, no PilothOS layer touched."},
+    "reuse_non_duplication": {"result": "PASS", "evidence": "no prior assets in the fixture target."},
+    "regression": {"result": "PASS", "evidence": "browser smoke covers the rendered page."},
     "disclosure": {"result": "PASS", "evidence": "Pixel diff is not claimed."},
     "design_system": {"result": "PASS", "evidence": "No consumer design system exists in this fixture."},
     "ui_quality": {"result": "PASS", "evidence": "ui-quality records browser invariants."}
@@ -114,6 +127,7 @@ grep -q '"result": "target_footprint_passed"' <<< "$good"
 [ ! -e "$TARGET/pilothOS" ]
 out=$(python3 "$G" os-verify)
 grep -q '"result": "os_verify_passed"' <<< "$out"
-out=$(python3 "$G" os-report)
+# os-close already asserted target_footprint_passed above; os-status carries the
+# policy, not the verdict, so re-asserting the verdict here only duplicated it.
+out=$(python3 "$G" os-status)
 grep -q '"target_footprint_policy": "no_control_plane_files"' <<< "$out"
-grep -q '"result": "target_footprint_passed"' <<< "$out"

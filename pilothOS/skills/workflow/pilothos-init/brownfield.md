@@ -9,7 +9,7 @@
 1. Chạy baseline audit:
 
    ```bash
-   python3 pilothOS/scripts/pilothos_guard.py audit-assets
+   python3 pilothOS/scripts/pilothos_guard.py asset-scan --format json
    ```
 
    Output là bảng máy móc ban đầu. Claude bổ sung judgment cho asset bị thiếu,
@@ -17,7 +17,7 @@
    Khi cần registry 9 cột để route trong runtime, chạy thêm:
 
    ```bash
-   python3 pilothOS/scripts/pilothos_guard.py registry-assets
+   python3 pilothOS/scripts/pilothos_guard.py asset-health --all
    ```
 
 2. Liệt kê tài sản hiện có:

@@ -71,7 +71,6 @@ def test_route_is_deterministic_and_read_only(guard):
     second = route(guard)
     assert first == second
     assert first["read_only"] is True
-    assert not guard.SCHEDULER_HISTORY.exists()
 
 
 def test_consumer_locale_localizes_summary_but_keeps_schema_ids_stable(guard):
@@ -555,7 +554,7 @@ def test_digest_passes_rejections_and_non_decisions_through(guard):
     assert guard.evidence_route_digest({}) == {}
 
 
-def test_compatibility_wrappers_keep_v1_result_and_attach_router(guard):
+def test_routing_keeps_v1_result_and_attaches_router(guard):
     routed = guard.route_task_payload({
         "task_signal": "bug fix",
         "task_scope": "fix parser",
@@ -565,17 +564,8 @@ def test_compatibility_wrappers_keep_v1_result_and_attach_router(guard):
     assert routed["task_signal"] == "bug fix"
     assert routed["evidence_router"]["result"] == "evidence_route"
 
-    scheduled = guard.scheduler_suggest_payload({
-        "task_signal": "bug fix",
-        "intent": "fix parser",
-        "affected_paths": ["src/parser.py"],
-    })
-    assert scheduled["result"] == "scheduler_suggested"
-    assert "contract_skeleton" in scheduled
-    assert scheduled["evidence_router"]["result"] == "evidence_route"
 
-
-def test_os_start_persists_router_in_contract_state_and_report_without_learning_db(
+def test_os_start_persists_router_in_contract_and_state_without_learning_db(
     guard, monkeypatch, tmp_path, capsys,
 ):
     repo = tmp_path / "consumer"
@@ -589,7 +579,6 @@ def test_os_start_persists_router_in_contract_state_and_report_without_learning_
     ).hexdigest()[:16])
     monkeypatch.setattr(guard, "OS_RUNS_DIR", state / "os-runs")
     monkeypatch.setattr(guard, "OS_CURRENT", state / "os-runs" / "current.json")
-    monkeypatch.setattr(guard, "SCHEDULER_HISTORY", state / "scheduler-history.jsonl")
     monkeypatch.setattr(guard, "MARKER_DIR", repo / ".tmp-markers")
 
     guard.os_start([json.dumps({
@@ -604,7 +593,6 @@ def test_os_start_persists_router_in_contract_state_and_report_without_learning_
     assert started["evidence_router"]["decision_id"].startswith("er-")
     assert "evidence_learning" not in started
     assert not list(state.glob("evidence-router.sqlite3*"))
-    assert not guard.SCHEDULER_HISTORY.exists()
 
     contract = json.loads(
         (state / "os-runs/router-integration/contract.json").read_text(encoding="utf-8")
@@ -615,11 +603,6 @@ def test_os_start_persists_router_in_contract_state_and_report_without_learning_
     assert contract["decision_id"] == started["evidence_router"]["decision_id"]
     assert contract["execution_plan"]["mode"] == "single"
     assert os_state["evidence_router"]["decision_id"] == contract["decision_id"]
-
-    guard.os_report(["router-integration"])
-    report = json.loads(capsys.readouterr().out)
-    assert report["evidence_router"]["decision_id"] == contract["decision_id"]
-    assert "evidence_learning" not in report
 
     fields = guard.receipt_template_router_fields(contract)
     assert fields["decision_id"] == contract["decision_id"]

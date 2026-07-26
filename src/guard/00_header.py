@@ -13,26 +13,13 @@ Các mode:
                   cây pilothOS đầy đủ) — fail sớm và rõ ràng.
   detect          Stage 0 của /pilothos-init: verdict greenfield/brownfield/re-init/dirty
                   kèm evidence; KHÔNG tự rẽ nhánh, chờ consumer confirm.
-  audit-assets    Scan deterministic tài sản consumer và in bảng brownfield audit.
-  registry-assets Scan deterministic tài sản consumer và in bảng registry 9 cột.
   self-host-check Verifies the Piloth repo dogfood contract surface.
   asset-scan      Deterministic JSON/markdown scan of repo assets.
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
-  evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+  evidence-route  Canonical read-only task/risk/evidence/specialist route.
                  Prints the acting digest; `--verbose` prints the full decision.
   adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
-  route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
-  context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
-  payload-budget  Đo footprint output (bytes/token) của các command một task gọi.
-  codebase-index  Tạo local SQLite code graph theo budget explicit.
-  codebase-status Báo freshness/coverage count của code graph hiện tại.
-  codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
-  rot-status      Rot signal gọn (chỉ scope quá hạn) — lazy load thay vì cả registry.
-  reuse-scan      Evidence-shaped semantic reuse candidate scan.
-  ds-scan         Evidence-shaped design-system candidate scan.
-  scheduler-suggest Recommend context/assets/evidence/tests from local history.
-  scheduler-record  Append sanitized local scheduler history.
   state-doctor   Read-only health check for repo-local OS state.
   os-start       Open an adaptive OS task run and write the scoped contract.
                  `os-start --explain` prints the request schema (no run opened).
@@ -42,22 +29,19 @@ Các mode:
   os-close       Validate receipt, gates, truth claims and target seal.
                  `os-close --dry-run` runs the full validation without sealing.
   os-verify      Verify active receipt/control-plane/target seals.
-  os-report      Summarize mode decisions, cost ledger and consumer value status.
   receipt-seal   Emit deterministic receipt/contract/file hash seal evidence.
   receipt-verify Verify current receipt/files against a prior seal.
   artifact-janitor Detect or explicitly clean deterministic local artifacts.
   state-janitor  Retention/GC rác vòng đời task: dọn artifacts/ của os-run cũ đã
-                 seal (giữ state/seal JSON), tail-truncate scheduler-history;
-                 --kernel-logs rotate lossless lessons/review-log. Detect mặc
-                 định, chỉ đổi đĩa khi --fix. Tự chạy (safe subset) ở os-close.
+                 seal (giữ state/seal JSON); --kernel-logs rotate lossless
+                 lessons/review-log. Detect mặc định, chỉ đổi đĩa khi --fix.
+                 Tự chạy (safe subset) ở os-close.
   control-plane-check Verify project-local OS control-plane readiness.
   production-review Mechanical release readiness review.
-  team-contract-write Record a multi-agent team contract.
-  team-receipt-write  Record a multi-agent team receipt.
   log-append      Ghi một dòng log đúng format (review|lesson), Date tự điền,
                   verify Evidence path tồn tại — dùng cho Stage 5 và mọi lần ghi log.
   contract-write  Ghi task contract vào state guard trước khi sửa file.
-  evidence-add    Ghi evidence command/result vào diff facts.
+  evidence-add    Ghi evidence command/result vào diff facts (đường V1, không cần OS run).
   tool-check      Kiểm tra tool command/risk/timeout/approval trước khi chạy.
   receipt-write   Ghi deliver receipt có changed files/layers/evidence/result.
   pre-edit        PreToolUse: enforce allowed paths + một số layer/path rule cơ học.
@@ -100,7 +84,6 @@ REPO_ROOT = PILOTHOS_DIR.parent             # <repo>
 REGISTRY = PILOTHOS_DIR / "rot" / "registry.md"
 CONSUMER_ASSETS = PILOTHOS_DIR / "runtime" / "consumer-assets.md"
 SELF_HOSTING_DOC = PILOTHOS_DIR / "runtime" / "self-hosting.md"
-SCHEDULER_HISTORY = PILOTHOS_DIR / "memory" / "state" / "scheduler-history.jsonl"
 EVIDENCE_ROUTER_MATRIX = PILOTHOS_DIR / "runtime" / "evidence-routing.json"
 # Embedded fallback for the Evidence Router quality floor — the ONLY place these
 # numbers are written down. evidence-routing.json overrides them at runtime and
@@ -123,11 +106,8 @@ ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.j
 SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"
 MODEL_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "model-capabilities.json"
 RECEIPT_SEALS = PILOTHOS_DIR / "memory" / "state" / "receipt-seals.jsonl"
-TEAM_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "team-runs"
 OS_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "os-runs"
 OS_CURRENT = OS_RUNS_DIR / "current.json"
-CODEBASE_INDEX_DIR = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
-CODEBASE_INDEX_DB = CODEBASE_INDEX_DIR / "index.sqlite3"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
@@ -303,25 +283,11 @@ GUARD_MODES = {
     "token-telemetry": _guard_mode("argv", mutates=True),
     "os-close": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
     "os-verify": _guard_mode("argv", self_host=True, control_plane=True),
-    "os-report": _guard_mode("argv", self_host=True, control_plane=True),
-    "review-request": _guard_mode("argv", mutates=True),
-    "review-feedback": _guard_mode("argv", mutates=True),
-    "review-verify": _guard_mode("argv"),
     "asset-scan": _guard_mode("argv", self_host=True, control_plane=True),
     "asset-health": _guard_mode("argv", self_host=True, control_plane=True),
     "asset-sync": _guard_mode("argv", mutates=True, self_host=True),
     "adapter-capabilities": _guard_mode("argv", self_host=True, control_plane=True),
     "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
-    "route-task": _guard_mode("argv", self_host=True),
-    "context-budget": _guard_mode("argv"),
-    "payload-budget": _guard_mode("argv"),
-    "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
-    "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
-    "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
-    "reuse-scan": _guard_mode("argv", self_host=True),
-    "ds-scan": _guard_mode("argv", self_host=True),
-    "scheduler-suggest": _guard_mode("argv", self_host=True),
-    "scheduler-record": _guard_mode("argv", mutates=True, self_host=True),
     "receipt-seal": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
     "receipt-verify": _guard_mode("argv", self_host=True, control_plane=True),
     # --fix removes artifact dirs/files; --target aims that removal at ANOTHER
@@ -333,19 +299,14 @@ GUARD_MODES = {
     # kernel logs.
     "state-janitor": _guard_mode("argv", mutates=("--fix",)),
     "control-plane-check": _guard_mode("argv", self_host=True, control_plane=True),
-    "team-contract-write": _guard_mode("argv", mutates=True, self_host=True),
-    "team-receipt-write": _guard_mode("argv", mutates=True, self_host=True),
     "log-append": _guard_mode("argv", mutates=True),
     # no-arg modes
-    "rot-status": _guard_mode("none"),
     "receipt-template": _guard_mode("none"),
     "statusline": _guard_mode("none"),
     "self-check": _guard_mode("none"),
     "self-host-check": _guard_mode("none", self_host=True),
     "preflight": _guard_mode("none"),
     "detect": _guard_mode("none"),
-    "audit-assets": _guard_mode("none"),
-    "registry-assets": _guard_mode("none"),
     "state-doctor": _guard_mode("none", self_host=True),
     "production-review": _guard_mode("none", self_host=True, control_plane=True),
 }
@@ -429,8 +390,13 @@ CODE_EXTENSIONS = {
     ".css", ".scss", ".sass", ".vue", ".svelte",
 }
 OPERATIONAL_PRESETS = {"light", "standard", "strict"}
-OS_MODES = {"lean", "standard", "strict"}
-OS_MODE_REQUESTS = OS_MODES | {"adaptive", "auto"}
+# Two modes, two behaviours. `lean` and `micro` were removed after 32 dogfood
+# runs used neither (25 standard, 7 strict) and `strict` measured byte-identical
+# to `standard` for context loading — four names for three behaviours, two of
+# which no task had ever selected. Modes are explicit now: there is no adaptive
+# resolver to guess one.
+OS_MODES = {"standard", "strict"}
+OS_MODE_REQUESTS = OS_MODES
 METRIC_TYPES = {
     "llm_usage",
     "tool_output",
@@ -491,7 +457,6 @@ def _env_int(name, default):
 
 STATE_RETENTION_KEEP_RUNS = _env_int("PILOTHOS_RETENTION_RUNS", 10)
 STATE_RETENTION_KEEP_DAYS = _env_int("PILOTHOS_RETENTION_DAYS", 14)
-SCHEDULER_HISTORY_KEEP = _env_int("PILOTHOS_SCHEDULER_KEEP", 200)
 KERNEL_LOG_KEEP_ROWS = _env_int("PILOTHOS_KERNEL_LOG_KEEP", 200)
 RECEIPT_SEALS_WARN_LINES = _env_int("PILOTHOS_RECEIPT_SEALS_WARN", 500)
 STATE_JANITOR_MAX_FINDINGS = 500

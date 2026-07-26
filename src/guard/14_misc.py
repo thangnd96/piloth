@@ -52,7 +52,6 @@ def self_host_required_manifest_paths():
         "pilothOS/runtime/evidence-router-issues.json",
         "pilothOS/scripts/pilothos_guard.py",
         "pilothOS/scripts/pilothos_installer.py",
-        "pilothOS/agent-teams/piloth-team.md",
         "pilothOS/memory/state/README.md",
     }
 
@@ -73,7 +72,6 @@ def self_host_check_result():
         PILOTHOS_DIR / "runtime" / "adapter-capabilities.json",
         PILOTHOS_DIR / "runtime" / "specialist-registry.json",
         PILOTHOS_DIR / "runtime" / "model-capabilities.json",
-        PILOTHOS_DIR / "agent-teams" / "piloth-team.md",
         PILOTHOS_DIR / "scripts" / "pilothos_guard.py",
     ]
     for path in required_files:

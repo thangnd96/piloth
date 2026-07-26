@@ -15,7 +15,7 @@ python3 pilothOS/scripts/pilothos_guard.py asset-scan --format md
 python3 pilothOS/scripts/pilothos_guard.py asset-health --all
 ```
 
-`registry-assets` remains a compatibility table. `asset-scan` is the generated
+`asset-scan` is the generated
 source for V2 routing and includes `Detected At`, `Last Health`, `Status` and
 `Confidence`. It is a baseline for routing; the model/user still applies
 judgment for missing capabilities, ambiguous ownership or project-specific risk.

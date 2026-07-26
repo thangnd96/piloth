@@ -61,13 +61,3 @@ Adapter files (`.claude/`, `.cursor/`, `.codex/`, `.antigravity/`) chỉ giúp n
 - Không sửa adapter để thay đổi policy; sửa đúng file trong `pilothOS/` trước.
 - Adapter là các thư mục tool ở root (`.claude/`, `.cursor/`, `.codex/`, `.antigravity/`) — bridge mỏng, chỉ xem khi có tool integration conflict.
 
-## Agent Team Loading
-
-Chỉ nạp `pilothOS/agent-teams/` khi task có dấu hiệu cần nhiều vai trò, ví dụ:
-
-- cần generator/evaluator loop,
-- cần review độc lập trước khi implement,
-- cần contract negotiation giữa nhiều role,
-- hoặc user yêu cầu rõ ràng dùng team.
-
-Không tạo team mới nếu chưa có Evidence từ task thật hoặc workflow lặp lại.

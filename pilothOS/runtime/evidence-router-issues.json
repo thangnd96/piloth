@@ -23,32 +23,11 @@
       "summary": "Resource-win claims are forbidden until corpus benchmarks include real token telemetry."
     },
     {
-      "id": "ER-003",
-      "kind": "regression_owner",
-      "status": "active",
-      "owner": "evidence-router-core",
-      "summary": "Compatibility fields for route-task and scheduler-suggest must remain stable for one major version."
-    },
-    {
-      "id": "ER-004",
-      "kind": "merge_gate",
-      "status": "active",
-      "owner": "codebase-memory",
-      "summary": "Stale or partial codebase graph evidence cannot be treated as source-grounded and codebase-memory retains its full-parity gate."
-    },
-    {
       "id": "ER-005",
       "kind": "invariant",
       "status": "active",
       "owner": "evidence-router-core",
       "summary": "Stale, partial, conflicting, and negative-claim evidence lowers route confidence and emits source-first fallbacks."
-    },
-    {
-      "id": "ER-006",
-      "kind": "invariant",
-      "status": "active",
-      "owner": "evidence-router-core",
-      "summary": "Routing is stateless: optional scheduler history cannot mutate routing policy or promote lessons."
     },
     {
       "id": "ER-007",

@@ -57,33 +57,6 @@ def pre_edit(hook_input):
     if not paths:
         block_decision("PILOTHOS PRE-EDIT: edit hook did not include a target path.")
         return
-    team_contract, team_contract_path = load_team_contract(hook_input)
-    role = role_from_hook_input(hook_input)
-    if role:
-        if not team_contract:
-            block_decision(
-                "PILOTHOS PRE-EDIT: team role was supplied but no active team contract was found."
-            )
-            return
-        team_errors = validate_team_contract(team_contract)
-        if team_errors:
-            block_decision("PILOTHOS PRE-EDIT: invalid team contract: " + "; ".join(team_errors))
-            return
-        permissions = team_contract.get("role_permissions", {})
-        actions = permissions.get(role)
-        if not isinstance(actions, list):
-            block_decision(f"PILOTHOS PRE-EDIT: role is not in team contract: {role}")
-            return
-        if "edit" not in actions:
-            block_decision(f"PILOTHOS PRE-EDIT: role {role} does not have edit permission.")
-            return
-        for rel in paths:
-            if not path_matches(team_contract.get("allowed_paths", []), rel):
-                block_decision(
-                    f"PILOTHOS PRE-EDIT: team role {role} cannot edit outside team allowed_paths "
-                    f"from {team_contract_path}: {rel}"
-                )
-                return
     allowed = contract.get("allowed_paths", [])
     out_of_scope = contract.get("out_of_scope_paths", [])
     for rel in paths:
@@ -219,23 +192,6 @@ def post_edit(hook_input):
         "warnings": facts.get("warnings", []),
         "evidence_commands": facts.get("evidence_commands", []),
     }, ensure_ascii=False))
-
-
-def evidence_add(argv):
-    if not argv:
-        print("FAIL evidence-add: need command string")
-        return
-    facts = load_diff_facts({})
-    entry = {
-        "command": argv[0],
-        "result": argv[1] if len(argv) > 1 else "recorded",
-        "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    facts.setdefault("evidence_commands", []).append(entry)
-    contract, _ = load_task_contract({})
-    update_diff_fact_derived(facts, contract)
-    save_diff_facts({}, facts)
-    print(f"OK   evidence recorded: {entry['command']} -> {entry['result']}")
 
 
 def facts_paths(facts, receipt=None):
@@ -714,6 +670,30 @@ def validate_tool_check_payload(payload, contract=None):
             "tool-check command/evidence must be referenced by active task contract"
         )
     return errors
+
+
+def evidence_add(argv):
+    """Record a verification command on the V1 diff-facts path.
+
+    Not redundant with `os-evidence`, which requires an open OS run: adapters and
+    tests that drive `contract-write` -> `receipt-write` directly have no run to
+    append to, and `evidence_commands` is exactly what the receipt gate checks
+    before it warns "code changed without test/evidence".
+    """
+    if not argv:
+        print("FAIL evidence-add: need command string")
+        return
+    facts = load_diff_facts({})
+    entry = {
+        "command": argv[0],
+        "result": argv[1] if len(argv) > 1 else "recorded",
+        "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    facts.setdefault("evidence_commands", []).append(entry)
+    contract, _ = load_task_contract({})
+    update_diff_fact_derived(facts, contract)
+    save_diff_facts({}, facts)
+    print(f"OK   evidence recorded: {entry['command']} -> {entry['result']}")
 
 
 def tool_check(argv):

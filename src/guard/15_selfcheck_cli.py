@@ -135,15 +135,6 @@ def state_janitor_findings(keep_runs=None, keep_days=None, kernel_logs=False):
             "reason": "sealed run outside retention (keeps state/seal JSON)",
             "bytes": _artifacts_size_bytes(artifacts),
         })
-    sched_lines = _count_jsonl_lines(SCHEDULER_HISTORY)
-    if sched_lines > SCHEDULER_HISTORY_KEEP:
-        findings.append({
-            "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
-            "kind": "jsonl-tail",
-            "action": "truncate",
-            "keep": SCHEDULER_HISTORY_KEEP,
-            "lines": sched_lines,
-        })
     seal_lines = _count_jsonl_lines(RECEIPT_SEALS)
     if seal_lines > RECEIPT_SEALS_WARN_LINES:
         findings.append({
@@ -193,27 +184,6 @@ def _prune_artifacts_dir(rel_path):
         return {"path": rel_path, "status": "failed", "reason": str(e)}
 
 
-def _truncate_jsonl_tail(path, keep):
-    rel = path.relative_to(REPO_ROOT).as_posix()
-    if not path.exists():
-        return {"path": rel, "status": "missing"}
-    try:
-        with open(path, encoding="utf-8") as f:
-            lines = [line for line in f if line.strip()]
-    except OSError as e:
-        return {"path": rel, "status": "failed", "reason": str(e)}
-    if len(lines) <= keep:
-        return {"path": rel, "status": "noop", "lines": len(lines)}
-    kept = lines[-keep:]
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            for line in kept:
-                f.write(line if line.endswith("\n") else line + "\n")
-    except OSError as e:
-        return {"path": rel, "status": "failed", "reason": str(e)}
-    return {"path": rel, "status": "truncated", "removed": len(lines) - keep, "kept": len(kept)}
-
-
 def _rotate_md_log(rel_path, item):
     live = REPO_ROOT / rel_path
     archive = REPO_ROOT / item.get("archive", "")
@@ -253,8 +223,6 @@ def state_janitor_apply(findings):
         action = item.get("action")
         if action == "remove" and item.get("kind") == "dir":
             actions.append(_prune_artifacts_dir(item.get("path")))
-        elif action == "truncate" and item.get("kind") == "jsonl-tail":
-            actions.append(_truncate_jsonl_tail(SCHEDULER_HISTORY, item.get("keep", SCHEDULER_HISTORY_KEEP)))
         elif action == "rotate" and item.get("kind") == "md-rows":
             actions.append(_rotate_md_log(item.get("path"), item))
     return actions
@@ -408,8 +376,6 @@ def manifest_path_is_runtime_state(rel):
     return (
         (rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl"))
         or rel.startswith("pilothOS/memory/state/os-runs/")
-        or rel.startswith("pilothOS/memory/state/team-runs/")
-        or rel.startswith("pilothOS/memory/state/codebase-index/")
     )
 
 
@@ -418,20 +384,6 @@ def state_doctor_result():
 
     def add_check(name, ok, detail):
         checks.append({"name": name, "ok": bool(ok), "detail": detail})
-
-    scheduler = jsonl_state_doctor(SCHEDULER_HISTORY)
-    scheduler_items = scheduler.pop("items", [])
-    add_check(
-        "scheduler history jsonl",
-        scheduler.get("ok"),
-        scheduler,
-    )
-    deprecated = [item for item in scheduler_items if scheduler_history_deprecated(item)]
-    add_check(
-        "scheduler deprecated history isolation",
-        True,
-        {"deprecated_repo_records_ignored": len(deprecated)},
-    )
 
     seals = jsonl_state_doctor(RECEIPT_SEALS)
     seal_items = seals.pop("items", [])
@@ -503,7 +455,6 @@ def state_doctor_result():
             "keep_days": janitor.get("retention", {}).get("keep_days"),
             "prunable_artifact_dirs": len(prunable),
             "reclaimable_bytes": reclaimable,
-            "scheduler_history_lines": _count_jsonl_lines(SCHEDULER_HISTORY),
             "receipt_seals_lines": _count_jsonl_lines(RECEIPT_SEALS),
             "lessons_rows": _md_table_rowcount(LESSONS),
             "review_log_rows": _md_table_rowcount(REVIEW_LOG),
@@ -917,33 +868,16 @@ GUARD_HANDLERS = {
     "token-telemetry": token_telemetry,
     "os-close": os_close,
     "os-verify": os_verify,
-    "os-report": os_report,
-    "review-request": review_request,
-    "review-feedback": review_feedback,
-    "review-verify": review_verify,
     "asset-scan": asset_scan,
     "asset-health": asset_health,
     "asset-sync": asset_sync,
     "adapter-capabilities": adapter_capabilities,
     "evidence-route": evidence_route,
-    "route-task": route_task,
-    "context-budget": context_budget,
-    "payload-budget": payload_budget,
-    "codebase-index": codebase_index,
-    "codebase-status": codebase_status,
-    "codebase-query": codebase_query,
-    "rot-status": rot_status,
-    "reuse-scan": reuse_scan,
-    "ds-scan": ds_scan,
-    "scheduler-suggest": scheduler_suggest,
-    "scheduler-record": scheduler_record,
     "receipt-seal": receipt_seal,
     "receipt-verify": receipt_verify,
     "artifact-janitor": artifact_janitor,
     "state-janitor": state_janitor,
     "control-plane-check": control_plane_check,
-    "team-contract-write": team_contract_write,
-    "team-receipt-write": team_receipt_write,
     "log-append": log_append,
     "receipt-template": receipt_template,
     "statusline": statusline,
@@ -951,8 +885,6 @@ GUARD_HANDLERS = {
     "self-host-check": self_host_check,
     "preflight": preflight,
     "detect": detect,
-    "audit-assets": audit_consumer_assets,
-    "registry-assets": registry_consumer_assets,
     "state-doctor": state_doctor,
     "production-review": production_review,
 }

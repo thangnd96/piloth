@@ -27,47 +27,17 @@ task evidence.
 | Target footprint | For controlled targets, task output only; `pilothOS/`, `.claude/`, `.codex/`, `.cursor/` and `.antigravity/` are overhead |
 | External side effects | Require approval before high-risk mutation |
 
-## Adaptive Runtime Modes
+## Runtime Modes
 
-PilothOS chooses the lightest mode that can still prove the task:
+Two modes, chosen explicitly in the request:
 
-- `lean` for narrow UI/docs/test tasks;
-- `standard` for normal code or controlled-target work;
+- `standard` for normal code, docs or controlled-target work;
 - `strict` for broad scope, release/deploy, full design-token coverage or
   absolute-claim risk.
 
-The mode is part of the OS contract and must be visible in `os-status` and
-`os-report`. If the selected mode adds overhead without improving cost,
+The mode is part of the OS contract and must be visible in `os-status`. If the selected mode adds overhead without improving cost,
 fidelity, correctness or defect detection over `none-piloth`, Piloth must report
 `consumer_value_failed` instead of claiming value.
-
-## Phase-Plan Suggestion (recipe right-sizing — advisory only)
-
-Beyond governance intensity (mode), `os-start` records a deterministic
-`phase_plan_suggestion` in the contract (`suggest_phase_plan`), surfaced in
-`os-status` / `os-report`:
-
-- `recommend_prototype` — UI/component scope that is not a trivial bugfix/docs
-  change; a prototype round de-risks the visual direction before implementation.
-- `recommend_discovery` — ambiguous or broad scope (architecture / acceptance /
-  scope unknowns); a discovery gate confirms open questions up front.
-
-This is **advisory and never auto-enables a phase.** The recommendation exists so
-an operator can *choose* to run `requires_discovery` / `requires_prototype` on a
-follow-up `os-start`. Auto-enabling a heavy front-half phase would add cost — the
-opposite of right-sizing. Skipping an unneeded phase (bugfix → straight to
-Execute) is where the real time/token saving comes from; running one the task did
-not need is the waste the Pass-Through Rule warns against.
-
-## Model Hints (advisory per-phase model)
-
-The contract may carry `model_hints` mapping phase → tier, e.g.
-`{"discovery": "strong", "prototype": "strong", "execute": "cost", "test": "cost"}`
-— a strong model for reasoning-heavy phases (discovery, prototype, plan) and a
-cheaper one for mechanical phases (execute, test). This mirrors per-phase model
-selection but is **advisory**: only harnesses that can pin a per-phase model
-(e.g. Claude Code skill frontmatter `model:`) enforce it; others read it as a
-hint. Model hints are surfaced in `os-status` / `os-report`.
 
 ## Real token telemetry (`token-telemetry`)
 
@@ -114,7 +84,7 @@ python3 pilothOS/scripts/pilothos_guard.py token-telemetry [--task <id>] [--tran
 ## Budget (advisory)
 
 An optional contract `budget.max_usd` produces a `budget_status` in
-`os-status` / `os-report`: `{max_usd, spent_usd, remaining_usd, over_budget}`
+`os-status`: `{max_usd, spent_usd, remaining_usd, over_budget}`
 computed from the real token cost. It is **advisory only — it never blocks
 `os-close`** (`advisory_unavailable` when no ceiling is set or no real cost is
 recorded yet). Promoting it to a hard ceiling is a deliberate future step.
@@ -125,7 +95,7 @@ prove the budget **is** exceeded, never that it isn't.
 
 ## State retention (advisory hygiene)
 
-Task-lifecycle state accumulates on disk (`os-runs/`, `scheduler-history.jsonl`,
+Task-lifecycle state accumulates on disk (`os-runs/`,
 `receipt-seals.jsonl`) and two kernel logs (`lessons-learned.md`,
 `review-log.md`) grow and re-load into context each session. `state-janitor`
 keeps them bounded (see `os-control-plane.md`). Like `budget`, it is **advisory
@@ -175,16 +145,11 @@ need.
 ## Guard Support
 
 - `context-loading.md` defines progressive loading order.
-- `context-budget` measures the deterministic kernel context footprint
-  (bytes / estimated tokens) a routed task loads versus the full-kernel ceiling,
-  so progressive-loading savings are a `context_load` evidence number rather
-  than a claim. It is not `llm_usage` telemetry and cannot back a "cheaper" claim.
-  It reports both the full-kernel ceiling and the stricter `routable_kernel_*`
-  denominator, which excludes docs a routed task could never load; quote the
-  routable figure.
-- `payload-budget` measures the other half of the same bill: the bytes /
-  estimated tokens each per-task command prints back into context. Same
-  `tool_output` caveat — a footprint metric, not `llm_usage`.
+- Context and tool-output footprint are measured by
+  `scripts/measure_budget.py` in the Piloth repo, not by a shipped guard verb:
+  they are vendor meters that keep the ratchet tests honest. Both are
+  `context_load` / `tool_output` footprint numbers and neither is `llm_usage`
+  telemetry, so neither can back a "cheaper" claim.
 - `tool-check` requires timeout, risk and expected evidence.
 - `post-edit` records diff facts and warns on large deltas.
 - `receipt-write` requires warning checklist entries when generated warnings

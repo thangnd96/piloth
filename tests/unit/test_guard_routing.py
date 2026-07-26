@@ -45,15 +45,3 @@ def test_route_context_is_bounded_not_whole_kernel(guard):
     assert len(out["context_layers"]) <= 8
 
 
-def test_reuse_scan_has_stable_shape(guard):
-    out = guard.reuse_scan_payload({"changed_files": ["pilothOS/scripts/pilothos_guard.py"]})
-    for key in ("result", "candidates", "high_confidence_candidates", "learning_suggestions"):
-        assert key in out
-    assert out["result"] == "reuse_scan"
-    assert isinstance(out["candidates"], list)
-
-
-def test_reuse_scan_empty_changeset_has_no_candidates(guard):
-    out = guard.reuse_scan_payload({"changed_files": []})
-    assert out["candidates"] == []
-    assert out["high_confidence_candidates"] == []

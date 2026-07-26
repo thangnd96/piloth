@@ -93,121 +93,18 @@ def request_os_mode(request):
         request.get("mode")
         or request.get("os_mode")
         or request.get("piloth_mode")
-        or "adaptive"
+        or "standard"
     ).strip().lower()
-    return raw if raw in OS_MODE_REQUESTS else "adaptive"
+    return raw if raw in OS_MODE_REQUESTS else "standard"
 
 
 def mode_to_operational_preset(mode):
-    if mode == "lean":
-        return "light"
-    if mode == "strict":
-        return "strict"
-    return "standard"
+    return "strict" if mode == "strict" else "standard"
 
 
 def path_pattern_is_broad(pattern):
     raw = str(pattern or "").strip()
     return raw in {"*", "**", "**/*", "."} or raw.endswith("/**")
-
-
-def paths_look_docs_tests_only(paths, layers):
-    normalized_layers = {normalize_layer(x) for x in layers}
-    if normalized_layers and normalized_layers <= DOC_TEST_LAYERS:
-        return True
-    concrete = [path for path in paths if not path_pattern_is_broad(path)]
-    return bool(concrete) and all(is_docs_path(path) or is_test_path(path) for path in concrete)
-
-
-def choose_adaptive_mode(request, paths, layers, target):
-    requested = request_os_mode(request)
-    reasons = []
-    if requested in OS_MODES:
-        return requested, [{
-            "mode": requested,
-            "source": "request",
-            "reason": f"explicit mode={requested}",
-        }]
-
-    task_signal = str(request.get("task_signal") or "").strip().lower()
-    intent_blob = json.dumps(sanitize_state_value(request, limit=1000), ensure_ascii=False).lower()
-    evidence_profile = request_evidence_profile(request)
-    broad_paths = not paths or any(path_pattern_is_broad(path) for path in paths) or len(paths) > 6
-    target_external = isinstance(target, dict) and bool(target.get("external"))
-    docs_tests_only = paths_look_docs_tests_only(paths, layers)
-
-    if evidence_profile == "design_tokens":
-        reasons.append("design_tokens evidence profile requires strict coverage discipline")
-        return "strict", [{"mode": "strict", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if "release/deploy" in task_signal or any(term in intent_blob for term in ("deploy", "production", "release")):
-        reasons.append("release/deploy or production signal")
-        return "strict", [{"mode": "strict", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if any(term in intent_blob for term in ("full design tokens", "all tokens", "entire library", "pixel-perfect", "1:1")):
-        reasons.append("absolute/full-coverage claim risk")
-        return "strict", [{"mode": "strict", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if broad_paths:
-        reasons.append("broad target paths")
-        return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if docs_tests_only:
-        reasons.append("docs/tests-only narrow scope")
-        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if "ui/component" in task_signal and len(paths) <= 4:
-        reasons.append("small UI/component scope")
-        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
-    concrete_paths = [path for path in paths if not path_pattern_is_broad(path)]
-    if concrete_paths and len(concrete_paths) <= SMALL_SCOPE_MAX_PATHS:
-        reasons.append(f"small blast radius ({len(concrete_paths)} concrete paths)")
-        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if target_external:
-        reasons.append("explicit external target with non-trivial scope")
-        return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
-    reasons.append("default non-trivial task scope")
-    return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
-
-
-def suggest_phase_plan(request, paths, layers, evidence_profile):
-    """Advisory-only phase recommendation (recipe right-sizing).
-
-    Mirrors aidlc's deterministic heuristicClassify: recommend the front-half
-    phases that would prevent rework, without ever enabling them. This NEVER
-    mutates requires_prototype / requires_discovery — a human opts in on a
-    follow-up os-start. Surfaced in os-status / os-report so the operator sees
-    the suggestion but keeps control (auto-enabling a heavy phase would add
-    cost, the opposite of the intent).
-    """
-    signal = str(request.get("task_signal") or "").strip().lower()
-    intent = json.dumps(sanitize_state_value(request, limit=1000), ensure_ascii=False).lower()
-    paths = paths or []
-    ui = (
-        evidence_profile == "ui"
-        or "ui/component" in signal
-        or any(path_pattern_suggests_ui(p) for p in paths)
-    )
-    trivial = (
-        paths_look_docs_tests_only(paths, layers)
-        or "bugfix" in signal
-        or "bug fix" in intent
-    )
-    high_impact = any(
-        k in intent for k in
-        ("architecture", "acceptance criteria", "out of scope", "unclear", "ambiguous", "not sure", "unknown")
-    )
-    broad = (not paths) or any(path_pattern_is_broad(p) for p in paths) or len(paths) > 6
-    rec_proto = bool(ui and not trivial)
-    rec_disc = bool((high_impact or broad) and not trivial)
-    reasons = []
-    if rec_proto:
-        reasons.append("UI/component scope — a prototype round can de-risk the visual direction before implementation")
-    if rec_disc:
-        reasons.append("ambiguous or broad scope — a discovery gate can confirm open questions up front")
-    if not reasons:
-        reasons.append("scope looks narrow/clear — no extra front-half phase recommended")
-    return {
-        "recommend_discovery": rec_disc,
-        "recommend_prototype": rec_proto,
-        "reasons": reasons,
-        "note": "suggestions only — pass requires_discovery / requires_prototype in a follow-up os-start to enable",
-    }
 
 
 def request_success_metrics(request):
@@ -276,22 +173,16 @@ def default_reuse_evidence(task_signal):
     }]
 
 
-def build_os_contract(request, route, scheduler, target=None):
+def build_os_contract(request, route, target=None):
     paths = request_paths(request) or ["**/*"]
     task_signal = route.get("task_signal") or request.get("task_signal") or "not_applicable"
-    skeleton = scheduler.get("contract_skeleton") if isinstance(scheduler, dict) else {}
-    if not isinstance(skeleton, dict):
-        skeleton = {}
     layers = (
         clean_string_list(request.get("affected_layers"))
-        or clean_string_list(skeleton.get("affected_layers"))
         or layers_for_requested_paths(paths)
     )
-    mode, mode_decisions = choose_adaptive_mode(request, paths, layers, target)
+    mode = request_os_mode(request)
     expected = (
         clean_string_list(request.get("expected_evidence"))
-        or clean_string_list(scheduler.get("expected_evidence") if isinstance(scheduler, dict) else None)
-        or clean_string_list(skeleton.get("expected_evidence"))
         or ["manual verification receipt"]
     )
     evidence_profile = request_evidence_profile(request)
@@ -300,7 +191,6 @@ def build_os_contract(request, route, scheduler, target=None):
     elif evidence_profile == "ui" or any(path_pattern_suggests_ui(path) for path in paths):
         expected = ui_expected_evidence(expected, request)
     route_context = route.get("context_evidence") if isinstance(route, dict) else []
-    scheduler_context = skeleton.get("context_evidence")
     footprint_policy = request_target_footprint_policy(request, target or {})
     contract = {
         "task_scope": request_intent(request),
@@ -308,13 +198,11 @@ def build_os_contract(request, route, scheduler, target=None):
         "allowed_paths": paths,
         "expected_evidence": expected,
         "out_of_scope_paths": clean_string_list(request.get("out_of_scope_paths")),
-        "consumer_scope": request.get("consumer_scope") or skeleton.get("consumer_scope") or "repo-local task scope from os-start",
+        "consumer_scope": request.get("consumer_scope") or "repo-local task scope from os-start",
         "target_paths": paths,
         "control_plane_repo": str(REPO_ROOT.resolve()),
         "evidence_profile": evidence_profile,
         "mode": mode,
-        "mode_decisions": mode_decisions,
-        "adaptive_mode": request_os_mode(request) in {"adaptive", "auto"},
         "operational_preset": mode_to_operational_preset(mode),
         "execution_strategy": request.get("execution_strategy")
         or ("controlled_target" if isinstance(target, dict) and target.get("explicit") else "repo_local"),
@@ -322,13 +210,11 @@ def build_os_contract(request, route, scheduler, target=None):
         "budget": request_budget(request),
         "success_metrics": request_success_metrics(request),
         "context_evidence": clean_string_list([]),
-        "reuse_evidence": request.get("reuse_evidence") or skeleton.get("reuse_evidence") or default_reuse_evidence(task_signal),
+        "reuse_evidence": request.get("reuse_evidence") or default_reuse_evidence(task_signal),
         "decision_limits": clean_string_list(request.get("decision_limits"))
-        or clean_string_list(skeleton.get("decision_limits"))
         or ["Do not expand scope without updating the OS task contract."],
         "consumer_asset_routing": request.get("consumer_asset_routing")
         or route.get("consumer_asset_routing")
-        or skeleton.get("consumer_asset_routing")
         or [{
             "task_signal": task_signal,
             "asset_type": "not_applicable",
@@ -339,7 +225,7 @@ def build_os_contract(request, route, scheduler, target=None):
     contract["context_evidence"] = (
         request.get("context_evidence")
         if isinstance(request.get("context_evidence"), list)
-        else merged_context_evidence(route_context, scheduler_context, [{
+        else merged_context_evidence(route_context, [{
             "source": "pilothOS/runtime/os-control-plane.md",
             "reason": "OS lifecycle contract",
             "finding": "task is routed through os-start/os-close",
@@ -347,18 +233,11 @@ def build_os_contract(request, route, scheduler, target=None):
     )
     for optional in (
         "operational_preset", "allowed_entitlements", "requires_judgment",
-        "benchmark_id", "requires_human_review", "requires_prototype",
-        "requires_discovery", "discovery_decisions", "model_hints",
+        "benchmark_id", "model_hints",
         "ui_design_system_evidence", "energy_budget_reason",
     ):
         if optional in request:
             contract[optional] = request[optional]
-    # A prototype's human pick is recorded through the reused human_review
-    # round-trip, so requiring a prototype implies requiring human review.
-    if contract.get("requires_prototype"):
-        contract["requires_human_review"] = True
-    # Advisory recipe: recommend front-half phases without ever enabling them.
-    contract["phase_plan_suggestion"] = suggest_phase_plan(request, paths, layers, evidence_profile)
     if isinstance(target, dict):
         contract["target_repo"] = target.get("target_repo", "")
         contract["target_kind"] = target.get("target_kind", "")

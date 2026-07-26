@@ -47,5 +47,4 @@ Detect → Identify Scope → Load Scope Checklist → Review → Refactor → V
   - Có duplicate nội dung từ `pilothOS/` không?
   - Có mâu thuẫn instruction giữa adapter và OS không?
   - Có tool nào thay đổi cách đọc rules/settings không?
-- Agent Team checklist nằm trong `pilothOS/agent-teams/index.md`.
 - Không review adapter bằng cách đọc toàn bộ native config nếu task không liên quan đến adapter.

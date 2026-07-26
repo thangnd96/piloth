@@ -26,7 +26,6 @@ def env(guard, tmp_path, monkeypatch):
     monkeypatch.setattr(guard, "REPO_KEY", "testrepokey000000")
     monkeypatch.setattr(guard, "OS_RUNS_DIR", runs)
     monkeypatch.setattr(guard, "OS_CURRENT", runs / "current.json")
-    monkeypatch.setattr(guard, "SCHEDULER_HISTORY", state / "scheduler-history.jsonl")
     monkeypatch.setattr(guard, "RECEIPT_SEALS", state / "receipt-seals.jsonl")
     monkeypatch.setattr(guard, "LESSONS", repo / "pilothOS" / "memory" / "lessons-learned.md")
     monkeypatch.setattr(guard, "REVIEW_LOG", repo / "pilothOS" / "rot" / "review-log.md")
@@ -138,20 +137,6 @@ def test_receipt_seals_warn_only_untouched(env):
 
 
 # --------------------------------------------------------- scheduler-history tail
-
-def test_scheduler_history_truncates_to_last_n(env):
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(env, "SCHEDULER_HISTORY_KEEP", 3)
-    try:
-        env.SCHEDULER_HISTORY.write_text(
-            "".join(json.dumps({"n": i}) + "\n" for i in range(6)), encoding="utf-8"
-        )
-        env.state_janitor_result(fix=True)
-        lines = [json.loads(l) for l in env.SCHEDULER_HISTORY.read_text().splitlines() if l.strip()]
-        assert [r["n"] for r in lines] == [3, 4, 5]  # last 3 kept, oldest dropped
-    finally:
-        monkeypatch.undo()
-
 
 # ------------------------------------------------------- kernel-log lossless rotate
 

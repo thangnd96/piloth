@@ -70,14 +70,11 @@
         "piloth_mode"
       ],
       "allowed": [
-        "adaptive",
-        "auto",
-        "lean",
         "standard",
         "strict"
       ],
-      "default": "adaptive",
-      "note": "adaptive/auto resolve to lean|standard|strict",
+      "default": "standard",
+      "note": "strict adds gates; it does not change context loading",
       "required": false
     },
     "operational_preset": {
@@ -90,19 +87,6 @@
     },
     "out_of_scope_paths": {
       "default": [],
-      "required": false
-    },
-    "requires_discovery": {
-      "default": false,
-      "required": false
-    },
-    "requires_human_review": {
-      "default": false,
-      "required": false
-    },
-    "requires_prototype": {
-      "default": false,
-      "note": "true also forces requires_human_review",
       "required": false
     },
     "specialists": {

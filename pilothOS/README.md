@@ -36,7 +36,6 @@ Các bước thủ công tương đương:
 2. Đi vào `pilothOS/bootstrap.md`.
 3. Kiểm tra `pilothOS/rot/registry.md`.
 4. Nạp context theo progressive loading; không nạp toàn bộ repo mặc định.
-5. Khi cần nhiều vai trò, xem `pilothOS/agent-teams/` và chỉ dùng team đã có Evidence vận hành.
 
 ## Ranh giới phân phối
 
@@ -60,7 +59,6 @@ pilothOS/
 ├── PilothOS.md            # Hiến pháp kiến trúc
 ├── VALIDATION.md          # Giới hạn đã biết và điều kiện của mọi claim
 ├── dist-manifest.json     # SSOT về tính đầy đủ của bản phân phối
-├── agent-teams/           # Team contracts đã validate hoặc được tạo từ task thật
 ├── rot/                   # Registry và lịch sử review
 ├── rules/                 # POLICY
 ├── memory/                # CONTEXT

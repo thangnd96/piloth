@@ -67,5 +67,5 @@ def test_os_start_explain_schema(guard):
     payload = guard.os_start_schema_payload()
     assert payload["result"] == "os_start_schema"
     assert "mode" in payload["fields"]
-    assert "adaptive" in payload["fields"]["mode"]["allowed"]
+    assert payload["fields"]["mode"]["allowed"] == ["standard", "strict"]
     assert payload["fields"]["evidence_profile"]["allowed"] == sorted(guard.EVIDENCE_PROFILES)

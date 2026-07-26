@@ -55,7 +55,7 @@ def _documented_context_rows():
     return rows
 
 
-def test_documented_context_footprints_match_the_meter(guard):
+def test_documented_context_footprints_match_the_meter(budget):
     """The published table drifted 16% behind the meter before this gate existed.
 
     docs/token-optimization.md claimed a bug fix loads 6,966 tokens against a
@@ -65,7 +65,7 @@ def test_documented_context_footprints_match_the_meter(guard):
     rows = _documented_context_rows()
     assert len(rows) >= 5, f"reference table not parsed (found {len(rows)} rows)"
     for signal, files, num_bytes, tokens in rows:
-        measured = guard.context_budget_payload({"task_signal": signal})
+        measured = budget.context_budget_payload({"task_signal": signal})
         assert measured["routed"] is True, signal
         assert (files, num_bytes, tokens) == (
             measured["loaded_count"],
@@ -80,43 +80,7 @@ def test_documented_context_footprints_match_the_meter(guard):
         )
 
 
-def _documented_mode_rows():
-    """(task_signal, standard, lean, micro) from the mode-aware table.
-
-    | bug fix | ~8,069 | ~4,522 (−44%) | **~3,568 (−56%)** |
-    """
-    num = r"\*{0,2}~([\d,]+)\*{0,2}(?:\s*\([^)]*\))?\*{0,2}"
-    row = re.compile(
-        rf"^\|\s*(?P<signal>[A-Za-z/_ ]+?)\s*\|\s*{num}\s*\|\s*{num}\s*\|\s*{num}\s*\|",
-    )
-    rows = []
-    for line in TOKEN_DOC.read_text(encoding="utf-8").splitlines():
-        found = row.match(line)
-        if found:
-            rows.append((
-                found["signal"],
-                *(int(g.replace(",", "")) for g in found.groups()[1:]),
-            ))
-    return rows
-
-
-def test_documented_mode_footprints_match_the_meter(guard):
-    """The lean/micro table was unbound: its numbers carry a `~` prefix, which the
-    reference-table regex skips, so it could drift while the standard table held."""
-    rows = _documented_mode_rows()
-    assert len(rows) >= 3, f"mode table not parsed (found {len(rows)} rows)"
-    for signal, standard, lean, micro in rows:
-        for mode, stated in (("standard", standard), ("lean", lean), ("micro", micro)):
-            measured = guard.context_budget_payload(
-                {"task_signal": signal, "mode": mode},
-            )["loaded_tokens_est"]
-            assert stated == measured, (
-                f"docs/token-optimization.md mode table says {signal}/{mode} is "
-                f"~{stated} tok but context-budget measures {measured}"
-            )
-
-
-def test_documented_kernel_denominators_match_the_meter(guard):
+def test_documented_kernel_denominators_match_the_meter(budget):
     """Both ceilings must be stated, and within 3% of the meter.
 
     Exact-match here would fail on any 200-byte kernel doc edit, which is noise:
@@ -131,7 +95,7 @@ def test_documented_kernel_denominators_match_the_meter(guard):
             r"(\d+) file, ~([\d.]+)k token", doc,
         )
     }
-    measured = guard.context_budget_payload({"task_signal": "bug fix"})
+    measured = budget.context_budget_payload({"task_signal": "bug fix"})
     for files, tokens, label in (
         (measured["full_kernel_files"], measured["full_kernel_tokens_est"], "full"),
         (

@@ -36,9 +36,6 @@ Hooks là cơ chế biến Rule dạng văn bản thành enforcement thật. Cá
 
 ## Review Hooks (companion tool)
 
-- Bản cài bật sẵn hook của `pilothOS/tools/review/` (activity mirror + permission
-  gate), fail-open. Tắt bằng `PILOTH_REVIEW=off` trong `.claude/settings.json` env.
-- Review hooks độc lập với hook governance; không thay thế contract/receipt gate.
 
 ## Consumer Hook Preservation
 

@@ -134,7 +134,7 @@ tests/
 ├── unit/                     # Pytest cho các decision function của guard
 ├── evaluation/               # Đánh giá hành vi guard đầu-cuối
 ├── docs/                     # Docs/release smoke: link, bump, structure drift
-├── benchmark/                # figma-ui, codebase-memory, evidence-router
+├── benchmark/                # figma-ui, evidence-router
 ├── bin/                      # Test utilities, timeout runner
 └── run_all.sh                # Gate tổng của release
 ```
@@ -156,7 +156,6 @@ pilothOS/
 ├── runtime/                  # ORCHESTRATION
 ├── agents/                   # EXECUTION
 ├── tools/                    # INTEGRATION
-├── agent-teams/              # Validated role compositions
 ├── governance/               # Permission, risk, approval, escalation
 ├── evaluation/               # Quality gates và Evidence
 ├── rot/                      # Health registry và review history

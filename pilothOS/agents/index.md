@@ -37,4 +37,4 @@ Mỗi agent dùng template `templates/agent.md`. Model update kích hoạt revie
 
 ## Agent Team Boundary
 
-Agent definitions mô tả role execution. Agent Teams mô tả composition giữa nhiều role. Nếu một nội dung mô tả handoff nhiều role hoặc generator/evaluator loop, đặt vào `pilothOS/agent-teams/`, không đặt vào `agents/`.
+Agent definitions mô tả role execution. Piloth không có lớp team orchestration: bản trước có `agent-teams/` nhưng qua 32 run thật không run nào contract một team, nên nó bị gỡ. Mặc định là single-agent.

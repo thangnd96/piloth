@@ -23,9 +23,13 @@
           "fallback": "ask the user for the exact target when no path can be resolved"
         }
       ],
-      "context": ["runtime/context-loading.md"],
+      "context": [
+        "runtime/context-loading.md"
+      ],
       "tools": [],
-      "verification": ["targeted verification when files change"]
+      "verification": [
+        "targeted verification when files change"
+      ]
     },
     "bug fix": {
       "task_class": "localized_bug",
@@ -52,9 +56,17 @@
           "fallback": "reproduce manually and record the limitation"
         }
       ],
-      "context": ["rules/coding-behavior.md", "evaluation/quality-gates.md"],
-      "tools": ["codebase-query", "test-runner"],
-      "verification": ["regression test", "affected suite"]
+      "context": [
+        "rules/coding-behavior.md",
+        "evaluation/quality-gates.md"
+      ],
+      "tools": [
+        "test-runner"
+      ],
+      "verification": [
+        "regression test",
+        "affected suite"
+      ]
     },
     "ui/component": {
       "task_class": "ui_change",
@@ -81,9 +93,18 @@
           "fallback": "record an explicit visual-verification limitation"
         }
       ],
-      "context": ["rules/ui-design-system.md", "runtime/consumer-assets.md"],
-      "tools": ["asset-scan", "visual-review"],
-      "verification": ["component tests", "visual quality gate"]
+      "context": [
+        "rules/ui-design-system.md",
+        "runtime/consumer-assets.md"
+      ],
+      "tools": [
+        "asset-scan",
+        "visual-review"
+      ],
+      "verification": [
+        "component tests",
+        "visual quality gate"
+      ]
     },
     "api/backend": {
       "task_class": "backend_change",
@@ -110,9 +131,17 @@
           "fallback": "run a focused smoke test and record missing integration coverage"
         }
       ],
-      "context": ["runtime/context-loading.md", "tools/index.md"],
-      "tools": ["codebase-query", "test-runner"],
-      "verification": ["contract tests", "affected integration suite"]
+      "context": [
+        "runtime/context-loading.md",
+        "tools/index.md"
+      ],
+      "tools": [
+        "test-runner"
+      ],
+      "verification": [
+        "contract tests",
+        "affected integration suite"
+      ]
     },
     "architecture": {
       "task_class": "architecture_change",
@@ -139,9 +168,17 @@
           "fallback": "request an external reviewer before acceptance"
         }
       ],
-      "context": ["knowledge/architecture/README.md", "runtime/context-loading.md"],
-      "tools": ["codebase-query", "test-runner"],
-      "verification": ["boundary tests", "independent review"]
+      "context": [
+        "knowledge/architecture/README.md",
+        "runtime/context-loading.md"
+      ],
+      "tools": [
+        "test-runner"
+      ],
+      "verification": [
+        "boundary tests",
+        "independent review"
+      ]
     },
     "security": {
       "task_class": "security_change",
@@ -178,9 +215,17 @@
           "fallback": "record the task as blocked, not verified"
         }
       ],
-      "context": ["governance/operational-controls.md", "evaluation/quality-gates.md"],
-      "tools": ["codebase-query", "test-runner"],
-      "verification": ["security regression test", "independent review"]
+      "context": [
+        "governance/operational-controls.md",
+        "evaluation/quality-gates.md"
+      ],
+      "tools": [
+        "test-runner"
+      ],
+      "verification": [
+        "security regression test",
+        "independent review"
+      ]
     },
     "release/deploy": {
       "task_class": "release_change",
@@ -217,9 +262,19 @@
           "fallback": "require explicit human approval"
         }
       ],
-      "context": ["governance/operational-controls.md", "tools/index.md"],
-      "tools": ["build-runner", "test-runner"],
-      "verification": ["full release suite", "rollback check", "independent review"]
+      "context": [
+        "governance/operational-controls.md",
+        "tools/index.md"
+      ],
+      "tools": [
+        "build-runner",
+        "test-runner"
+      ],
+      "verification": [
+        "full release suite",
+        "rollback check",
+        "independent review"
+      ]
     },
     "tool/mcp": {
       "task_class": "tooling_change",
@@ -246,9 +301,18 @@
           "fallback": "run the smallest CLI smoke test"
         }
       ],
-      "context": ["tools/index.md", "runtime/context-loading.md"],
-      "tools": ["tool-check", "test-runner"],
-      "verification": ["tool schema test", "CLI smoke test"]
+      "context": [
+        "tools/index.md",
+        "runtime/context-loading.md"
+      ],
+      "tools": [
+        "tool-check",
+        "test-runner"
+      ],
+      "verification": [
+        "tool schema test",
+        "CLI smoke test"
+      ]
     }
   }
 }

@@ -13,26 +13,13 @@ Các mode:
                   cây pilothOS đầy đủ) — fail sớm và rõ ràng.
   detect          Stage 0 của /pilothos-init: verdict greenfield/brownfield/re-init/dirty
                   kèm evidence; KHÔNG tự rẽ nhánh, chờ consumer confirm.
-  audit-assets    Scan deterministic tài sản consumer và in bảng brownfield audit.
-  registry-assets Scan deterministic tài sản consumer và in bảng registry 9 cột.
   self-host-check Verifies the Piloth repo dogfood contract surface.
   asset-scan      Deterministic JSON/markdown scan of repo assets.
   asset-health    Read-only health checks for detected assets.
   asset-sync      Writes generated asset registry section between markers.
-  evidence-route  Canonical read-only task/risk/evidence/specialist/team route.
+  evidence-route  Canonical read-only task/risk/evidence/specialist route.
                  Prints the acting digest; `--verbose` prints the full decision.
   adapter-capabilities Normalize native|emulated|unavailable adapter handshake.
-  route-task      Scheduler helper: gợi ý context/consumer asset routing từ task_signal.
-  context-budget  Đo context footprint (bytes/token) mà routing nạp vs full kernel.
-  payload-budget  Đo footprint output (bytes/token) của các command một task gọi.
-  codebase-index  Tạo local SQLite code graph theo budget explicit.
-  codebase-status Báo freshness/coverage count của code graph hiện tại.
-  codebase-query  Query overview/search/trace/snippet/coverage/impact qua JSON.
-  rot-status      Rot signal gọn (chỉ scope quá hạn) — lazy load thay vì cả registry.
-  reuse-scan      Evidence-shaped semantic reuse candidate scan.
-  ds-scan         Evidence-shaped design-system candidate scan.
-  scheduler-suggest Recommend context/assets/evidence/tests from local history.
-  scheduler-record  Append sanitized local scheduler history.
   state-doctor   Read-only health check for repo-local OS state.
   os-start       Open an adaptive OS task run and write the scoped contract.
                  `os-start --explain` prints the request schema (no run opened).
@@ -42,22 +29,19 @@ Các mode:
   os-close       Validate receipt, gates, truth claims and target seal.
                  `os-close --dry-run` runs the full validation without sealing.
   os-verify      Verify active receipt/control-plane/target seals.
-  os-report      Summarize mode decisions, cost ledger and consumer value status.
   receipt-seal   Emit deterministic receipt/contract/file hash seal evidence.
   receipt-verify Verify current receipt/files against a prior seal.
   artifact-janitor Detect or explicitly clean deterministic local artifacts.
   state-janitor  Retention/GC rác vòng đời task: dọn artifacts/ của os-run cũ đã
-                 seal (giữ state/seal JSON), tail-truncate scheduler-history;
-                 --kernel-logs rotate lossless lessons/review-log. Detect mặc
-                 định, chỉ đổi đĩa khi --fix. Tự chạy (safe subset) ở os-close.
+                 seal (giữ state/seal JSON); --kernel-logs rotate lossless
+                 lessons/review-log. Detect mặc định, chỉ đổi đĩa khi --fix.
+                 Tự chạy (safe subset) ở os-close.
   control-plane-check Verify project-local OS control-plane readiness.
   production-review Mechanical release readiness review.
-  team-contract-write Record a multi-agent team contract.
-  team-receipt-write  Record a multi-agent team receipt.
   log-append      Ghi một dòng log đúng format (review|lesson), Date tự điền,
                   verify Evidence path tồn tại — dùng cho Stage 5 và mọi lần ghi log.
   contract-write  Ghi task contract vào state guard trước khi sửa file.
-  evidence-add    Ghi evidence command/result vào diff facts.
+  evidence-add    Ghi evidence command/result vào diff facts (đường V1, không cần OS run).
   tool-check      Kiểm tra tool command/risk/timeout/approval trước khi chạy.
   receipt-write   Ghi deliver receipt có changed files/layers/evidence/result.
   pre-edit        PreToolUse: enforce allowed paths + một số layer/path rule cơ học.
@@ -100,7 +84,6 @@ REPO_ROOT = PILOTHOS_DIR.parent             # <repo>
 REGISTRY = PILOTHOS_DIR / "rot" / "registry.md"
 CONSUMER_ASSETS = PILOTHOS_DIR / "runtime" / "consumer-assets.md"
 SELF_HOSTING_DOC = PILOTHOS_DIR / "runtime" / "self-hosting.md"
-SCHEDULER_HISTORY = PILOTHOS_DIR / "memory" / "state" / "scheduler-history.jsonl"
 EVIDENCE_ROUTER_MATRIX = PILOTHOS_DIR / "runtime" / "evidence-routing.json"
 # Embedded fallback for the Evidence Router quality floor — the ONLY place these
 # numbers are written down. evidence-routing.json overrides them at runtime and
@@ -123,11 +106,8 @@ ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.j
 SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"
 MODEL_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "model-capabilities.json"
 RECEIPT_SEALS = PILOTHOS_DIR / "memory" / "state" / "receipt-seals.jsonl"
-TEAM_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "team-runs"
 OS_RUNS_DIR = PILOTHOS_DIR / "memory" / "state" / "os-runs"
 OS_CURRENT = OS_RUNS_DIR / "current.json"
-CODEBASE_INDEX_DIR = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
-CODEBASE_INDEX_DB = CODEBASE_INDEX_DIR / "index.sqlite3"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
@@ -303,25 +283,11 @@ GUARD_MODES = {
     "token-telemetry": _guard_mode("argv", mutates=True),
     "os-close": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
     "os-verify": _guard_mode("argv", self_host=True, control_plane=True),
-    "os-report": _guard_mode("argv", self_host=True, control_plane=True),
-    "review-request": _guard_mode("argv", mutates=True),
-    "review-feedback": _guard_mode("argv", mutates=True),
-    "review-verify": _guard_mode("argv"),
     "asset-scan": _guard_mode("argv", self_host=True, control_plane=True),
     "asset-health": _guard_mode("argv", self_host=True, control_plane=True),
     "asset-sync": _guard_mode("argv", mutates=True, self_host=True),
     "adapter-capabilities": _guard_mode("argv", self_host=True, control_plane=True),
     "evidence-route": _guard_mode("argv", self_host=True, control_plane=True),
-    "route-task": _guard_mode("argv", self_host=True),
-    "context-budget": _guard_mode("argv"),
-    "payload-budget": _guard_mode("argv"),
-    "codebase-index": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
-    "codebase-status": _guard_mode("argv", self_host=True, control_plane=True),
-    "codebase-query": _guard_mode("argv", self_host=True, control_plane=True),
-    "reuse-scan": _guard_mode("argv", self_host=True),
-    "ds-scan": _guard_mode("argv", self_host=True),
-    "scheduler-suggest": _guard_mode("argv", self_host=True),
-    "scheduler-record": _guard_mode("argv", mutates=True, self_host=True),
     "receipt-seal": _guard_mode("argv", mutates=True, self_host=True, control_plane=True),
     "receipt-verify": _guard_mode("argv", self_host=True, control_plane=True),
     # --fix removes artifact dirs/files; --target aims that removal at ANOTHER
@@ -333,19 +299,14 @@ GUARD_MODES = {
     # kernel logs.
     "state-janitor": _guard_mode("argv", mutates=("--fix",)),
     "control-plane-check": _guard_mode("argv", self_host=True, control_plane=True),
-    "team-contract-write": _guard_mode("argv", mutates=True, self_host=True),
-    "team-receipt-write": _guard_mode("argv", mutates=True, self_host=True),
     "log-append": _guard_mode("argv", mutates=True),
     # no-arg modes
-    "rot-status": _guard_mode("none"),
     "receipt-template": _guard_mode("none"),
     "statusline": _guard_mode("none"),
     "self-check": _guard_mode("none"),
     "self-host-check": _guard_mode("none", self_host=True),
     "preflight": _guard_mode("none"),
     "detect": _guard_mode("none"),
-    "audit-assets": _guard_mode("none"),
-    "registry-assets": _guard_mode("none"),
     "state-doctor": _guard_mode("none", self_host=True),
     "production-review": _guard_mode("none", self_host=True, control_plane=True),
 }
@@ -429,8 +390,13 @@ CODE_EXTENSIONS = {
     ".css", ".scss", ".sass", ".vue", ".svelte",
 }
 OPERATIONAL_PRESETS = {"light", "standard", "strict"}
-OS_MODES = {"lean", "standard", "strict"}
-OS_MODE_REQUESTS = OS_MODES | {"adaptive", "auto"}
+# Two modes, two behaviours. `lean` and `micro` were removed after 32 dogfood
+# runs used neither (25 standard, 7 strict) and `strict` measured byte-identical
+# to `standard` for context loading — four names for three behaviours, two of
+# which no task had ever selected. Modes are explicit now: there is no adaptive
+# resolver to guess one.
+OS_MODES = {"standard", "strict"}
+OS_MODE_REQUESTS = OS_MODES
 METRIC_TYPES = {
     "llm_usage",
     "tool_output",
@@ -491,7 +457,6 @@ def _env_int(name, default):
 
 STATE_RETENTION_KEEP_RUNS = _env_int("PILOTHOS_RETENTION_RUNS", 10)
 STATE_RETENTION_KEEP_DAYS = _env_int("PILOTHOS_RETENTION_DAYS", 14)
-SCHEDULER_HISTORY_KEEP = _env_int("PILOTHOS_SCHEDULER_KEEP", 200)
 KERNEL_LOG_KEEP_ROWS = _env_int("PILOTHOS_KERNEL_LOG_KEEP", 200)
 RECEIPT_SEALS_WARN_LINES = _env_int("PILOTHOS_RECEIPT_SEALS_WARN", 500)
 STATE_JANITOR_MAX_FINDINGS = 500
@@ -895,55 +860,6 @@ def append_os_evidence(task_id, evidence):
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(evidence, ensure_ascii=False, sort_keys=True) + "\n")
     return path
-
-
-def review_feedback_path(task_id):
-    return os_state_path(task_id, "review-feedback.jsonl")
-
-
-def append_review_feedback(task_id, record):
-    """Append one human-review round to the append-only review-feedback ledger.
-
-    Mirrors append_os_evidence: one JSON record per line, one line per review
-    round. os-close reads the highest-round record for the human_review gate.
-    """
-    path = review_feedback_path(task_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-    return path
-
-
-def review_feedback_records(task_id):
-    path = review_feedback_path(task_id)
-    if not path.exists():
-        return []
-    records = []
-    try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                item = json.loads(line)
-                if isinstance(item, dict):
-                    records.append(item)
-    except (OSError, json.JSONDecodeError):
-        return []
-    return records
-
-
-def latest_review_feedback(task_id):
-    records = review_feedback_records(task_id)
-    if not records:
-        return None
-
-    def _round(r):
-        try:
-            return int(r.get("review_round", 0))
-        except (TypeError, ValueError):
-            return 0
-
-    return sorted(records, key=_round)[-1]
 
 
 # ---------------------------------------------------------------- stdin/session
@@ -2882,25 +2798,6 @@ def collect_consumer_asset_rows():
     return sorted(rows, key=lambda r: r["asset"])
 
 
-def audit_consumer_assets():
-    rows = collect_consumer_asset_rows()
-    print("| Asset | Type | Capability | Owner | Risk | Proposed Piloth Handling |")
-    print("|---|---|---|---|---|---|")
-    for row in rows:
-        print(
-            "| {asset} | {type} | {capability} | {owner} | {risk} | {handling} |".format(
-                asset=audit_cell(row["asset"]),
-                type=audit_cell(row["type"]),
-                capability=audit_cell(row["capability"]),
-                owner=audit_cell(row["owner"]),
-                risk=audit_cell(row["risk"]),
-                handling=audit_cell(row["handling"]),
-            )
-        )
-    if not rows:
-        print("| _none detected_ | doc | no consumer asset signal | consumer | low | ignore |")
-
-
 def registry_load_when(row):
     handling = row.get("handling")
     risk = row.get("risk")
@@ -2935,30 +2832,7 @@ def registry_notes(row):
         return "Consumer-owned; do not move or overwrite"
     if handling == "needs-judgment":
         return "Stop for user/model judgment before changing behavior"
-    return "Generated by audit-assets; confirm during brownfield audit"
-
-
-def registry_consumer_assets():
-    rows = collect_consumer_asset_rows()
-    print("| Asset | Type | Owner | Capability | Config/Path | Risk | Load When | Health Check | Notes |")
-    print("|---|---|---|---|---|---|---|---|---|")
-    if not rows:
-        print("| _none detected_ | doc | consumer | no consumer asset signal | N/A | low | never-auto | N/A | Nothing to route |")
-        return
-    for row in rows:
-        print(
-            "| {asset} | {type} | {owner} | {capability} | {config_path} | {risk} | {load_when} | {health_check} | {notes} |".format(
-                asset=audit_cell(row["asset"]),
-                type=audit_cell(row["type"]),
-                owner=audit_cell(row["owner"]),
-                capability=audit_cell(row["capability"]),
-                config_path=audit_cell(row["asset"]),
-                risk=audit_cell(row["risk"]),
-                load_when=audit_cell(registry_load_when(row)),
-                health_check=audit_cell(registry_health_check(row)),
-                notes=audit_cell(registry_notes(row)),
-            )
-        )
+    return "Generated by asset-scan; confirm during brownfield audit"
 
 
 def asset_id_for_row(row):
@@ -3244,49 +3118,10 @@ def normalize_task_signal(value):
     return aliases.get(raw, raw)
 
 
-# Context docs only needed once standard/strict evidence (quality gates,
-# consumer-asset routing) actually runs. lean/micro tasks skip them to cut
-# context tokens without losing the context needed to do the work correctly.
-LEAN_DROPPED_CONTEXT = frozenset({
-    "evaluation/quality-gates.md",
-    "runtime/consumer-assets.md",
-})
-# lazy rot: lean/micro skip loading the full rot registry table and rely on the
-# compact `rot-status` command instead (it only surfaces overdue scopes).
-LEAN_DROPPED_BOOTSTRAP = frozenset({
-    "rot/registry.md",
-})
-# micro (throwaway / pass-through work) additionally skips the Constitution — a
-# script with no architecture impact does not need the full layer contract.
-MICRO_DROPPED_BOOTSTRAP = LEAN_DROPPED_BOOTSTRAP | frozenset({"PilothOS.md"})
-
-
 def context_mode_from_payload(payload):
-    """micro | lean | standard | strict from payload.mode; default standard."""
+    """standard | strict from payload.mode; default standard."""
     raw = str((payload or {}).get("mode", "")).strip().lower()
-    if raw == "micro":
-        return "micro"
-    if raw in ("lean", "light"):
-        return "lean"
-    if raw == "strict":
-        return "strict"
-    return "standard"
-
-
-def apply_context_mode(files, mode):
-    """Drop standard-only context docs for lean/micro; keep order otherwise."""
-    if mode in ("lean", "micro"):
-        return [f for f in files if f not in LEAN_DROPPED_CONTEXT]
-    return list(files)
-
-
-def apply_bootstrap_mode(files, mode):
-    """lean uses lazy rot; micro also skips the Constitution."""
-    if mode == "micro":
-        return [f for f in files if f not in MICRO_DROPPED_BOOTSTRAP]
-    if mode == "lean":
-        return [f for f in files if f not in LEAN_DROPPED_BOOTSTRAP]
-    return list(files)
+    return "strict" if raw == "strict" else "standard"
 
 
 def route_task_asset_views(detected, route):
@@ -3386,10 +3221,12 @@ def route_task_payload(payload):
     ]
     asset_rows, routing, context_evidence = route_task_asset_views(detected, route)
 
+    # Both surviving modes load the same context. `strict` differs only in which
+    # gates os-close requires, so there is nothing left to drop here — the old
+    # per-mode filtering existed for lean/micro, which no task ever selected.
     mode = context_mode_from_payload(payload)
-    index_first = apply_context_mode(
-        ["runtime/consumer-assets.md", "runtime/context-loading.md"], mode)
-    context_layers = apply_context_mode(list(route["context_layers"]), mode)
+    index_first = ["runtime/consumer-assets.md", "runtime/context-loading.md"]
+    context_layers = list(route["context_layers"])
     result = {
         "result": "route_suggested",
         "task_signal": route["task_signal"],
@@ -3425,1294 +3262,7 @@ def route_task_attach_evidence_router(result, payload):
     return result
 
 
-def route_task(argv):
-    try:
-        payload, _ = json_arg_or_stdin(argv, "route-task")
-    except Exception as e:
-        json_print({"result": "route_rejected", "errors": [str(e)]})
-        return
-    json_print(route_task_payload(payload))
-# --------------------------------------------------------- context budget
-
-# The kernel files bootstrap.md prescribes as always-loaded before any task.
-BOOTSTRAP_CONTEXT_FILES = (
-    "bootstrap.md",
-    "PilothOS.md",
-    "rules/index.md",
-    "runtime/index.md",
-    "rot/registry.md",
-)
-
-
-def kernel_file_bytes(rel):
-    """Byte size of a kernel-relative file, or 0 when it does not exist."""
-    try:
-        return (PILOTHOS_DIR / rel).stat().st_size
-    except OSError:
-        return 0
-
-
-def estimate_context_tokens(num_bytes):
-    """Rough context-token estimate (~4 bytes/token). Diagnostic only.
-
-    This is a ``context_load`` footprint metric, NOT ``llm_usage`` telemetry:
-    per energy-token-policy.md it measures how much kernel text a task pulls
-    into context and cannot on its own back a "cheaper" claim.
-    """
-    return (num_bytes + 3) // 4
-
-
-# Append-only ledgers whose size tracks how long an install has been running, not
-# how big the kernel is: the auto-log gate appends to them on every session that
-# changes files. They are also staged header-only, so they are ~0 bytes for a fresh
-# consumer while the Piloth repo's own copies keep growing. Counting them would make
-# both ceilings a moving target measured against the wrong install.
-GROWING_LEDGERS = ("rot/review-log.md", "memory/lessons-learned.md")
-
-
-def kernel_md_paths():
-    """Kernel markdown docs that count toward a ceiling, newest state excluded."""
-    for path in PILOTHOS_DIR.rglob("*.md"):
-        if path.relative_to(PILOTHOS_DIR).as_posix() in GROWING_LEDGERS:
-            continue
-        yield path
-
-
-def full_kernel_footprint():
-    """(file_count, total_bytes) of every kernel markdown doc — the load-all ceiling."""
-    total = 0
-    files = 0
-    for path in kernel_md_paths():
-        try:
-            total += path.stat().st_size
-            files += 1
-        except OSError:
-            continue
-    return files, total
-
-
-# Docs that inflate the full-kernel ceiling without ever being routable context:
-# skills/ payloads are only opened while that skill executes, and README/
-# VALIDATION document the kernel to humans instead of instructing a task. Kept
-# out of the honest denominator so the savings figure is not flattered by text a
-# routed task could never have loaded.
-NON_ROUTABLE_KERNEL = ("README.md", "VALIDATION.md", "CHANGELOG.md")
-
-
-def routable_kernel_footprint():
-    """(file_count, total_bytes) of the kernel docs a routed task could load."""
-    total = 0
-    files = 0
-    for path in kernel_md_paths():
-        rel = path.relative_to(PILOTHOS_DIR)
-        if rel.parts[0] == "skills" or rel.as_posix() in NON_ROUTABLE_KERNEL:
-            continue
-        try:
-            total += path.stat().st_size
-            files += 1
-        except OSError:
-            continue
-    return files, total
-
-
-def context_budget_payload(payload):
-    """Measure the deterministic context footprint of a routed task.
-
-    Reuses route_task_payload so the measured set is exactly what routing would
-    load: the bootstrap set plus the routed index/context layers. Reports the
-    footprint against the full-kernel ceiling so progressive loading's token
-    saving is an evidence number instead of a claim.
-    """
-    if not isinstance(payload, dict):
-        return {
-            "result": "context_budget_rejected",
-            "errors": ["context-budget payload must be a JSON object"],
-        }
-
-    mode = context_mode_from_payload(payload)
-    bootstrap = apply_bootstrap_mode(BOOTSTRAP_CONTEXT_FILES, mode)
-    routed = []
-    routed_ok = False
-    if payload.get("task_signal"):
-        route = route_task_payload(payload)
-        routed_ok = route.get("result") == "route_suggested"
-        if routed_ok:
-            routed = list(route.get("index_first", [])) + list(route.get("context_layers", []))
-
-    loaded = []
-    seen = set()
-    for rel in bootstrap + routed:
-        if rel not in seen:
-            seen.add(rel)
-            loaded.append(rel)
-
-    loaded_detail = [{"file": rel, "bytes": kernel_file_bytes(rel)} for rel in loaded]
-    loaded_bytes = sum(item["bytes"] for item in loaded_detail)
-    bootstrap_bytes = sum(kernel_file_bytes(rel) for rel in bootstrap)
-
-    kernel_files, kernel_bytes = full_kernel_footprint()
-    saved_bytes = max(kernel_bytes - loaded_bytes, 0)
-    savings_pct = round(saved_bytes / kernel_bytes * 100, 1) if kernel_bytes else 0.0
-    routable_files, routable_bytes = routable_kernel_footprint()
-    routable_savings_pct = (
-        round(max(routable_bytes - loaded_bytes, 0) / routable_bytes * 100, 1)
-        if routable_bytes else 0.0
-    )
-
-    return {
-        "result": "context_budget",
-        "metric": "context_load",
-        "note": "kernel context footprint (bytes/estimated tokens); not llm_usage telemetry",
-        "task_signal": payload.get("task_signal") or "not_routed",
-        "context_mode": context_mode_from_payload(payload),
-        "routed": routed_ok,
-        "loaded_files": loaded_detail,
-        "loaded_count": len(loaded_detail),
-        "loaded_bytes": loaded_bytes,
-        "loaded_tokens_est": estimate_context_tokens(loaded_bytes),
-        "bootstrap_bytes": bootstrap_bytes,
-        "bootstrap_tokens_est": estimate_context_tokens(bootstrap_bytes),
-        "full_kernel_files": kernel_files,
-        "full_kernel_bytes": kernel_bytes,
-        "full_kernel_tokens_est": estimate_context_tokens(kernel_bytes),
-        "saved_bytes_vs_full_kernel": saved_bytes,
-        "savings_pct_vs_full_kernel": savings_pct,
-        # The honest comparison: routable docs only. Lower than the full-kernel
-        # figure by design — quote this one when claiming a saving.
-        "routable_kernel_files": routable_files,
-        "routable_kernel_bytes": routable_bytes,
-        "routable_kernel_tokens_est": estimate_context_tokens(routable_bytes),
-        "savings_pct_vs_routable_kernel": routable_savings_pct,
-    }
-
-
-def context_budget(argv):
-    try:
-        payload, _ = json_arg_or_stdin(argv, "context-budget")
-    except Exception as e:
-        json_print({"result": "context_budget_rejected", "errors": [str(e)]})
-        return
-    json_print(context_budget_payload(payload))
-
-
-# --------------------------------------------------------- payload budget
-
-# The read-only commands a routed task actually calls, with the smallest
-# realistic argument for each. Their JSON lands in the agent's context, so it
-# costs tokens exactly like a loaded file — and context-budget never saw it.
-PER_TASK_PAYLOAD_PROBES = (
-    ("route-task", lambda signal: route_task_payload({"task_signal": signal})),
-    ("rot-status", lambda signal: rot_status_payload()),
-    ("codebase-status", lambda signal: codebase_status_payload()),
-    ("adapter-capabilities", lambda signal: adapter_capabilities_payload({})),
-    ("evidence-route", lambda signal: evidence_route_digest(
-        evidence_route_payload({
-            "task_signal": signal,
-            "task_type": "code",
-            "scope": "narrow",
-        }),
-    )),
-)
-
-
-def printed_payload_bytes(payload):
-    """Bytes a payload occupies once json_print has written it."""
-    return len(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-    ) + 1
-
-
-def payload_budget_payload(payload=None):
-    """Per-command tool-output footprint for one routed task.
-
-    Sibling of context_budget: that one measures the kernel text a task pulls
-    into context, this one measures the JSON the task prints back into it. Both
-    are ~4 bytes/token estimates and neither is llm_usage telemetry.
-    """
-    payload = payload if isinstance(payload, dict) else {}
-    signal = str(payload.get("task_signal") or "bug fix")
-    commands = []
-    for name, probe in PER_TASK_PAYLOAD_PROBES:
-        try:
-            num_bytes = printed_payload_bytes(probe(signal))
-        except Exception as e:
-            # A broken probe must degrade the meter, never break the caller.
-            commands.append({"command": name, "error": str(e)})
-            continue
-        commands.append({
-            "command": name,
-            "bytes": num_bytes,
-            "tokens_est": estimate_context_tokens(num_bytes),
-        })
-    total = sum(item.get("bytes", 0) for item in commands)
-    return {
-        "result": "payload_budget",
-        "metric": "tool_output",
-        "note": "per-command output footprint (bytes/estimated tokens); not llm_usage telemetry",
-        "task_signal": signal,
-        "commands": commands,
-        "total_bytes": total,
-        "total_tokens_est": estimate_context_tokens(total),
-    }
-
-
-def payload_budget(argv):
-    payload = {}
-    if argv:
-        try:
-            payload, _ = json_arg_or_stdin(argv, "payload-budget")
-        except Exception as e:
-            json_print({"result": "payload_budget_rejected", "errors": [str(e)]})
-            return
-    json_print(payload_budget_payload(payload))
-
-
-def rot_status_payload():
-    """Compact rot signal for lazy loading: surface overdue scopes only.
-
-    lean/micro tasks call this instead of loading the full rot registry table,
-    saving context tokens when the repo is healthy (the common case).
-    """
-    overdue = get_overdue_scopes()
-    if overdue is None:
-        return {"result": "rot_status", "healthy": None, "overdue": [],
-                "overdue_count": 0, "note": "registry not found"}
-    return {"result": "rot_status", "healthy": not overdue, "overdue": overdue,
-            "overdue_count": len(overdue),
-            "note": "healthy" if not overdue else f"{len(overdue)} scope(s) overdue"}
-
-
-def rot_status():
-    json_print(rot_status_payload())
-
-
-# ------------------------------------------------ codebase intelligence
-
-# This stdlib reference engine locks Piloth's adapter-neutral contract. The
-# maintained native fork can replace indexing/query execution behind the same
-# SQLite/JSON boundary without moving orchestration into adapters.
-CODEBASE_SCHEMA_VERSION = 2
-CODEBASE_CONTRACT_VERSION = 1
-CODEBASE_ENGINE_VERSION = 1
-CODEBASE_DEFAULT_MAX_FILES = 50000
-CODEBASE_DEFAULT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
-CODEBASE_MAX_FILE_BYTES = 2 * 1024 * 1024
-CODEBASE_SKIP_DIRS = {
-    ".git", ".hg", ".svn", ".venv", "venv", "__pycache__", "node_modules",
-    "vendor", "dist", "build", ".next", ".turbo", "coverage",
-}
-CODEBASE_GENERATED_MARKERS = (
-    "generated file", "do not edit", "auto-generated", "autogenerated",
-    "code generated",
-)
-CODEBASE_LANGUAGES = {
-    ".py": "Python", ".pyi": "Python", ".js": "JavaScript", ".jsx": "JavaScript",
-    ".mjs": "JavaScript", ".cjs": "JavaScript", ".ts": "TypeScript",
-    ".tsx": "TypeScript", ".go": "Go", ".rs": "Rust", ".java": "Java",
-    ".kt": "Kotlin", ".kts": "Kotlin", ".c": "C", ".h": "C/C++",
-    ".cc": "C++", ".cpp": "C++", ".cxx": "C++", ".hpp": "C++",
-    ".cs": "C#", ".php": "PHP", ".rb": "Ruby", ".swift": "Swift",
-    ".scala": "Scala", ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell",
-    ".sql": "SQL", ".html": "HTML", ".css": "CSS", ".scss": "SCSS",
-    ".vue": "Vue", ".svelte": "Svelte", ".dart": "Dart", ".ex": "Elixir",
-    ".exs": "Elixir", ".erl": "Erlang", ".hrl": "Erlang", ".hs": "Haskell",
-    ".lua": "Lua", ".r": "R", ".R": "R", ".m": "Objective-C/MATLAB",
-    ".mm": "Objective-C++", ".pl": "Perl", ".pm": "Perl", ".fs": "F#",
-    ".fsx": "F#", ".clj": "Clojure", ".cljs": "Clojure", ".zig": "Zig",
-    ".sol": "Solidity", ".tf": "HCL", ".proto": "Protobuf", ".graphql": "GraphQL",
-    ".gql": "GraphQL", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
-    ".json": "JSON", ".xml": "XML", ".md": "Markdown", ".rst": "reStructuredText",
-}
-
-
-def codebase_index_paths():
-    """Resolve state paths dynamically so controlled-target tests can rebind roots."""
-    state_dir = PILOTHOS_DIR / "memory" / "state" / "codebase-index"
-    return state_dir, state_dir / "index.sqlite3"
-
-
-def codebase_safe_index_paths():
-    state_dir, db_path = codebase_index_paths()
-    try:
-        root = REPO_ROOT.resolve()
-        if state_dir.is_symlink() or db_path.is_symlink():
-            return None, None, "codebase index state must not use symlinks"
-        resolved_parent = state_dir.parent.resolve()
-        if os.path.commonpath((str(root), str(resolved_parent))) != str(root):
-            return None, None, "codebase index state escapes repository root"
-        if state_dir.exists():
-            resolved_state = state_dir.resolve()
-            if os.path.commonpath((str(root), str(resolved_state))) != str(root):
-                return None, None, "codebase index state escapes repository root"
-    except (OSError, ValueError) as exc:
-        return None, None, f"cannot validate codebase index state: {exc}"
-    return state_dir, db_path, None
-
-
-def codebase_repo(payload):
-    raw = str((payload or {}).get("repo_path") or REPO_ROOT)
-    try:
-        requested = pathlib.Path(raw).expanduser().resolve()
-        controlled = REPO_ROOT.resolve()
-    except OSError as exc:
-        return None, f"cannot resolve repo_path: {exc}"
-    if requested != controlled:
-        return None, "repo_path must be the Piloth-controlled consumer repository"
-    if not requested.is_dir():
-        return None, "repo_path is not a directory"
-    return requested, None
-
-
-def codebase_git(root, *args, timeout=10):
-    try:
-        return subprocess.run(
-            ["git", "-C", str(root), *args],
-            capture_output=True, text=True, timeout=timeout, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
-def codebase_git_state(root):
-    head_run = codebase_git(root, "rev-parse", "HEAD")
-    head = head_run.stdout.strip() if head_run and head_run.returncode == 0 else ""
-    status_run = codebase_git(
-        root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    if not status_run or status_run.returncode != 0:
-        return {"git": False, "head": "", "worktree": "", "dirty_paths": []}
-    raw = status_run.stdout
-    dirty = []
-    for item in raw.split("\0"):
-        if len(item) >= 4:
-            rel = item[3:].strip()
-            if rel and " -> " in rel:
-                rel = rel.rsplit(" -> ", 1)[-1]
-            if rel:
-                dirty.append(rel)
-    digest = hashlib.sha256(raw.encode("utf-8", errors="replace"))
-    for rel in sorted(set(dirty)):
-        path = root / rel
-        try:
-            if path.is_file() and not path.is_symlink():
-                digest.update(rel.encode("utf-8"))
-                digest.update(hashlib.sha256(path.read_bytes()).digest())
-        except OSError:
-            digest.update(f"{rel}:missing".encode("utf-8"))
-    return {
-        "git": True,
-        "head": head,
-        "worktree": digest.hexdigest(),
-        "dirty_paths": sorted(set(dirty)),
-    }
-
-
-def codebase_fallback_paths(root):
-    paths = []
-    state_dir, _ = codebase_index_paths()
-    for current, dirs, names in os.walk(root, topdown=True, followlinks=False):
-        current_path = pathlib.Path(current)
-        dirs[:] = sorted(
-            name for name in dirs
-            if name not in CODEBASE_SKIP_DIRS
-            and not (current_path / name).is_symlink()
-        )
-        for name in sorted(names):
-            path = current_path / name
-            try:
-                if path.is_symlink() or state_dir in path.parents:
-                    continue
-                paths.append(path.relative_to(root).as_posix())
-            except (OSError, ValueError):
-                continue
-    return paths
-
-
-def codebase_discover_paths(root):
-    tracked = codebase_git(
-        root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-    if tracked and tracked.returncode == 0:
-        candidates = sorted(set(filter(None, tracked.stdout.split("\0"))))
-    else:
-        candidates = codebase_fallback_paths(root)
-    state_rel = "pilothOS/memory/state/codebase-index/"
-    paths = []
-    for rel in candidates:
-        if rel.startswith(state_rel):
-            continue
-        parts = pathlib.PurePosixPath(rel).parts
-        if any(part in CODEBASE_SKIP_DIRS for part in parts[:-1]):
-            continue
-        paths.append(rel)
-    return paths
-
-
-def codebase_generated_source(data):
-    header = data[:16384].decode("utf-8", errors="ignore").lower()
-    return any(marker in header for marker in CODEBASE_GENERATED_MARKERS)
-
-
-def codebase_file_record(root, rel):
-    path = root / rel
-    try:
-        resolved = path.resolve()
-        if os.path.commonpath((str(root), str(resolved))) != str(root):
-            return None, ("excluded", "path escapes repository root")
-        if path.is_symlink() or not path.is_file():
-            return None, ("excluded", "symlink or non-file")
-        stat = path.stat()
-        if stat.st_size > CODEBASE_MAX_FILE_BYTES:
-            return None, ("skipped", f"file exceeds {CODEBASE_MAX_FILE_BYTES} bytes")
-        data = path.read_bytes()
-    except OSError as exc:
-        return None, ("skipped", f"read failed: {exc}")
-    if b"\0" in data[:8192]:
-        return None, ("excluded", "binary content")
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        text = data.decode("utf-8", errors="replace")
-    suffix = path.suffix
-    language = CODEBASE_LANGUAGES.get(suffix, "Text")
-    return {
-        "path": rel,
-        "language": language,
-        "size": stat.st_size,
-        "mtime_ns": stat.st_mtime_ns,
-        "sha256": hashlib.sha256(data).hexdigest(),
-        "generated": codebase_generated_source(data),
-        "text": text,
-    }, None
-
-
-def codebase_module_name(rel):
-    path = pathlib.PurePosixPath(rel)
-    without_suffix = str(path.with_suffix("")) if path.suffix else str(path)
-    return without_suffix.replace("/", ".").replace("-", "_")
-
-
-def codebase_call_name(node):
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return ""
-
-
-def codebase_signature(source_lines, node):
-    if node.lineno <= 0 or node.lineno > len(source_lines):
-        return ""
-    line = source_lines[node.lineno - 1].strip()
-    return line[:500]
-
-
-class CodebasePythonVisitor(ast.NodeVisitor):
-    def __init__(self, module, source):
-        self.module = module
-        self.lines = source.splitlines()
-        self.scope = []
-        self.symbols = []
-        self.calls = []
-        self.imports = []
-
-    def current_qn(self):
-        return ".".join([self.module, *self.scope])
-
-    def record_definition(self, node, kind):
-        qn = ".".join([self.module, *self.scope, node.name])
-        self.symbols.append({
-            "kind": kind,
-            "name": node.name,
-            "qualified_name": qn,
-            "start_line": node.lineno,
-            "end_line": getattr(node, "end_lineno", node.lineno),
-            "signature": codebase_signature(self.lines, node),
-            "body_hash": hashlib.sha256(
-                ast.dump(node, annotate_fields=True, include_attributes=False).encode("utf-8")
-            ).hexdigest(),
-        })
-        self.scope.append(node.name)
-        self.generic_visit(node)
-        self.scope.pop()
-
-    def visit_ClassDef(self, node):
-        self.record_definition(node, "Class")
-
-    def visit_FunctionDef(self, node):
-        self.record_definition(node, "Function" if not self.scope else "Method")
-
-    def visit_AsyncFunctionDef(self, node):
-        self.record_definition(node, "Function" if not self.scope else "Method")
-
-    def visit_Call(self, node):
-        callee = codebase_call_name(node.func)
-        if callee:
-            self.calls.append({
-                "caller_qn": self.current_qn(),
-                "callee": callee,
-                "line": getattr(node, "lineno", 0),
-            })
-        self.generic_visit(node)
-
-    def visit_Import(self, node):
-        for alias in node.names:
-            self.imports.append((alias.name, alias.asname or "", node.lineno))
-
-    def visit_ImportFrom(self, node):
-        module = node.module or ""
-        for alias in node.names:
-            target = f"{module}.{alias.name}".strip(".")
-            self.imports.append((target, alias.asname or alias.name, node.lineno))
-
-
-def codebase_parse_record(record):
-    module = codebase_module_name(record["path"])
-    module_symbol = {
-        "kind": "Module",
-        "name": pathlib.PurePosixPath(record["path"]).name,
-        "qualified_name": module,
-        "start_line": 1,
-        "end_line": max(len(record["text"].splitlines()), 1),
-        "signature": "",
-        "body_hash": "",
-    }
-    if record["language"] != "Python":
-        return [module_symbol], [], [], ("shallow", "no deep language adapter in reference engine")
-    try:
-        tree = ast.parse(record["text"], filename=record["path"])
-    except (SyntaxError, ValueError) as exc:
-        detail = f"{type(exc).__name__} at line {getattr(exc, 'lineno', 0) or 0}"
-        return [module_symbol], [], [], ("partial", detail)
-    visitor = CodebasePythonVisitor(module, record["text"])
-    visitor.visit(tree)
-    return [module_symbol, *visitor.symbols], visitor.calls, visitor.imports, ("deep", "")
-
-
-def codebase_create_schema(db):
-    db.executescript("""
-        PRAGMA journal_mode=OFF;
-        PRAGMA synchronous=OFF;
-        CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE files (
-            id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL, language TEXT NOT NULL,
-            size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, sha256 TEXT NOT NULL,
-            is_generated INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE coverage (
-            path TEXT PRIMARY KEY, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
-        );
-        CREATE TABLE symbols (
-            id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, kind TEXT NOT NULL,
-            name TEXT NOT NULL, qualified_name TEXT NOT NULL,
-            start_line INTEGER NOT NULL, end_line INTEGER NOT NULL,
-            signature TEXT NOT NULL DEFAULT '', body_hash TEXT NOT NULL DEFAULT '',
-            is_generated INTEGER NOT NULL DEFAULT 0, canonical_symbol_id INTEGER
-        );
-        CREATE TABLE edges (
-            id INTEGER PRIMARY KEY, source_symbol_id INTEGER NOT NULL,
-            target_symbol_id INTEGER NOT NULL, type TEXT NOT NULL,
-            confidence REAL NOT NULL, evidence TEXT NOT NULL DEFAULT '',
-            UNIQUE(source_symbol_id, target_symbol_id, type)
-        );
-        CREATE TABLE raw_calls (
-            caller_qn TEXT NOT NULL, callee TEXT NOT NULL, line INTEGER NOT NULL
-        );
-        CREATE TABLE imports (
-            file_id INTEGER NOT NULL, module TEXT NOT NULL,
-            alias TEXT NOT NULL DEFAULT '', line INTEGER NOT NULL
-        );
-        CREATE INDEX symbols_name ON symbols(name);
-        CREATE INDEX symbols_qn ON symbols(qualified_name);
-        CREATE INDEX edges_source ON edges(source_symbol_id, type);
-        CREATE INDEX edges_target ON edges(target_symbol_id, type);
-    """)
-
-
-def codebase_insert_record(db, record, symbols, calls, imports, coverage):
-    cursor = db.execute(
-        "INSERT INTO files(path,language,size,mtime_ns,sha256,is_generated) VALUES(?,?,?,?,?,?)",
-        (record["path"], record["language"], record["size"], record["mtime_ns"],
-         record["sha256"], int(record["generated"])),
-    )
-    file_id = cursor.lastrowid
-    module_id = None
-    for symbol in symbols:
-        inserted = db.execute(
-            """INSERT INTO symbols(
-                file_id,kind,name,qualified_name,start_line,end_line,signature,body_hash,is_generated
-            ) VALUES(?,?,?,?,?,?,?,?,?)""",
-            (file_id, symbol["kind"], symbol["name"], symbol["qualified_name"],
-             symbol["start_line"], symbol["end_line"], symbol["signature"],
-             symbol["body_hash"], int(record["generated"])),
-        ).lastrowid
-        if symbol["kind"] == "Module":
-            module_id = inserted
-        elif module_id:
-            db.execute(
-                "INSERT OR IGNORE INTO edges VALUES(NULL,?,?,?,?,?)",
-                (module_id, inserted, "DEFINES", 1.0, record["path"]),
-            )
-    db.executemany(
-        "INSERT INTO raw_calls(caller_qn,callee,line) VALUES(?,?,?)",
-        [(call["caller_qn"], call["callee"], call["line"]) for call in calls],
-    )
-    db.executemany(
-        "INSERT INTO imports(file_id,module,alias,line) VALUES(?,?,?,?)",
-        [(file_id, module, alias, line) for module, alias, line in imports],
-    )
-    db.execute(
-        "INSERT OR REPLACE INTO coverage(path,status,detail) VALUES(?,?,?)",
-        (record["path"], coverage[0], coverage[1]),
-    )
-
-
-def codebase_canonicalize_duplicates(db):
-    groups = db.execute(
-        """SELECT kind,name,body_hash FROM symbols
-           WHERE body_hash <> '' GROUP BY kind,name,body_hash
-           HAVING SUM(is_generated) > 0 AND SUM(is_generated) < COUNT(*)"""
-    ).fetchall()
-    aliases = 0
-    for kind, name, body_hash in groups:
-        rows = db.execute(
-            """SELECT s.id,s.is_generated,f.path FROM symbols s
-               JOIN files f ON f.id=s.file_id
-               WHERE s.kind=? AND s.name=? AND s.body_hash=?""",
-            (kind, name, body_hash),
-        ).fetchall()
-        sources = sorted(
-            (row for row in rows if not row[1]),
-            key=lambda row: (len(row[2]), row[2]),
-        )
-        canonical = sources[0][0]
-        for row in rows:
-            if not row[1]:
-                continue
-            db.execute(
-                "UPDATE symbols SET canonical_symbol_id=? WHERE id=?",
-                (canonical, row[0]),
-            )
-            aliases += 1
-    return aliases
-
-
-def codebase_resolve_calls(db):
-    resolved = 0
-    unresolved = 0
-    for caller_qn, callee, line in db.execute(
-            "SELECT caller_qn,callee,line FROM raw_calls").fetchall():
-        caller = db.execute(
-            """SELECT id,file_id FROM symbols
-               WHERE qualified_name=? AND canonical_symbol_id IS NULL
-               ORDER BY is_generated,start_line DESC,id DESC LIMIT 1""",
-            (caller_qn,),
-        ).fetchone()
-        if not caller:
-            unresolved += 1
-            continue
-        candidates = db.execute(
-            """SELECT id,file_id FROM symbols
-               WHERE name=? AND canonical_symbol_id IS NULL
-               AND kind IN ('Function','Method','Class')""",
-            (callee,),
-        ).fetchall()
-        local = [candidate for candidate in candidates if candidate[1] == caller[1]]
-        chosen = local[0] if len(local) == 1 else (
-            candidates[0] if len(candidates) == 1 else None)
-        if not chosen:
-            unresolved += 1
-            continue
-        confidence = 1.0 if chosen in local else 0.8
-        db.execute(
-            "INSERT OR IGNORE INTO edges VALUES(NULL,?,?,?,?,?)",
-            (caller[0], chosen[0], "CALLS", confidence, f"line:{line}"),
-        )
-        resolved += 1
-    return resolved, unresolved
-
-
-def codebase_write_metadata(db, values):
-    db.executemany(
-        "INSERT INTO metadata(key,value) VALUES(?,?)",
-        [(key, str(value)) for key, value in values.items()],
-    )
-
-
-def codebase_index_payload(payload):
-    if not isinstance(payload, dict):
-        return {"result": "codebase_index_rejected", "errors": ["payload must be an object"]}
-    root, error = codebase_repo(payload)
-    if error:
-        return {"result": "codebase_index_rejected", "errors": [error]}
-    try:
-        max_files = int(payload.get("max_files", CODEBASE_DEFAULT_MAX_FILES))
-        max_total_bytes = int(
-            payload.get("max_total_bytes", CODEBASE_DEFAULT_MAX_TOTAL_BYTES))
-    except (TypeError, ValueError):
-        return {
-            "result": "codebase_index_rejected",
-            "errors": ["max_files and max_total_bytes must be integers"],
-        }
-    paths = codebase_discover_paths(root)
-    if max_files < 1 or len(paths) > max_files:
-        return {
-            "result": "codebase_index_refused",
-            "file_count": len(paths),
-            "max_files": max_files,
-            "errors": ["repository exceeds the explicit indexing file budget"],
-        }
-    if max_total_bytes < 1:
-        return {
-            "result": "codebase_index_refused",
-            "max_total_bytes": max_total_bytes,
-            "errors": ["max_total_bytes must be positive"],
-        }
-    state_dir, db_path, state_error = codebase_safe_index_paths()
-    if state_error:
-        return {"result": "codebase_index_rejected", "errors": [state_error]}
-    state_dir.mkdir(parents=True, exist_ok=True)
-    state_dir, db_path, state_error = codebase_safe_index_paths()
-    if state_error:
-        return {"result": "codebase_index_rejected", "errors": [state_error]}
-    os.chmod(state_dir, 0o700)
-    tmp_path = state_dir / f".index-{os.getpid()}.sqlite3"
-    return codebase_build_index(
-        root, paths, tmp_path, db_path, max_total_bytes=max_total_bytes)
-
-
-def codebase_update_content_digest(digest, record):
-    digest.update(record["path"].encode("utf-8"))
-    digest.update(b":")
-    digest.update(record["sha256"].encode("ascii"))
-    digest.update(b"\0")
-
-
-def codebase_discard_index(db, tmp_path):
-    if db:
-        try:
-            db.close()
-        except sqlite3.Error:
-            pass
-    try:
-        tmp_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-def codebase_build_index(root, paths, tmp_path, db_path, max_total_bytes):
-    git_state = codebase_git_state(root)
-    structural = hashlib.sha256("\0".join(paths).encode()).hexdigest()
-    content = hashlib.sha256()
-    total_bytes = 0
-    db = None
-    try:
-        if tmp_path.exists():
-            tmp_path.unlink()
-        db = sqlite3.connect(tmp_path)
-        codebase_create_schema(db)
-        for rel in paths:
-            record, miss = codebase_file_record(root, rel)
-            if miss:
-                db.execute(
-                    "INSERT OR REPLACE INTO coverage(path,status,detail) VALUES(?,?,?)",
-                    (rel, miss[0], miss[1]),
-                )
-                continue
-            total_bytes += record["size"]
-            if total_bytes > max_total_bytes:
-                raise OverflowError("repository exceeds the explicit indexing byte budget")
-            codebase_update_content_digest(content, record)
-            codebase_insert_record(db, record, *codebase_parse_record(record))
-        aliases = codebase_canonicalize_duplicates(db)
-        resolved, unresolved = codebase_resolve_calls(db)
-        counts = codebase_db_counts(db)
-        codebase_write_metadata(db, {
-            "schema_version": CODEBASE_SCHEMA_VERSION,
-            "contract_version": CODEBASE_CONTRACT_VERSION,
-            "engine_version": CODEBASE_ENGINE_VERSION,
-            "engine": "piloth-stdlib-reference",
-            "repo_root": root,
-            "indexed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "git_head": git_state["head"],
-            "worktree_fingerprint": git_state["worktree"],
-            "structural_fingerprint": structural,
-            "content_fingerprint": content.hexdigest(),
-            "indexed_bytes": total_bytes,
-            "generated_aliases": aliases,
-            "resolved_calls": resolved,
-            "unresolved_calls": unresolved,
-        })
-        db.commit()
-        db.close()
-        db = None
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, db_path)
-    except OverflowError as exc:
-        codebase_discard_index(db, tmp_path)
-        return {
-            "result": "codebase_index_refused",
-            "max_total_bytes": max_total_bytes,
-            "indexed_bytes_before_refusal": total_bytes,
-            "errors": [str(exc)],
-        }
-    except (OSError, sqlite3.Error, ValueError) as exc:
-        codebase_discard_index(db, tmp_path)
-        return {"result": "codebase_index_failed", "errors": [str(exc)]}
-    return {
-        "result": "codebase_indexed",
-        "engine": "piloth-stdlib-reference",
-        "database": str(db_path.relative_to(REPO_ROOT)),
-        "files": counts["files"],
-        "indexed_bytes": total_bytes,
-        "symbols": counts["symbols"],
-        "edges": counts["edges"],
-        "coverage_gaps": counts["coverage_gaps"],
-        "generated_aliases": aliases,
-        "resolved_calls": resolved,
-        "unresolved_calls": unresolved,
-        "freshness": "fresh",
-    }
-
-
-def codebase_db_counts(db):
-    files = db.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-    symbols = db.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
-    edges = db.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
-    gaps = db.execute(
-        "SELECT COUNT(*) FROM coverage WHERE status <> 'deep'").fetchone()[0]
-    return {"files": files, "symbols": symbols, "edges": edges, "coverage_gaps": gaps}
-
-
-def codebase_metadata(db):
-    return dict(db.execute("SELECT key,value FROM metadata").fetchall())
-
-
-def codebase_open():
-    _, path, error = codebase_safe_index_paths()
-    if error:
-        return None, error
-    if not path.exists():
-        return None, "missing"
-    try:
-        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-        db.row_factory = sqlite3.Row
-        return db, None
-    except sqlite3.Error as exc:
-        return None, str(exc)
-
-
-def codebase_content_fingerprint(root, paths):
-    digest = hashlib.sha256()
-    for rel in paths:
-        record, _ = codebase_file_record(root, rel)
-        if record:
-            codebase_update_content_digest(digest, record)
-    return digest.hexdigest()
-
-
-def codebase_status_payload(payload=None):
-    root, error = codebase_repo(payload or {})
-    if error:
-        return {"result": "codebase_status_rejected", "errors": [error]}
-    db, open_error = codebase_open()
-    if not db:
-        if open_error != "missing":
-            return {
-                "result": "codebase_status",
-                "status": "invalid",
-                "errors": [open_error],
-            }
-        return {
-            "result": "codebase_status",
-            "status": "missing",
-            "recommendation": "index_when_structural_context_is_needed",
-        }
-    try:
-        meta = codebase_metadata(db)
-        counts = codebase_db_counts(db)
-        git_state = codebase_git_state(root)
-        current_paths = codebase_discover_paths(root)
-        current_structural = hashlib.sha256("\0".join(current_paths).encode()).hexdigest()
-        if int(meta.get("schema_version", 0)) != CODEBASE_SCHEMA_VERSION:
-            status, reason = "invalid", "schema version does not match engine"
-        elif int(meta.get("contract_version", 0)) != CODEBASE_CONTRACT_VERSION:
-            status, reason = "invalid", "contract version does not match engine"
-        elif int(meta.get("engine_version", 0)) != CODEBASE_ENGINE_VERSION:
-            status, reason = "invalid", "engine version does not match index"
-        elif meta.get("repo_root") != str(root):
-            status, reason = "invalid", "repository root does not match index"
-        elif git_state["head"] != meta.get("git_head", ""):
-            status, reason = "stale_structural", "git HEAD changed"
-        elif current_structural != meta.get("structural_fingerprint"):
-            status, reason = "stale_structural", "indexed path set changed"
-        elif git_state["worktree"] != meta.get("worktree_fingerprint", ""):
-            status, reason = "stale_content", "working-tree content changed"
-        elif not git_state["git"] and codebase_content_fingerprint(
-                root, current_paths) != meta.get("content_fingerprint"):
-            status, reason = "stale_content", "source content changed"
-        else:
-            status, reason = "fresh", "generation matches repository state"
-    except (sqlite3.Error, ValueError) as exc:
-        db.close()
-        return {"result": "codebase_status", "status": "invalid", "errors": [str(exc)]}
-    db.close()
-    return {
-        "result": "codebase_status",
-        "status": status,
-        "reason": reason,
-        "recommendation": "use_index" if status == "fresh" else "full_rebuild",
-        "engine": meta.get("engine", "unknown"),
-        "schema_version": int(meta.get("schema_version", 0)),
-        "engine_version": int(meta.get("engine_version", 0)),
-        "indexed_at": meta.get("indexed_at", ""),
-        **counts,
-    }
-
-
-def codebase_symbol_rows(db, query, limit):
-    pattern = f"%{query.lower()}%"
-    rows = db.execute(
-        """SELECT s.id,s.kind,s.name,s.qualified_name,s.start_line,s.end_line,
-                  s.signature,s.is_generated,f.path,
-                  (SELECT COUNT(*) FROM symbols a WHERE a.canonical_symbol_id=s.id) alias_count
-           FROM symbols s JOIN files f ON f.id=s.file_id
-           WHERE s.canonical_symbol_id IS NULL
-             AND (lower(s.name) LIKE ? OR lower(s.qualified_name) LIKE ?)
-           ORDER BY CASE WHEN lower(s.name)=? THEN 0 ELSE 1 END,
-                    s.is_generated, length(s.qualified_name), s.qualified_name
-           LIMIT ?""",
-        (pattern, pattern, query.lower(), limit),
-    ).fetchall()
-    return [dict(row) for row in rows]
-
-
-def codebase_resolve_symbol(db, value):
-    rows = db.execute(
-        """SELECT s.id,s.kind,s.name,s.qualified_name,s.start_line,s.end_line,
-                  s.file_id,f.path,f.sha256
-           FROM symbols s JOIN files f ON f.id=s.file_id
-           WHERE s.canonical_symbol_id IS NULL
-             AND (s.qualified_name=? OR s.name=?)
-           ORDER BY CASE WHEN s.qualified_name=? THEN 0 ELSE 1 END,
-                    s.is_generated, s.qualified_name, s.start_line DESC
-           LIMIT 25""",
-        (value, value, value),
-    ).fetchall()
-    exact = [row for row in rows if row["qualified_name"] == value]
-    if len(exact) == 1:
-        return exact[0], []
-    if exact and len({row["path"] for row in exact}) == 1:
-        return exact[0], []
-    if len(rows) == 1:
-        return rows[0], []
-    return None, [
-        {"qualified_name": row["qualified_name"], "kind": row["kind"], "path": row["path"]}
-        for row in rows
-    ]
-
-
-def codebase_query_overview(db, payload):
-    counts = codebase_db_counts(db)
-    languages = [
-        {"language": row[0], "files": row[1]}
-        for row in db.execute(
-            "SELECT language,COUNT(*) FROM files GROUP BY language ORDER BY COUNT(*) DESC,language"
-        ).fetchall()
-    ]
-    coverage = [
-        {"status": row[0], "files": row[1]}
-        for row in db.execute(
-            "SELECT status,COUNT(*) FROM coverage GROUP BY status ORDER BY status"
-        ).fetchall()
-    ]
-    return {"action": "overview", **counts, "languages": languages, "coverage": coverage}
-
-
-def codebase_query_search(db, payload):
-    query = str(payload.get("query", "")).strip()
-    if not query:
-        return {"action": "search", "errors": ["query is required"]}
-    limit = min(max(int(payload.get("limit", 20)), 1), 200)
-    rows = codebase_symbol_rows(db, query, limit)
-    return {"action": "search", "query": query, "results": rows, "returned": len(rows)}
-
-
-def codebase_trace_leg(db, seed, direction, depth, limit):
-    frontier = {seed}
-    seen = {seed}
-    results = []
-    for hop in range(1, depth + 1):
-        if not frontier or len(results) >= limit:
-            break
-        placeholders = ",".join("?" for _ in frontier)
-        if direction == "outbound":
-            sql = f"""SELECT e.source_symbol_id,e.target_symbol_id,e.confidence,
-                             s.qualified_name,s.kind,f.path
-                      FROM edges e JOIN symbols s ON s.id=e.target_symbol_id
-                      JOIN files f ON f.id=s.file_id
-                      WHERE e.type='CALLS' AND e.source_symbol_id IN ({placeholders})
-                      ORDER BY e.source_symbol_id,e.target_symbol_id"""
-        else:
-            sql = f"""SELECT e.target_symbol_id,e.source_symbol_id,e.confidence,
-                             s.qualified_name,s.kind,f.path
-                      FROM edges e JOIN symbols s ON s.id=e.source_symbol_id
-                      JOIN files f ON f.id=s.file_id
-                      WHERE e.type='CALLS' AND e.target_symbol_id IN ({placeholders})
-                      ORDER BY e.target_symbol_id,e.source_symbol_id"""
-        rows = db.execute(sql, tuple(frontier)).fetchall()
-        next_frontier = set()
-        for row in rows:
-            target_id = row[1]
-            if target_id in seen:
-                continue
-            seen.add(target_id)
-            next_frontier.add(target_id)
-            results.append({
-                "qualified_name": row[3], "kind": row[4], "path": row[5],
-                "hop": hop, "confidence": row[2],
-            })
-            if len(results) >= limit:
-                break
-        frontier = next_frontier
-    return results
-
-
-def codebase_query_trace(db, payload):
-    value = str(payload.get("symbol", "")).strip()
-    if not value:
-        return {"action": "trace", "errors": ["symbol is required"]}
-    symbol, suggestions = codebase_resolve_symbol(db, value)
-    if not symbol:
-        return {
-            "action": "trace",
-            "status": "ambiguous" if suggestions else "not_found",
-            "suggestions": suggestions,
-        }
-    direction = str(payload.get("direction", "both")).lower()
-    if direction not in {"inbound", "outbound", "both"}:
-        return {"action": "trace", "errors": ["direction must be inbound, outbound or both"]}
-    depth = min(max(int(payload.get("depth", 2)), 1), 5)
-    limit = min(max(int(payload.get("limit", 100)), 1), 1000)
-    result = {
-        "action": "trace",
-        "symbol": symbol["qualified_name"],
-        "direction": direction,
-    }
-    if direction in {"outbound", "both"}:
-        result["outbound"] = codebase_trace_leg(db, symbol["id"], "outbound", depth, limit)
-    if direction in {"inbound", "both"}:
-        result["inbound"] = codebase_trace_leg(db, symbol["id"], "inbound", depth, limit)
-    return result
-
-
-def codebase_safe_source(root, rel):
-    try:
-        candidate = root / rel
-        if candidate.is_symlink():
-            return None
-        source = candidate.resolve()
-        if os.path.commonpath((str(root), str(source))) != str(root):
-            return None
-        if not source.is_file():
-            return None
-        return source
-    except OSError:
-        return None
-
-
-def codebase_query_snippet(db, payload):
-    value = str(payload.get("symbol", "")).strip()
-    symbol, suggestions = codebase_resolve_symbol(db, value)
-    if not symbol:
-        return {
-            "action": "snippet",
-            "status": "ambiguous" if suggestions else "not_found",
-            "suggestions": suggestions,
-        }
-    source = codebase_safe_source(REPO_ROOT.resolve(), symbol["path"])
-    if not source:
-        return {"action": "snippet", "status": "source_unavailable"}
-    lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
-    neighbors = min(max(int(payload.get("neighbors", 0)), 0), 20)
-    start = max(symbol["start_line"] - neighbors, 1)
-    end = min(symbol["end_line"] + neighbors, len(lines), start + 499)
-    current_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-    return {
-        "action": "snippet",
-        "qualified_name": symbol["qualified_name"],
-        "path": symbol["path"],
-        "start_line": start,
-        "end_line": end,
-        "source": "\n".join(lines[start - 1:end]),
-        "source_freshness": "metadata_match" if current_hash == symbol["sha256"] else "changed",
-    }
-
-
-def codebase_normalize_rel(value):
-    rel = pathlib.PurePosixPath(str(value).replace("\\", "/"))
-    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
-        return None
-    return rel.as_posix()
-
-
-def codebase_query_coverage(db, payload):
-    paths = payload.get("paths")
-    if not isinstance(paths, list) or not paths:
-        return {"action": "coverage", "errors": ["paths must be a non-empty array"]}
-    results = []
-    for requested in paths[:200]:
-        rel = codebase_normalize_rel(requested)
-        if not rel:
-            results.append({"path": str(requested), "status": "invalid_path"})
-            continue
-        row = db.execute(
-            "SELECT status,detail FROM coverage WHERE path=?", (rel,)).fetchone()
-        results.append({
-            "path": rel,
-            "status": row["status"] if row else "not_indexed",
-            "detail": row["detail"] if row else "",
-            "caveat": "best_effort_not_completeness_proof",
-        })
-    return {"action": "coverage", "paths": results}
-
-
-def codebase_query_impact(db, payload):
-    requested = payload.get("paths")
-    if not isinstance(requested, list) or not requested:
-        requested = codebase_git_state(REPO_ROOT.resolve())["dirty_paths"]
-    paths = [codebase_normalize_rel(item) for item in requested[:200]]
-    paths = [item for item in paths if item]
-    if not paths:
-        return {"action": "impact", "paths": [], "seeds": [], "impacted": []}
-    placeholders = ",".join("?" for _ in paths)
-    seeds = db.execute(
-        f"""SELECT s.id,s.qualified_name,f.path FROM symbols s
-            JOIN files f ON f.id=s.file_id
-            WHERE s.canonical_symbol_id IS NULL AND f.path IN ({placeholders})""",
-        tuple(paths),
-    ).fetchall()
-    impacted = []
-    for seed in seeds:
-        impacted.extend(codebase_trace_leg(db, seed["id"], "inbound", 3, 200))
-    unique = {item["qualified_name"]: item for item in impacted}
-    return {
-        "action": "impact",
-        "paths": paths,
-        "seeds": [{"qualified_name": row["qualified_name"], "path": row["path"]} for row in seeds],
-        "impacted": sorted(unique.values(), key=lambda item: (item["hop"], item["qualified_name"])),
-    }
-
-
-def codebase_query_payload(payload):
-    if not isinstance(payload, dict):
-        return {"result": "codebase_query_rejected", "errors": ["payload must be an object"]}
-    action = str(payload.get("action", "")).strip().lower()
-    handlers = {
-        "overview": codebase_query_overview,
-        "search": codebase_query_search,
-        "trace": codebase_query_trace,
-        "snippet": codebase_query_snippet,
-        "coverage": codebase_query_coverage,
-        "impact": codebase_query_impact,
-    }
-    if action not in handlers:
-        return {
-            "result": "codebase_query_rejected",
-            "errors": ["action must be overview, search, trace, snippet, coverage or impact"],
-        }
-    freshness = codebase_status_payload(payload)
-    if freshness.get("status") == "missing":
-        return {
-            "result": "codebase_query_unavailable",
-            "freshness": freshness,
-            "errors": ["index is missing; run codebase-index when structural context is needed"],
-        }
-    db, open_error = codebase_open()
-    if not db:
-        return {
-            "result": "codebase_query_unavailable",
-            "errors": [f"index is unavailable: {open_error}"],
-        }
-    try:
-        output = handlers[action](db, payload)
-    except (sqlite3.Error, OSError, ValueError, TypeError) as exc:
-        db.close()
-        return {"result": "codebase_query_failed", "action": action, "errors": [str(exc)]}
-    db.close()
-    snippet_fresh = output.get("source_freshness") == "metadata_match"
-    source_grounded = action == "snippet" and snippet_fresh
-    output.update({
-        "result": "codebase_query",
-        "freshness": freshness.get("status"),
-        "trust": "source_grounded" if source_grounded else "candidate_only",
-        "coverage_signal": "best_effort",
-        "source_fallback_required": (
-            freshness.get("status") != "fresh"
-            or (action == "snippet" and not snippet_fresh)
-        ),
-    })
-    return output
-
-
-def codebase_index(argv):
-    if not argv:
-        json_print({
-            "result": "codebase_index_rejected",
-            "errors": ["explicit JSON payload required; indexing is adaptive, never implicit"],
-        })
-        return
-    try:
-        payload, _ = json_arg_or_stdin(argv, "codebase-index")
-        json_print(codebase_index_payload(payload))
-    except Exception as exc:
-        json_print({"result": "codebase_index_rejected", "errors": [str(exc)]})
-
-
-def codebase_status(argv):
-    try:
-        payload = {}
-        if argv:
-            payload, _ = json_arg_or_stdin(argv, "codebase-status")
-        json_print(codebase_status_payload(payload))
-    except Exception as exc:
-        json_print({"result": "codebase_status_rejected", "errors": [str(exc)]})
-
-
-def codebase_query(argv):
-    if not argv:
-        json_print({
-            "result": "codebase_query_rejected",
-            "errors": ["explicit JSON payload with action is required"],
-        })
-        return
-    try:
-        payload, _ = json_arg_or_stdin(argv, "codebase-query")
-        json_print(codebase_query_payload(payload))
-    except Exception as exc:
-        json_print({"result": "codebase_query_rejected", "errors": [str(exc)]})
 # --------------------------------------------------------- semantic scan modes
-
-def scan_request(argv, label):
-    payload, _ = json_arg_or_stdin(argv, label)
-    if not isinstance(payload, dict):
-        raise ValueError(f"{label}: request must be a JSON object")
-    changed = payload.get("changed_paths")
-    allowed = payload.get("allowed_paths")
-    if not isinstance(changed, list) or any(not isinstance(x, str) for x in changed):
-        raise ValueError(f"{label}: changed_paths must be a list of strings")
-    if not isinstance(allowed, list) or any(not isinstance(x, str) for x in allowed):
-        raise ValueError(f"{label}: allowed_paths must be a list of strings")
-    return payload
-
-
-def token_parts(value):
-    stem = pathlib.PurePosixPath(str(value)).stem
-    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", stem)
-    return {
-        part.lower()
-        for part in re.split(r"[^A-Za-z0-9]+", spaced)
-        if len(part) >= 3
-    }
-
 
 def candidate_files_within(patterns):
     files = []
@@ -4738,226 +3288,6 @@ def extract_symbols(text):
     for pattern in patterns:
         symbols.extend(re.findall(pattern, text, flags=re.M))
     return sorted(set(symbols))[:12]
-
-
-def extract_imports(text):
-    imports = []
-    patterns = (
-        r"^\s*from\s+([A-Za-z0-9_./-]+)\s+import\b",
-        r"^\s*import\s+([A-Za-z0-9_./-]+)",
-        r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-        r"require\(['\"]([^'\"]+)['\"]\)",
-    )
-    for pattern in patterns:
-        imports.extend(re.findall(pattern, text, flags=re.M))
-    return sorted(set(imports))[:20]
-
-
-def nearby_test_or_doc(rel):
-    path = pathlib.PurePosixPath(rel)
-    stem = path.stem.lower()
-    parent = path.parent.as_posix()
-    candidates = []
-    for suffix in (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".test.py", ".md"):
-        if parent == ".":
-            candidates.append(stem + suffix)
-        else:
-            candidates.append(parent + "/" + stem + suffix)
-    return [candidate for candidate in candidates if (REPO_ROOT / candidate).exists()]
-
-
-def candidate_identifiers(candidate):
-    values = {
-        str(candidate.get("id", "")),
-        str(candidate.get("path", "")),
-        str(candidate.get("candidate", "")),
-    }
-    return {value for value in values if value}
-
-
-def reuse_review_decision(receipt, candidate):
-    identifiers = candidate_identifiers(candidate)
-    review = receipt.get("semantic_reuse_review") if isinstance(receipt, dict) else None
-    if isinstance(review, dict):
-        review = [review]
-    if not isinstance(review, list):
-        return ""
-    for item in review:
-        if not isinstance(item, dict):
-            continue
-        target = item.get("candidate") or item.get("candidate_id") or item.get("id") or item.get("path")
-        if target in {"all", "*"} or str(target) in identifiers:
-            return str(item.get("decision", ""))
-    return ""
-
-
-def receipt_duplicate_findings(receipt):
-    findings = []
-    if not isinstance(receipt, dict):
-        return findings
-    for candidate in candidates_from_receipt(
-        receipt,
-        ("semantic_reuse_candidates", "reuse_scan", "semantic_reuse_scan"),
-    ):
-        if candidate_confidence(candidate) < HIGH_CONFIDENCE_THRESHOLD:
-            continue
-        findings.append({
-            "id": candidate.get("id"),
-            "path": candidate.get("path"),
-            "confidence": candidate_confidence(candidate),
-            "review_decision": reuse_review_decision(receipt, candidate),
-        })
-    return findings
-
-
-def prior_duplicate_finding_keys():
-    keys = set()
-    if not SCHEDULER_HISTORY.exists():
-        return keys
-    try:
-        with open(SCHEDULER_HISTORY, encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                item = json.loads(line)
-                if item.get("repo_key") != REPO_KEY:
-                    continue
-                for finding in item.get("duplicate_findings", []):
-                    if not isinstance(finding, dict):
-                        continue
-                    keys |= candidate_identifiers(finding)
-    except (OSError, json.JSONDecodeError):
-        return set()
-    return keys
-
-
-def reuse_learning_suggestions(candidates):
-    high = [
-        candidate for candidate in candidates
-        if candidate_confidence(candidate) >= HIGH_CONFIDENCE_THRESHOLD
-    ]
-    if not high:
-        return []
-    prior = prior_duplicate_finding_keys()
-    suggestions = []
-    for candidate in high:
-        repeated = bool(candidate_identifiers(candidate) & prior)
-        path = candidate.get("path") or candidate.get("id")
-        component_like = path and is_component_like_path(str(path))
-        suggestions.append({
-            "candidate": candidate.get("id") or path,
-            "mistake_checked": "duplicated_component" if component_like else "duplicated_helper",
-            "lesson_decision": "recorded" if repeated else "deferred",
-            "promoted_to": "not_applicable",
-            "reason": (
-                "Repeated high-confidence reuse candidate from local history; record or promote lesson if new code proceeds."
-                if repeated
-                else "High-confidence reuse candidate exists; defer lesson unless the receipt chooses new code or duplication recurs."
-            ),
-            "repeated": repeated,
-        })
-    return suggestions
-
-
-def reuse_scan_payload(payload):
-    changed = [normalize_relative_path_text(p) for p in payload.get("changed_paths", [])]
-    allowed = payload.get("allowed_paths") or ["**/*"]
-    candidates = []
-    seen = set()
-    changed_tokens = set()
-    changed_import_tokens = set()
-    for rel in changed:
-        changed_tokens |= token_parts(rel)
-        changed_tokens |= token_parts(payload.get("task_signal", ""))
-        changed_text = read_text_safe(REPO_ROOT / rel, limit=60000)
-        for imported in extract_imports(changed_text):
-            changed_import_tokens |= token_parts(imported)
-    helper_signal = bool(changed_tokens & {
-        "helper", "helpers", "util", "utils", "validator", "validate",
-        "guard", "component",
-    })
-    for rel in candidate_files_within(allowed):
-        if rel in changed:
-            continue
-        suffix = pathlib.PurePosixPath(rel).suffix.lower()
-        if suffix not in CODE_EXTENSIONS and suffix not in {".md", ".json"}:
-            continue
-        tokens = token_parts(rel)
-        overlap = changed_tokens & tokens
-        if not overlap and not helper_signal:
-            continue
-        text = read_text_safe(REPO_ROOT / rel, limit=80000)
-        symbols = extract_symbols(text)
-        imports = extract_imports(text)
-        symbol_tokens = set()
-        for symbol in symbols:
-            symbol_tokens |= token_parts(symbol)
-        import_tokens = set()
-        for imported in imports:
-            import_tokens |= token_parts(imported)
-        symbol_overlap = changed_tokens & symbol_tokens
-        import_overlap = changed_import_tokens & (tokens | symbol_tokens | import_tokens)
-        score = 0.0
-        reason_bits = []
-        if changed_tokens:
-            score += min(0.65, 0.65 * (len(overlap) / max(1, len(changed_tokens))))
-        if helper_signal and (tokens & {"helper", "helpers", "util", "utils", "validator", "validate", "guard"}):
-            score += 0.25
-            reason_bits.append("helper/validator naming matches task signal")
-        if symbol_overlap:
-            score += 0.20
-            reason_bits.append("exported symbols overlap changed path terms")
-        if import_overlap:
-            score += 0.15
-            reason_bits.append("imports overlap changed file dependencies")
-        nearby = nearby_test_or_doc(rel)
-        if nearby:
-            score += 0.05
-            reason_bits.append("nearby tests/docs exist: " + ", ".join(nearby[:3]))
-        if overlap:
-            reason_bits.append("filename terms overlap: " + ", ".join(sorted(overlap)))
-        if not reason_bits and helper_signal:
-            reason_bits.append("helper-like path is in allowed search scope")
-            score = max(score, 0.40)
-        confidence = min(0.95, round(score, 2))
-        if confidence < 0.40:
-            continue
-        candidate = {
-            "id": f"reuse:{stable_slug(rel)}",
-            "path": rel,
-            "confidence": confidence,
-            "reason": "; ".join(reason_bits),
-            "source": "filename/symbol scan",
-            "suggested_decision": "reuse" if confidence >= HIGH_CONFIDENCE_THRESHOLD else "extend",
-            "symbols": symbols,
-            "imports": imports,
-            "nearby_evidence": nearby,
-        }
-        if candidate["id"] not in seen:
-            candidates.append(candidate)
-            seen.add(candidate["id"])
-    candidates.sort(key=lambda item: (-float(item["confidence"]), item["path"]))
-    candidates = candidates[:25]
-    return {
-        "result": "reuse_scan",
-        "task_signal": payload.get("task_signal", "not_applicable"),
-        "changed_paths": changed,
-        "allowed_paths": allowed,
-        "candidates": candidates,
-        "high_confidence_candidates": [
-            item for item in candidates
-            if float(item.get("confidence", 0)) >= HIGH_CONFIDENCE_THRESHOLD
-        ],
-        "learning_suggestions": reuse_learning_suggestions(candidates),
-    }
-
-
-def reuse_scan(argv):
-    try:
-        payload = scan_request(argv, "reuse-scan")
-        json_print(reuse_scan_payload(payload))
-    except Exception as e:
-        json_print({"result": "reuse_scan_rejected", "errors": [str(e)]})
 
 
 def ds_scan_payload(payload):
@@ -5036,14 +3366,6 @@ def ds_scan_payload(payload):
         "token_candidates": sorted(token_candidates, key=lambda item: item["path"])[:25],
         "pattern_candidates": sorted(pattern_candidates, key=lambda item: item["path"])[:25],
     }
-
-
-def ds_scan(argv):
-    try:
-        payload = scan_request(argv, "ds-scan")
-        json_print(ds_scan_payload(payload))
-    except Exception as e:
-        json_print({"result": "ds_scan_rejected", "errors": [str(e)]})
 
 
 # ------------------------------------------------------- evidence router core
@@ -6526,599 +4848,7 @@ def evidence_route(argv):
     decision = evidence_route_payload(request)
     json_print(decision if verbose else evidence_route_digest(decision))
 
-# -------------------------------------------------------------- scheduler v4
-
-def scheduler_history_status():
-    if not SCHEDULER_HISTORY.exists():
-        return "missing"
-    try:
-        with open(SCHEDULER_HISTORY, encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    json.loads(line)
-        return "loaded"
-    except (OSError, json.JSONDecodeError):
-        return "fallback_corrupt_state"
-
-
-def load_scheduler_history():
-    status = scheduler_history_status()
-    if status != "loaded":
-        return status, []
-    entries = []
-    try:
-        with open(SCHEDULER_HISTORY, encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                item = json.loads(line)
-                if item.get("repo_key") == REPO_KEY:
-                    entries.append(item)
-    except (OSError, json.JSONDecodeError):
-        return "fallback_corrupt_state", []
-    return status, entries[-50:]
-
-
-DEPRECATED_HISTORY_TERMS = (
-    "pilothos_hostd.py",
-    "host-control-plane.md",
-    "host authority",
-    "host-level",
-    "hostd",
-    "PILOTH_HOST_ROOT",
-    "macOS-inspired",
-)
-
-
-def scheduler_history_deprecated(item):
-    if item.get("deprecated") is True:
-        return True
-    text = json.dumps(item, ensure_ascii=False)
-    folded = text.casefold()
-    return any(term.casefold() in folded for term in DEPRECATED_HISTORY_TERMS)
-
-
-def scheduler_history_text_deprecated(value):
-    if not non_empty_string(value):
-        return False
-    folded = str(value).casefold()
-    return any(term.casefold() in folded for term in DEPRECATED_HISTORY_TERMS)
-
-
-def scheduler_history_matches(entries, task_signal, layers):
-    normalized_signal = normalize_task_signal(task_signal)
-    layer_set = {normalize_layer(x) for x in layers}
-    matches = []
-    for item in reversed(entries):
-        if scheduler_history_deprecated(item):
-            continue
-        item_signal = normalize_task_signal(item.get("task_signal"))
-        item_layers = {normalize_layer(x) for x in item.get("changed_layers", [])}
-        same_signal = item_signal == normalized_signal
-        shared_layers = bool(layer_set & item_layers) if layer_set and item_layers else False
-        result = str(item.get("result", "")).lower()
-        if (same_signal or shared_layers) and "pass" in result:
-            matches.append(item)
-        if len(matches) >= 5:
-            break
-    return list(reversed(matches))
-
-
-def scheduler_history_recommendations(matches):
-    tests = []
-    asset_types = []
-    notes = []
-    for item in matches:
-        tests_run = item.get("tests_run")
-        if non_empty_string(tests_run) and tests_run not in tests:
-            tests.append(tests_run)
-        for route in item.get("route_chosen", []):
-            if isinstance(route, dict):
-                asset_type = route.get("asset_type")
-                decision = route.get("decision")
-                if asset_type and decision in {"loaded", "approval_required"} and asset_type not in asset_types:
-                    asset_types.append(asset_type)
-        note = item.get("learning_decision")
-        if non_empty_string(note) and note not in notes:
-            notes.append(note)
-    return {
-        "tests": tests[:3],
-        "asset_types": asset_types[:6],
-        "notes": notes[:5],
-    }
-
-
-def scheduler_suite_for_paths(paths):
-    rels = [normalize_relative_path_text(p) for p in paths]
-    if not rels:
-        return "tests/run_all.sh", "no paths supplied; full suite is the deterministic fallback"
-    if all(is_docs_path(p) for p in rels):
-        return "tests/docs/run-tests.sh", "docs-only change"
-    if any(
-        p.startswith("pilothOS/scripts/pilothos_installer.py")
-        or is_source_installer_path(p)
-        or p.startswith("tests/install/")
-        for p in rels
-    ):
-        return "tests/install/run-tests.sh", "installer/staging change"
-    if any("task-lifecycle" in p or "contract" in p or "receipt" in p or p.startswith("tests/lifecycle/") for p in rels):
-        return "tests/lifecycle/run-tests.sh", "contract/receipt lifecycle change"
-    if any(p.startswith("pilothOS/scripts/pilothos_guard.py") or p.startswith("pilothOS/evaluation/") or p.startswith("tests/evaluation/") for p in rels):
-        return "tests/evaluation/run-tests.sh", "guard/evaluation policy change"
-    layers = {layer_for_path(p) for p in rels}
-    if len(layers) >= 3 or layers & {"Runtime", "Rules", "Tools/Runtime", "Installer", "Evaluation"}:
-        return "tests/run_all.sh", "cross-layer PilothOS runtime/rules/evaluation change"
-    if any(is_test_path(p) for p in rels):
-        return "tests/lifecycle/run-tests.sh", "test/lifecycle-adjacent change"
-    return "tests/run_all.sh", "conservative fallback"
-
-
-def scheduler_context_for_paths(paths):
-    context = {"pilothOS/runtime/context-loading.md", "pilothOS/runtime/energy-token-policy.md"}
-    for rel in paths:
-        layer = layer_for_path(str(rel))
-        if layer == "Tools/Runtime":
-            context.add("pilothOS/scripts/pilothos_guard.py")
-            context.add("pilothOS/tools/index.md")
-        elif layer == "Installer":
-            context.add("pilothOS/scripts/pilothos_installer.py")
-            context.add("scripts/stage.py")
-            context.add("scripts/build_manifest.py")
-            context.add("tests/install/run-tests.sh")
-        elif layer == "Runtime":
-            context.add("pilothOS/runtime/index.md")
-        elif layer == "Rules":
-            context.add("pilothOS/rules/index.md")
-        elif layer == "Evaluation":
-            context.add("pilothOS/evaluation/quality-gates.md")
-        elif layer == "Agent Teams":
-            context.add("pilothOS/runtime/team-orchestration.md")
-            context.add("pilothOS/agent-teams/piloth-team.md")
-    return sorted(context)
-
-
-def scheduler_suggest_payload(payload):
-    if not isinstance(payload, dict):
-        return {"result": "scheduler_rejected", "errors": ["request must be a JSON object"]}
-    paths = payload.get("affected_paths") or payload.get("changed_paths") or []
-    if not isinstance(paths, list) or any(not isinstance(x, str) for x in paths):
-        return {"result": "scheduler_rejected", "errors": ["affected_paths must be a list of strings"]}
-    suite, suite_reason = scheduler_suite_for_paths(paths)
-    task_signal = payload.get("task_signal", "not_applicable")
-    route_key = normalize_task_signal(task_signal)
-    route = TASK_SIGNAL_ROUTES.get(route_key, TASK_SIGNAL_ROUTES["not_applicable"])
-    layers = sorted({layer_for_path(p) for p in paths})
-    history, history_entries = load_scheduler_history()
-    history_matches = scheduler_history_matches(history_entries, task_signal, layers)
-    history_recs = scheduler_history_recommendations(history_matches)
-    full_suite_expected = suite == "tests/run_all.sh"
-    expected_evidence = [suite]
-    if any(layer in {"Runtime", "Rules", "Tools/Runtime", "Installer", "Evaluation"} for layer in layers) and suite != "tests/run_all.sh":
-        expected_evidence.append("tests/run_all.sh before release")
-    for historical_test in history_recs["tests"]:
-        if historical_test not in expected_evidence:
-            expected_evidence.append(historical_test)
-    recommended_asset_types = list(route["asset_types"])
-    for asset_type in history_recs["asset_types"]:
-        if asset_type not in recommended_asset_types:
-            recommended_asset_types.append(asset_type)
-    skeleton = {
-        "task_scope": payload.get("intent") or f"{task_signal} task",
-        "affected_layers": layers or ["Consumer"],
-        "allowed_paths": paths or ["<fill allowed paths>"],
-        "expected_evidence": expected_evidence,
-        "out_of_scope_paths": [],
-        "consumer_scope": "fill exact repo/userland scope",
-        "context_evidence": [
-            {
-                "source": source,
-                "reason": "scheduler-selected context",
-                "finding": "load before editing affected layer",
-            }
-            for source in scheduler_context_for_paths(paths)[:8]
-        ],
-        "reuse_evidence": [
-            {
-                "asset": "reuse-scan",
-                "decision": "reuse",
-                "reason": "run reuse-scan before new helpers/components when code changes",
-            }
-        ],
-        "decision_limits": ["Do not expand scope without updating this contract."],
-        "consumer_asset_routing": [
-            {
-                "task_signal": route["task_signal"],
-                "asset_type": asset_type,
-                "decision": "loaded",
-                "reason": "scheduler-selected asset type for task signal"
-                + (" or successful local history" if asset_type in history_recs["asset_types"] else ""),
-            }
-            for asset_type in recommended_asset_types
-        ],
-    }
-    if full_suite_expected:
-        skeleton["energy_budget_reason"] = suite_reason
-    result = {
-        "result": "scheduler_suggested",
-        "history_status": history,
-        "history_matches": history_matches,
-        "history_applied": bool(history_matches),
-        "task_signal": task_signal,
-        "affected_paths": paths,
-        "recommended_context_files": scheduler_context_for_paths(paths),
-        "recommended_consumer_asset_types": recommended_asset_types,
-        "expected_evidence": expected_evidence,
-        "risk_notes": [suite_reason] + [f"history learning decision: {note}" for note in history_recs["notes"]],
-        "energy_budget": "broad" if full_suite_expected else "targeted",
-        "energy_budget_reason": suite_reason,
-        "contract_skeleton": skeleton,
-        "fallback_used": history != "loaded",
-    }
-    # Compatibility wrapper for one major version. Existing scheduler fields
-    # remain unchanged; new consumers should use evidence-route directly.
-    if payload.get("_router_compat_only") is not True:
-        result["evidence_router"] = evidence_route_digest(
-            evidence_route_payload(payload),
-        )
-    return result
-
-
-def scheduler_suggest(argv):
-    try:
-        payload, _ = json_arg_or_stdin(argv, "scheduler-suggest")
-    except Exception as e:
-        json_print({"result": "scheduler_rejected", "errors": [str(e)]})
-        return
-    json_print(scheduler_suggest_payload(payload))
-
-
-def scheduler_record_task_signal(receipt):
-    signal = receipt.get("task_signal")
-    if non_empty_string(signal) and normalize_task_signal(signal) != "not_applicable":
-        return signal
-    routes = receipt.get("consumer_asset_routing")
-    if isinstance(routes, list):
-        for route in routes:
-            if not isinstance(route, dict):
-                continue
-            candidate = route.get("task_signal")
-            if non_empty_string(candidate) and normalize_task_signal(candidate) != "not_applicable":
-                return candidate
-    return "not_applicable"
-
-
-def scheduler_record_changed_paths(receipt):
-    paths = receipt.get("changed_files")
-    if not isinstance(paths, list):
-        return []
-    return [
-        path
-        for path in paths
-        if isinstance(path, str) and not scheduler_history_text_deprecated(path)
-    ]
-
-
-def scheduler_record_warnings(receipt):
-    warnings = receipt.get("warning_checklist")
-    if not isinstance(warnings, dict):
-        return {}
-    sanitized = {}
-    for key, value in warnings.items():
-        if not isinstance(key, str):
-            continue
-        if isinstance(value, str) and scheduler_history_text_deprecated(value):
-            sanitized[key] = "redacted deprecated history term"
-        else:
-            sanitized[key] = value
-    return sanitized
-
-
-def scheduler_record(argv):
-    try:
-        receipt, _ = json_arg_or_stdin(argv, "scheduler-record")
-    except Exception as e:
-        json_print({"result": "scheduler_record_rejected", "errors": [str(e)]})
-        return
-    if not isinstance(receipt, dict):
-        json_print({"result": "scheduler_record_rejected", "errors": ["receipt must be a JSON object"]})
-        return
-    tool_uses = receipt.get("tool_uses") if isinstance(receipt.get("tool_uses"), list) else []
-    entry = {
-        "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "repo_key": REPO_KEY,
-        "task_signal": scheduler_record_task_signal(receipt),
-        "changed_layers": receipt.get("affected_layers", []),
-        "changed_paths": scheduler_record_changed_paths(receipt),
-        "route_chosen": receipt.get("consumer_asset_routing", []),
-        "tools_used": [
-            {
-                "tool": item.get("tool"),
-                "risk": item.get("risk"),
-                "result": item.get("result"),
-            }
-            for item in tool_uses
-            if isinstance(item, dict)
-        ],
-        "tests_run": receipt.get("verification_command", ""),
-        "warnings": scheduler_record_warnings(receipt),
-        "duplicate_findings": receipt_duplicate_findings(receipt),
-        "result": receipt.get("result", ""),
-        "learning_decision": (
-            receipt.get("learning_review", {}).get("lesson_decision")
-            if isinstance(receipt.get("learning_review"), dict)
-            else ""
-        ),
-    }
-    SCHEDULER_HISTORY.parent.mkdir(parents=True, exist_ok=True)
-    with open(SCHEDULER_HISTORY, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
-    json_print({
-        "result": "scheduler_recorded",
-        "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
-    })
 # --------------------------------------------------------------- team v5
-
-def team_definition_path(team):
-    return PILOTHOS_DIR / "agent-teams" / f"{stable_slug(team)}.md"
-
-
-def validate_team_contract(contract):
-    errors = []
-    if not isinstance(contract, dict):
-        return ["team contract must be a JSON object"]
-    required = {
-        "task_id", "team", "roles", "allowed_paths", "role_permissions",
-        "handoff_artifacts", "stop_condition", "max_repair_loops",
-        "expected_evidence",
-    }
-    missing = sorted(required - set(contract))
-    if missing:
-        errors.append("missing required fields: " + ", ".join(missing))
-    for field in ("task_id", "team", "stop_condition"):
-        if not non_empty_string(contract.get(field)):
-            errors.append(f"{field} must be a non-empty string")
-    for field in ("roles", "allowed_paths", "handoff_artifacts", "expected_evidence"):
-        value = contract.get(field)
-        if not isinstance(value, list) or not value or any(not non_empty_string(x) for x in value):
-            errors.append(f"{field} must be a non-empty list of strings")
-    if isinstance(contract.get("allowed_paths"), list):
-        for pattern in contract.get("allowed_paths", []):
-            if not path_pattern_is_safe(pattern):
-                errors.append(f"allowed_paths contains unsafe pattern: {pattern}")
-    try:
-        loops = int(contract.get("max_repair_loops"))
-        if loops < 0:
-            errors.append("max_repair_loops must be >= 0")
-    except (TypeError, ValueError):
-        errors.append("max_repair_loops must be an integer")
-    team_path = team_definition_path(contract.get("team", ""))
-    if non_empty_string(contract.get("team")) and not team_path.exists():
-        errors.append(f"team definition missing: {team_path.relative_to(REPO_ROOT).as_posix()}")
-    permissions = contract.get("role_permissions")
-    roles = set(contract.get("roles") or [])
-    if not isinstance(permissions, dict) or not permissions:
-        errors.append("role_permissions must be a non-empty object")
-    else:
-        for role in roles:
-            actions = permissions.get(role)
-            if not isinstance(actions, list) or not actions or any(action not in TEAM_PERMISSION_ACTIONS for action in actions):
-                errors.append(
-                    f"role_permissions.{role} must list actions from: "
-                    + ", ".join(sorted(TEAM_PERMISSION_ACTIONS))
-                )
-    return errors
-
-
-def team_contract_state_path(task_id):
-    return TEAM_RUNS_DIR / safe_task_id(task_id) / "team-contract.json"
-
-
-def team_receipt_state_path(task_id):
-    return TEAM_RUNS_DIR / safe_task_id(task_id) / "team-receipt.json"
-
-
-def load_team_contract(hook_input=None):
-    env_path = env_state_path("PILOTHOS_TEAM_CONTRACT")
-    if env_path:
-        data = load_json_file(env_path)
-        if data is not None:
-            return data, env_path
-    if hook_input and non_empty_string(hook_input.get("task_id")):
-        path = team_contract_state_path(hook_input["task_id"])
-        data = load_json_file(path)
-        if data is not None:
-            return data, path
-    path = repo_state_file("team-contract.json")
-    data = load_json_state(path)
-    if data is not None:
-        return data, path
-    return None, None
-
-
-def team_contract_write(argv):
-    try:
-        contract, _ = json_arg_or_stdin(argv, "team-contract-write")
-    except Exception as e:
-        json_print({"result": "team_contract_rejected", "errors": [str(e)]})
-        return
-    errors = validate_team_contract(contract)
-    if errors:
-        json_print({"result": "team_contract_rejected", "errors": errors})
-        return
-    contract = dict(contract)
-    contract["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    path = team_contract_state_path(contract["task_id"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, contract)
-    MARKER_DIR.mkdir(exist_ok=True)
-    write_json(repo_state_file("team-contract.json"), contract)
-    json_print({"result": "team_contract_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
-
-
-def validate_team_receipt(receipt, contract):
-    errors = []
-    if not isinstance(receipt, dict):
-        return ["team receipt must be a JSON object"]
-    for field in ("task_id", "team", "final_lead_decision"):
-        if not non_empty_string(receipt.get(field)):
-            errors.append(f"{field} must be a non-empty string")
-    if contract and receipt.get("task_id") != contract.get("task_id"):
-        errors.append("team receipt task_id does not match active team contract")
-    role_outputs = receipt.get("role_outputs")
-    if not isinstance(role_outputs, list) or not role_outputs:
-        errors.append("role_outputs must be a non-empty list")
-    else:
-        allowed_roles = set(contract.get("roles", [])) if isinstance(contract, dict) else set()
-        permissions = contract.get("role_permissions", {}) if isinstance(contract, dict) else {}
-        allowed_paths = contract.get("allowed_paths", []) if isinstance(contract, dict) else []
-        for i, item in enumerate(role_outputs):
-            if not isinstance(item, dict):
-                errors.append(f"role_outputs[{i}] must be an object")
-                continue
-            for key in ("role", "output", "evidence"):
-                if not non_empty_string(item.get(key)):
-                    errors.append(f"role_outputs[{i}].{key} must be a non-empty string")
-            if allowed_roles and item.get("role") not in allowed_roles:
-                errors.append(f"role_outputs[{i}].role is not in team contract roles")
-            edited_paths = item.get("edited_paths")
-            if edited_paths is not None:
-                if not isinstance(edited_paths, list) or any(not non_empty_string(x) for x in edited_paths):
-                    errors.append(f"role_outputs[{i}].edited_paths must be a list of strings")
-                else:
-                    actions = permissions.get(item.get("role"), [])
-                    if "edit" not in actions:
-                        errors.append(f"role_outputs[{i}].edited_paths not allowed for role without edit permission")
-                    for edited in edited_paths:
-                        if not path_matches(allowed_paths, edited):
-                            errors.append(f"role_outputs[{i}].edited_paths outside allowed_paths: {edited}")
-    handoff_paths = receipt.get("handoff_paths")
-    if not isinstance(handoff_paths, list):
-        errors.append("handoff_paths must be a list")
-    elif contract and isinstance(contract.get("handoff_artifacts"), list):
-        allowed = contract.get("handoff_artifacts")
-        for path in handoff_paths:
-            if not non_empty_string(path):
-                errors.append("handoff_paths must contain only strings")
-            elif not path_matches(allowed, path):
-                errors.append(f"handoff path outside handoff_artifacts: {path}")
-    try:
-        loops = int(receipt.get("repair_loop_count"))
-    except (TypeError, ValueError):
-        errors.append("repair_loop_count must be an integer")
-        loops = 0
-    if contract:
-        try:
-            max_loops = int(contract.get("max_repair_loops", 0))
-            if loops > max_loops:
-                errors.append("repair_loop_count exceeds max_repair_loops")
-        except (TypeError, ValueError):
-            pass
-        roles = {str(role).lower() for role in contract.get("roles", [])}
-        if "qa" in roles:
-            verdict = receipt.get("qa_verdict")
-            if not isinstance(verdict, dict):
-                errors.append("qa_verdict is required when QA role exists")
-            else:
-                if verdict.get("result") not in {"PASS", "FAIL"}:
-                    errors.append("qa_verdict.result must be PASS or FAIL")
-                if not non_empty_string(verdict.get("evidence")):
-                    errors.append("qa_verdict.evidence must be a non-empty string")
-    return errors
-
-
-def team_run_dir(task_id):
-    return TEAM_RUNS_DIR / safe_task_id(task_id)
-
-
-def team_artifact_rel(path):
-    return path.relative_to(REPO_ROOT).as_posix()
-
-
-def write_team_artifact(path, title, body):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = f"# {title}\n\n{body.strip()}\n"
-    path.write_text(text, encoding="utf-8")
-    return team_artifact_rel(path)
-
-
-def materialize_team_artifacts(receipt, contract):
-    task_id = receipt["task_id"]
-    base = team_run_dir(task_id)
-    artifacts = []
-    for item in receipt.get("role_outputs", []):
-        if not isinstance(item, dict):
-            continue
-        role = item.get("role", "role")
-        body = (
-            f"Role: {role}\n\n"
-            f"Output:\n{item.get('output', '')}\n\n"
-            f"Evidence:\n{item.get('evidence', '')}\n"
-        )
-        if item.get("edited_paths"):
-            body += "\nEdited paths:\n" + "\n".join(f"- {p}" for p in item.get("edited_paths", [])) + "\n"
-        artifacts.append(write_team_artifact(base / f"role-{stable_slug(role)}.md", f"Role Output: {role}", body))
-    verdict = receipt.get("qa_verdict")
-    if isinstance(verdict, dict):
-        artifacts.append(write_team_artifact(
-            base / "qa-verdict.md",
-            "QA Verdict",
-            f"Result: {verdict.get('result')}\n\nEvidence:\n{verdict.get('evidence', '')}",
-        ))
-    artifacts.append(write_team_artifact(
-        base / "final-lead-decision.md",
-        "Final Lead Decision",
-        receipt.get("final_lead_decision", ""),
-    ))
-    handoff_paths = receipt.get("handoff_paths", [])
-    artifacts.append(write_team_artifact(
-        base / "handoff-summary.md",
-        "Handoff Summary",
-        "\n".join(f"- {path}" for path in handoff_paths) if handoff_paths else "No handoff paths recorded.",
-    ))
-    if isinstance(contract, dict):
-        artifacts.append(write_team_artifact(
-            base / "team-contract-summary.md",
-            "Team Contract Summary",
-            f"Team: {contract.get('team')}\n\nStop condition: {contract.get('stop_condition')}",
-        ))
-    return artifacts
-
-
-def team_receipt_write(argv):
-    try:
-        receipt, _ = json_arg_or_stdin(argv, "team-receipt-write")
-    except Exception as e:
-        json_print({"result": "team_receipt_rejected", "errors": [str(e)]})
-        return
-    contract, _ = load_team_contract({"task_id": receipt.get("task_id")} if isinstance(receipt, dict) else {})
-    errors = validate_team_receipt(receipt, contract)
-    if errors:
-        json_print({"result": "team_receipt_rejected", "errors": errors})
-        return
-    receipt = dict(receipt)
-    receipt["recorded_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    receipt["generated_artifacts"] = materialize_team_artifacts(receipt, contract)
-    path = team_receipt_state_path(receipt["task_id"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, receipt)
-    json_print({"result": "team_receipt_recorded", "path": path.relative_to(REPO_ROOT).as_posix()})
-
-
-def role_from_hook_input(hook_input):
-    for key in ("pilothos_role", "role", "team_role"):
-        if non_empty_string(hook_input.get(key)):
-            return hook_input.get(key)
-    tool_input = (
-        hook_input.get("tool_input")
-        or hook_input.get("toolInput")
-        or hook_input.get("input")
-    )
-    if isinstance(tool_input, dict):
-        for key in ("pilothos_role", "role", "team_role"):
-            if non_empty_string(tool_input.get(key)):
-                return tool_input.get(key)
-    return None
-
 
 def preflight():
     """Preflight cua /pilothos-init: kiem tra moi truong, fail som va ro rang."""
@@ -7325,33 +5055,6 @@ def pre_edit(hook_input):
     if not paths:
         block_decision("PILOTHOS PRE-EDIT: edit hook did not include a target path.")
         return
-    team_contract, team_contract_path = load_team_contract(hook_input)
-    role = role_from_hook_input(hook_input)
-    if role:
-        if not team_contract:
-            block_decision(
-                "PILOTHOS PRE-EDIT: team role was supplied but no active team contract was found."
-            )
-            return
-        team_errors = validate_team_contract(team_contract)
-        if team_errors:
-            block_decision("PILOTHOS PRE-EDIT: invalid team contract: " + "; ".join(team_errors))
-            return
-        permissions = team_contract.get("role_permissions", {})
-        actions = permissions.get(role)
-        if not isinstance(actions, list):
-            block_decision(f"PILOTHOS PRE-EDIT: role is not in team contract: {role}")
-            return
-        if "edit" not in actions:
-            block_decision(f"PILOTHOS PRE-EDIT: role {role} does not have edit permission.")
-            return
-        for rel in paths:
-            if not path_matches(team_contract.get("allowed_paths", []), rel):
-                block_decision(
-                    f"PILOTHOS PRE-EDIT: team role {role} cannot edit outside team allowed_paths "
-                    f"from {team_contract_path}: {rel}"
-                )
-                return
     allowed = contract.get("allowed_paths", [])
     out_of_scope = contract.get("out_of_scope_paths", [])
     for rel in paths:
@@ -7487,23 +5190,6 @@ def post_edit(hook_input):
         "warnings": facts.get("warnings", []),
         "evidence_commands": facts.get("evidence_commands", []),
     }, ensure_ascii=False))
-
-
-def evidence_add(argv):
-    if not argv:
-        print("FAIL evidence-add: need command string")
-        return
-    facts = load_diff_facts({})
-    entry = {
-        "command": argv[0],
-        "result": argv[1] if len(argv) > 1 else "recorded",
-        "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    facts.setdefault("evidence_commands", []).append(entry)
-    contract, _ = load_task_contract({})
-    update_diff_fact_derived(facts, contract)
-    save_diff_facts({}, facts)
-    print(f"OK   evidence recorded: {entry['command']} -> {entry['result']}")
 
 
 def facts_paths(facts, receipt=None):
@@ -7982,6 +5668,30 @@ def validate_tool_check_payload(payload, contract=None):
             "tool-check command/evidence must be referenced by active task contract"
         )
     return errors
+
+
+def evidence_add(argv):
+    """Record a verification command on the V1 diff-facts path.
+
+    Not redundant with `os-evidence`, which requires an open OS run: adapters and
+    tests that drive `contract-write` -> `receipt-write` directly have no run to
+    append to, and `evidence_commands` is exactly what the receipt gate checks
+    before it warns "code changed without test/evidence".
+    """
+    if not argv:
+        print("FAIL evidence-add: need command string")
+        return
+    facts = load_diff_facts({})
+    entry = {
+        "command": argv[0],
+        "result": argv[1] if len(argv) > 1 else "recorded",
+        "recorded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    facts.setdefault("evidence_commands", []).append(entry)
+    contract, _ = load_task_contract({})
+    update_diff_fact_derived(facts, contract)
+    save_diff_facts({}, facts)
+    print(f"OK   evidence recorded: {entry['command']} -> {entry['result']}")
 
 
 def tool_check(argv):
@@ -8476,121 +6186,18 @@ def request_os_mode(request):
         request.get("mode")
         or request.get("os_mode")
         or request.get("piloth_mode")
-        or "adaptive"
+        or "standard"
     ).strip().lower()
-    return raw if raw in OS_MODE_REQUESTS else "adaptive"
+    return raw if raw in OS_MODE_REQUESTS else "standard"
 
 
 def mode_to_operational_preset(mode):
-    if mode == "lean":
-        return "light"
-    if mode == "strict":
-        return "strict"
-    return "standard"
+    return "strict" if mode == "strict" else "standard"
 
 
 def path_pattern_is_broad(pattern):
     raw = str(pattern or "").strip()
     return raw in {"*", "**", "**/*", "."} or raw.endswith("/**")
-
-
-def paths_look_docs_tests_only(paths, layers):
-    normalized_layers = {normalize_layer(x) for x in layers}
-    if normalized_layers and normalized_layers <= DOC_TEST_LAYERS:
-        return True
-    concrete = [path for path in paths if not path_pattern_is_broad(path)]
-    return bool(concrete) and all(is_docs_path(path) or is_test_path(path) for path in concrete)
-
-
-def choose_adaptive_mode(request, paths, layers, target):
-    requested = request_os_mode(request)
-    reasons = []
-    if requested in OS_MODES:
-        return requested, [{
-            "mode": requested,
-            "source": "request",
-            "reason": f"explicit mode={requested}",
-        }]
-
-    task_signal = str(request.get("task_signal") or "").strip().lower()
-    intent_blob = json.dumps(sanitize_state_value(request, limit=1000), ensure_ascii=False).lower()
-    evidence_profile = request_evidence_profile(request)
-    broad_paths = not paths or any(path_pattern_is_broad(path) for path in paths) or len(paths) > 6
-    target_external = isinstance(target, dict) and bool(target.get("external"))
-    docs_tests_only = paths_look_docs_tests_only(paths, layers)
-
-    if evidence_profile == "design_tokens":
-        reasons.append("design_tokens evidence profile requires strict coverage discipline")
-        return "strict", [{"mode": "strict", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if "release/deploy" in task_signal or any(term in intent_blob for term in ("deploy", "production", "release")):
-        reasons.append("release/deploy or production signal")
-        return "strict", [{"mode": "strict", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if any(term in intent_blob for term in ("full design tokens", "all tokens", "entire library", "pixel-perfect", "1:1")):
-        reasons.append("absolute/full-coverage claim risk")
-        return "strict", [{"mode": "strict", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if broad_paths:
-        reasons.append("broad target paths")
-        return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if docs_tests_only:
-        reasons.append("docs/tests-only narrow scope")
-        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if "ui/component" in task_signal and len(paths) <= 4:
-        reasons.append("small UI/component scope")
-        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
-    concrete_paths = [path for path in paths if not path_pattern_is_broad(path)]
-    if concrete_paths and len(concrete_paths) <= SMALL_SCOPE_MAX_PATHS:
-        reasons.append(f"small blast radius ({len(concrete_paths)} concrete paths)")
-        return "lean", [{"mode": "lean", "source": "adaptive", "reason": "; ".join(reasons)}]
-    if target_external:
-        reasons.append("explicit external target with non-trivial scope")
-        return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
-    reasons.append("default non-trivial task scope")
-    return "standard", [{"mode": "standard", "source": "adaptive", "reason": "; ".join(reasons)}]
-
-
-def suggest_phase_plan(request, paths, layers, evidence_profile):
-    """Advisory-only phase recommendation (recipe right-sizing).
-
-    Mirrors aidlc's deterministic heuristicClassify: recommend the front-half
-    phases that would prevent rework, without ever enabling them. This NEVER
-    mutates requires_prototype / requires_discovery — a human opts in on a
-    follow-up os-start. Surfaced in os-status / os-report so the operator sees
-    the suggestion but keeps control (auto-enabling a heavy phase would add
-    cost, the opposite of the intent).
-    """
-    signal = str(request.get("task_signal") or "").strip().lower()
-    intent = json.dumps(sanitize_state_value(request, limit=1000), ensure_ascii=False).lower()
-    paths = paths or []
-    ui = (
-        evidence_profile == "ui"
-        or "ui/component" in signal
-        or any(path_pattern_suggests_ui(p) for p in paths)
-    )
-    trivial = (
-        paths_look_docs_tests_only(paths, layers)
-        or "bugfix" in signal
-        or "bug fix" in intent
-    )
-    high_impact = any(
-        k in intent for k in
-        ("architecture", "acceptance criteria", "out of scope", "unclear", "ambiguous", "not sure", "unknown")
-    )
-    broad = (not paths) or any(path_pattern_is_broad(p) for p in paths) or len(paths) > 6
-    rec_proto = bool(ui and not trivial)
-    rec_disc = bool((high_impact or broad) and not trivial)
-    reasons = []
-    if rec_proto:
-        reasons.append("UI/component scope — a prototype round can de-risk the visual direction before implementation")
-    if rec_disc:
-        reasons.append("ambiguous or broad scope — a discovery gate can confirm open questions up front")
-    if not reasons:
-        reasons.append("scope looks narrow/clear — no extra front-half phase recommended")
-    return {
-        "recommend_discovery": rec_disc,
-        "recommend_prototype": rec_proto,
-        "reasons": reasons,
-        "note": "suggestions only — pass requires_discovery / requires_prototype in a follow-up os-start to enable",
-    }
 
 
 def request_success_metrics(request):
@@ -8659,22 +6266,16 @@ def default_reuse_evidence(task_signal):
     }]
 
 
-def build_os_contract(request, route, scheduler, target=None):
+def build_os_contract(request, route, target=None):
     paths = request_paths(request) or ["**/*"]
     task_signal = route.get("task_signal") or request.get("task_signal") or "not_applicable"
-    skeleton = scheduler.get("contract_skeleton") if isinstance(scheduler, dict) else {}
-    if not isinstance(skeleton, dict):
-        skeleton = {}
     layers = (
         clean_string_list(request.get("affected_layers"))
-        or clean_string_list(skeleton.get("affected_layers"))
         or layers_for_requested_paths(paths)
     )
-    mode, mode_decisions = choose_adaptive_mode(request, paths, layers, target)
+    mode = request_os_mode(request)
     expected = (
         clean_string_list(request.get("expected_evidence"))
-        or clean_string_list(scheduler.get("expected_evidence") if isinstance(scheduler, dict) else None)
-        or clean_string_list(skeleton.get("expected_evidence"))
         or ["manual verification receipt"]
     )
     evidence_profile = request_evidence_profile(request)
@@ -8683,7 +6284,6 @@ def build_os_contract(request, route, scheduler, target=None):
     elif evidence_profile == "ui" or any(path_pattern_suggests_ui(path) for path in paths):
         expected = ui_expected_evidence(expected, request)
     route_context = route.get("context_evidence") if isinstance(route, dict) else []
-    scheduler_context = skeleton.get("context_evidence")
     footprint_policy = request_target_footprint_policy(request, target or {})
     contract = {
         "task_scope": request_intent(request),
@@ -8691,13 +6291,11 @@ def build_os_contract(request, route, scheduler, target=None):
         "allowed_paths": paths,
         "expected_evidence": expected,
         "out_of_scope_paths": clean_string_list(request.get("out_of_scope_paths")),
-        "consumer_scope": request.get("consumer_scope") or skeleton.get("consumer_scope") or "repo-local task scope from os-start",
+        "consumer_scope": request.get("consumer_scope") or "repo-local task scope from os-start",
         "target_paths": paths,
         "control_plane_repo": str(REPO_ROOT.resolve()),
         "evidence_profile": evidence_profile,
         "mode": mode,
-        "mode_decisions": mode_decisions,
-        "adaptive_mode": request_os_mode(request) in {"adaptive", "auto"},
         "operational_preset": mode_to_operational_preset(mode),
         "execution_strategy": request.get("execution_strategy")
         or ("controlled_target" if isinstance(target, dict) and target.get("explicit") else "repo_local"),
@@ -8705,13 +6303,11 @@ def build_os_contract(request, route, scheduler, target=None):
         "budget": request_budget(request),
         "success_metrics": request_success_metrics(request),
         "context_evidence": clean_string_list([]),
-        "reuse_evidence": request.get("reuse_evidence") or skeleton.get("reuse_evidence") or default_reuse_evidence(task_signal),
+        "reuse_evidence": request.get("reuse_evidence") or default_reuse_evidence(task_signal),
         "decision_limits": clean_string_list(request.get("decision_limits"))
-        or clean_string_list(skeleton.get("decision_limits"))
         or ["Do not expand scope without updating the OS task contract."],
         "consumer_asset_routing": request.get("consumer_asset_routing")
         or route.get("consumer_asset_routing")
-        or skeleton.get("consumer_asset_routing")
         or [{
             "task_signal": task_signal,
             "asset_type": "not_applicable",
@@ -8722,7 +6318,7 @@ def build_os_contract(request, route, scheduler, target=None):
     contract["context_evidence"] = (
         request.get("context_evidence")
         if isinstance(request.get("context_evidence"), list)
-        else merged_context_evidence(route_context, scheduler_context, [{
+        else merged_context_evidence(route_context, [{
             "source": "pilothOS/runtime/os-control-plane.md",
             "reason": "OS lifecycle contract",
             "finding": "task is routed through os-start/os-close",
@@ -8730,18 +6326,11 @@ def build_os_contract(request, route, scheduler, target=None):
     )
     for optional in (
         "operational_preset", "allowed_entitlements", "requires_judgment",
-        "benchmark_id", "requires_human_review", "requires_prototype",
-        "requires_discovery", "discovery_decisions", "model_hints",
+        "benchmark_id", "model_hints",
         "ui_design_system_evidence", "energy_budget_reason",
     ):
         if optional in request:
             contract[optional] = request[optional]
-    # A prototype's human pick is recorded through the reused human_review
-    # round-trip, so requiring a prototype implies requiring human review.
-    if contract.get("requires_prototype"):
-        contract["requires_human_review"] = True
-    # Advisory recipe: recommend front-half phases without ever enabling them.
-    contract["phase_plan_suggestion"] = suggest_phase_plan(request, paths, layers, evidence_profile)
     if isinstance(target, dict):
         contract["target_repo"] = target.get("target_repo", "")
         contract["target_kind"] = target.get("target_kind", "")
@@ -8802,10 +6391,6 @@ def required_gates_for_task(contract, receipt=None, mode=None):
     }, ensure_ascii=False).lower()
     if "release/deploy" in signal_text or "deploy" in signal_text:
         gates.append("operational_approval")
-    if isinstance(contract, dict) and contract.get("requires_human_review"):
-        gates.append("human_review")
-    if isinstance(contract, dict) and contract.get("requires_prototype"):
-        gates.append("prototype")
     return list(dict.fromkeys(gates))
 
 
@@ -8829,148 +6414,6 @@ def validate_required_quality_gates(receipt, required_gates):
             if not non_empty_string(receipt.get("limitation")):
                 errors.append(f"limitation is required when quality_gates.{gate}.result is FAIL")
     return errors
-
-
-def validate_review_feedback(value):
-    """Validate the structured human-review feedback artifact (schema + enums).
-
-    Faithful to annotron's structured feedback, translated into Piloth's gate
-    vocabulary: findings carry a location (file and/or gate), a note, a severity
-    and a disposition; the round carries a verdict and a finalized flag.
-    """
-    if not isinstance(value, dict):
-        return ["review feedback must be a JSON object"]
-    errors = []
-    if value.get("verdict") not in REVIEW_VERDICTS:
-        errors.append("verdict must be one of: " + ", ".join(sorted(REVIEW_VERDICTS)))
-    if not isinstance(value.get("finalized"), bool):
-        errors.append("finalized must be a boolean")
-    findings = value.get("findings")
-    if not isinstance(findings, list):
-        errors.append("findings must be a list")
-        return errors
-    errors.extend(validate_object_list_enums(
-        findings,
-        "findings",
-        ("id", "note", "severity", "disposition"),
-        {"severity": REVIEW_SEVERITIES, "disposition": REVIEW_DISPOSITIONS},
-    ))
-    for i, finding in enumerate(findings):
-        if not isinstance(finding, dict):
-            continue
-        loc = finding.get("location")
-        if not isinstance(loc, dict) or not (
-            non_empty_string(loc.get("file")) or non_empty_string(loc.get("gate"))
-        ):
-            errors.append(f"findings[{i}].location must include a file or a gate")
-            continue
-        if non_empty_string(loc.get("file")):
-            _, err = repo_relative_path(loc.get("file"))
-            if err:
-                errors.append(f"findings[{i}].location.file {err}")
-    return errors
-
-
-def validate_human_review_gate(state, contract, receipt, os_evidence):
-    """Machine cross-check for the human_review gate (anti-checkbox core).
-
-    The guard never judges whether a finding is correct — only that a real,
-    finalized, approving human artifact exists with no unresolved blocking
-    findings. Returns (errors, summary) where summary.result is
-    PASS / FAIL / NOT_APPLICABLE. Unresolved blocking findings surface in
-    summary.unresolved so os-close can route the task back to Repair.
-    """
-    required = isinstance(contract, dict) and bool(contract.get("requires_human_review"))
-    if not required:
-        return [], {"result": "NOT_APPLICABLE"}
-    task_id = state.get("task_id") if isinstance(state, dict) else None
-    feedback = latest_review_feedback(task_id)
-    if not feedback:
-        return (
-            ["human_review gate requires a review-feedback artifact; run review-request then review-feedback"],
-            {"result": "FAIL", "reason": "no review feedback recorded"},
-        )
-    ferrors = validate_review_feedback(feedback)
-    if ferrors:
-        return (
-            [f"review feedback invalid: {e}" for e in ferrors],
-            {"result": "FAIL", "reason": "invalid review feedback"},
-        )
-    review_round = feedback.get("review_round")
-    if feedback.get("finalized") is not True:
-        return (
-            ["human_review is not finalized (review round still open)"],
-            {"result": "FAIL", "reason": "not finalized", "review_round": review_round},
-        )
-    unresolved = [
-        finding.get("id")
-        for finding in feedback.get("findings", [])
-        if isinstance(finding, dict)
-        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
-        and finding.get("disposition") == "request-changes"
-    ]
-    if unresolved:
-        return (
-            ["human_review has unresolved blocking findings routed to Repair: "
-             + ", ".join(str(x) for x in unresolved)],
-            {"result": "FAIL", "reason": "unresolved blocking findings",
-             "unresolved": unresolved, "review_round": review_round},
-        )
-    if feedback.get("verdict") != "approve":
-        return (
-            ["human_review verdict is not approve"],
-            {"result": "FAIL", "reason": "verdict not approve",
-             "verdict": feedback.get("verdict"), "review_round": review_round},
-        )
-    summary = {
-        "result": "PASS",
-        "review_round": review_round,
-        "verdict": "approve",
-        "reviewer": feedback.get("reviewer", ""),
-    }
-    try:
-        summary["feedback_path"] = review_feedback_path(task_id).relative_to(REPO_ROOT).as_posix()
-    except (ValueError, TypeError):
-        pass
-    return [], summary
-
-
-def latest_evidence_of_kind(os_evidence, kind):
-    """Return the most recently recorded os-evidence record of a given kind."""
-    matches = [
-        item for item in (os_evidence or [])
-        if isinstance(item, dict) and item.get("kind") == kind
-    ]
-    if not matches:
-        return None
-    return sorted(matches, key=lambda item: str(item.get("recorded_at") or ""))[-1]
-
-
-def validate_prototype_gate(state, contract, receipt, os_evidence):
-    """Machine check for the thin prototype gate (evidence completeness only).
-
-    Prototype reuses the human_review round-trip for the human sign-off; this
-    gate only asserts prototype's own invariant — a valid design method, >=2
-    options generated, and one chosen among them — read from the recorded
-    prototype evidence. Anti-checkbox: a receipt that self-declares prototype
-    PASS with no backing evidence record still FAILs. Returns a summary dict
-    with result PASS / FAIL / NOT_APPLICABLE.
-    """
-    required = isinstance(contract, dict) and bool(contract.get("requires_prototype"))
-    if not required:
-        return {"result": "NOT_APPLICABLE"}
-    ev = latest_evidence_of_kind(os_evidence, "prototype")
-    if ev is None:
-        return {"result": "FAIL", "reason": "no prototype evidence recorded"}
-    everrors = validate_prototype_evidence(ev)
-    if everrors:
-        return {"result": "FAIL", "reason": "; ".join(everrors)}
-    return {
-        "result": "PASS",
-        "method": ev.get("method"),
-        "options": len([o for o in ev.get("options", []) if isinstance(o, dict)]),
-        "chosen": ev.get("chosen"),
-    }
 
 
 def evidence_text_blob(receipt, facts, os_evidence):
@@ -9368,64 +6811,6 @@ def evidence_payload_present(sanitized):
     return False
 
 
-def validate_prototype_evidence(evidence):
-    """Validate a prototype evidence record (kind=prototype).
-
-    Prototype's invariant: at least two design options were generated and one
-    was chosen, via a valid design method. The human sign-off itself flows
-    through the reused human_review round-trip, not here.
-    """
-    if not isinstance(evidence, dict) or evidence.get("kind") != "prototype":
-        return []
-    errors = []
-    if evidence.get("method") not in PROTOTYPE_METHODS:
-        errors.append("prototype evidence requires method one of: " + ", ".join(sorted(PROTOTYPE_METHODS)))
-    options = evidence.get("options")
-    if not isinstance(options, list):
-        errors.append("prototype evidence requires an options list")
-        return errors
-    ids = []
-    for i, opt in enumerate(options):
-        if not isinstance(opt, dict) or not non_empty_string(opt.get("id")):
-            errors.append(f"prototype options[{i}] requires an id")
-            continue
-        ids.append(opt.get("id"))
-    if len(ids) < 2:
-        errors.append("prototype evidence requires >=2 options with ids")
-    chosen = evidence.get("chosen")
-    if not non_empty_string(chosen):
-        errors.append("prototype evidence requires a chosen option id")
-    elif ids and chosen not in ids:
-        errors.append("prototype chosen must be one of the generated option ids")
-    return errors
-
-
-def validate_discovery_evidence(evidence):
-    """Validate a discovery evidence record (kind=discovery).
-
-    Discovery is a judgment gate the phase runs up front; the only mechanical
-    check is that the confirmed decisions are recorded as evidence the
-    Traceability gate can trace to. Each decision names its question, answer and
-    source (user vs a pre-ticked "decide for me" default).
-    """
-    if not isinstance(evidence, dict) or evidence.get("kind") != "discovery":
-        return []
-    errors = []
-    decisions = evidence.get("decisions")
-    if not isinstance(decisions, list) or not decisions:
-        errors.append("discovery evidence requires a non-empty decisions list")
-        return errors
-    for i, dec in enumerate(decisions):
-        if not isinstance(dec, dict):
-            errors.append(f"discovery decisions[{i}] must be an object")
-            continue
-        if not non_empty_string(dec.get("q")):
-            errors.append(f"discovery decisions[{i}] requires a question 'q'")
-        if not non_empty_string(dec.get("answer")):
-            errors.append(f"discovery decisions[{i}] requires an 'answer'")
-    return errors
-
-
 def sanitize_os_evidence_payload(payload):
     if not isinstance(payload, dict):
         return None, ["evidence payload must be a JSON object"]
@@ -9480,12 +6865,6 @@ def sanitize_os_evidence_payload(payload):
     metric_errors = validate_metric_evidence(sanitized)
     if metric_errors:
         return None, metric_errors
-    prototype_errors = validate_prototype_evidence(sanitized)
-    if prototype_errors:
-        return None, prototype_errors
-    discovery_errors = validate_discovery_evidence(sanitized)
-    if discovery_errors:
-        return None, discovery_errors
     evidence_id = (
         safe_evidence_id(sanitized.get("id"))
         or safe_evidence_id(sanitized.get("ref"))
@@ -9995,7 +7374,7 @@ def os_start_schema_payload():
             "expected_evidence": {"required": False, "default": ["manual verification receipt"]},
             "out_of_scope_paths": {"required": False, "default": []},
             "evidence_profile": {"required": False, "default": "generic", "allowed": sorted(EVIDENCE_PROFILES)},
-            "mode": {"required": False, "default": "adaptive", "allowed": sorted(OS_MODE_REQUESTS), "aliases": ["os_mode", "piloth_mode"], "note": "adaptive/auto resolve to lean|standard|strict"},
+            "mode": {"required": False, "default": "standard", "allowed": sorted(OS_MODE_REQUESTS), "aliases": ["os_mode", "piloth_mode"], "note": "strict adds gates; it does not change context loading"},
             "operational_preset": {"required": False, "allowed": sorted(OPERATIONAL_PRESETS)},
             "target_footprint_policy": {"required": False, "allowed": sorted(TARGET_FOOTPRINT_POLICIES), "aliases": ["footprint_policy"], "default": "no_control_plane_files if explicit target else repo_local_state_allowed"},
             "execution_strategy": {"required": False, "default": "controlled_target if explicit target else repo_local"},
@@ -10007,9 +7386,6 @@ def os_start_schema_payload():
             "work_packages": {"required": False, "note": "independent work packages used by the scored team gate"},
             "user_overrides": {"required": False, "note": "rollout/execution override; safety review remains mandatory"},
             "success_metrics": {"required": False},
-            "requires_prototype": {"required": False, "default": False, "note": "true also forces requires_human_review"},
-            "requires_human_review": {"required": False, "default": False},
-            "requires_discovery": {"required": False, "default": False},
             "energy_budget_reason": {"required": "when expected_evidence names a full-suite/broad run", "note": "justify the blast radius of an expensive run"},
         },
     }
@@ -10065,13 +7441,7 @@ def os_start(argv):
         "adapter_capabilities": request.get("adapter_capabilities"),
         "_router_compat_only": True,
     })
-    scheduler = scheduler_suggest_payload({
-        "task_signal": routed_signal,
-        "affected_paths": paths,
-        "intent": request_intent(request),
-        "_router_compat_only": True,
-    })
-    contract = build_os_contract(request, route, scheduler, target=target)
+    contract = build_os_contract(request, route, target=target)
     contract["evidence_router"] = evidence_router
     contract["decision_id"] = evidence_router.get("decision_id")
     contract["evidence_plan"] = evidence_router.get("evidence_plan", [])
@@ -10103,8 +7473,6 @@ def os_start(argv):
         "control_plane_repo": str(REPO_ROOT.resolve()),
         "evidence_profile": contract.get("evidence_profile", "generic"),
         "mode": contract.get("mode", "standard"),
-        "adaptive_mode": bool(contract.get("adaptive_mode")),
-        "mode_decisions": contract.get("mode_decisions", []),
         "execution_strategy": contract.get("execution_strategy", ""),
         "target_footprint_policy": contract.get("target_footprint_policy", ""),
         "budget": contract.get("budget", {}),
@@ -10129,7 +7497,6 @@ def os_start(argv):
                 if row.get("status") not in {"healthy", "not_applicable"}
             ][:20],
         },
-        "scheduler_suggestion": scheduler,
         "evidence_router": evidence_router,
     }
     state_path = save_os_state(state)
@@ -10172,14 +7539,8 @@ def os_start(argv):
         "required_gates": state["required_gates"],
         "expected_evidence": contract["expected_evidence"],
         "mode": state["mode"],
-        "adaptive_mode": state["adaptive_mode"],
-        "mode_decisions": state["mode_decisions"],
         "execution_strategy": state.get("execution_strategy", ""),
         "target_footprint_policy": state.get("target_footprint_policy", ""),
-        "scheduler": {
-            "expected_evidence": scheduler.get("expected_evidence") if isinstance(scheduler, dict) else [],
-            "energy_budget": scheduler.get("energy_budget") if isinstance(scheduler, dict) else "",
-        },
         "asset_routing": route,
         # The full decision is already persisted in the run state and in the
         # contract.json named above, so stdout carries the digest rather than a
@@ -10218,8 +7579,6 @@ def os_status(argv=None):
         "target": state.get("target", {}),
         "evidence_profile": state.get("evidence_profile", "generic"),
         "mode": state.get("mode", ""),
-        "adaptive_mode": state.get("adaptive_mode", False),
-        "mode_decisions": state.get("mode_decisions", []),
         "execution_strategy": state.get("execution_strategy", ""),
         "target_footprint_policy": state.get("target_footprint_policy", ""),
         "budget": state.get("budget", {}),
@@ -10227,17 +7586,10 @@ def os_status(argv=None):
         "budget_status": budget_status(state.get("contract") or {}, evidence),
         "expected_evidence": state.get("expected_evidence", []),
         "required_gates": state.get("required_gates", []),
-        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
-        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
         "evidence_router": (
             state.get("evidence_router", {}) if verbose
             else evidence_route_digest(state.get("evidence_router", {}))
         ),
-        "requires_prototype": bool((state.get("contract") or {}).get("requires_prototype")),
-        "requires_discovery": bool((state.get("contract") or {}).get("requires_discovery")),
-        "prototype": state.get("prototype", {}),
-        "human_review": state.get("human_review", {}),
-        "discovery_recorded": latest_evidence_of_kind(evidence, "discovery") is not None,
         "evidence_count": len(evidence),
         "seal_sha256": state.get("seal_sha256", ""),
     })
@@ -10356,25 +7708,7 @@ def os_close_result(receipt, task_id=None, dry_run=False):
     errors.extend(evidence_router_receipt_errors(contract, receipt, os_evidence))
     errors.extend(validate_target_receipt_coverage(receipt, target_diff))
     required_gates = state.get("required_gates") or required_gates_for_task(contract, receipt, mode=state.get("mode"))
-    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
-        required_gates = list(required_gates) + ["human_review"]
     errors.extend(validate_required_quality_gates(receipt, required_gates))
-    hr_errors, hr_summary = validate_human_review_gate(state, contract, receipt, os_evidence)
-    errors.extend(hr_errors)
-    state["human_review"] = hr_summary
-    if hr_summary.get("unresolved"):
-        state["repair_required"] = True
-        state["open_review_findings"] = hr_summary["unresolved"]
-        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review", "repair"]))
-    if isinstance(contract, dict) and contract.get("requires_prototype") and "prototype" not in required_gates:
-        required_gates = list(required_gates) + ["prototype"]
-        errors.extend(validate_required_quality_gates(receipt, ["prototype"]))
-    proto_summary = validate_prototype_gate(state, contract, receipt, os_evidence)
-    state["prototype"] = proto_summary
-    if proto_summary.get("result") == "FAIL":
-        errors.append("prototype gate failed: " + str(proto_summary.get("reason", "prototype evidence incomplete")))
-        state["prototype_incomplete"] = proto_summary.get("reason", "")
-        state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["prototype", "repair"]))
     missing_evidence = validate_expected_evidence_present(contract, receipt, facts, os_evidence)
     errors.extend(missing_evidence)
     errors.extend(validate_design_token_receipt(receipt, contract, state, os_evidence))
@@ -10516,161 +7850,6 @@ def os_close(argv):
     json_print(os_close_result(receipt, dry_run=dry_run))
 
 
-def review_request(argv):
-    """Emit the review-request artifact for the active OS run (Review state).
-
-    Accepts an optional task id, or a JSON payload {task_id, questions}.
-    """
-    payload = {}
-    task_id = None
-    if argv:
-        arg = argv[0].strip()
-        if arg.startswith("{"):
-            try:
-                payload = json.loads(arg)
-            except Exception as e:
-                json_print({"result": "review_request_rejected", "errors": [str(e)]})
-                return
-            task_id = payload.get("task_id")
-        else:
-            task_id = argv[0]
-    state, _ = load_os_state(task_id)
-    if not state:
-        json_print({"result": "review_request_rejected", "errors": ["no active OS run; call os-start first"]})
-        return
-    task_id = state["task_id"]
-    contract = state.get("contract") or {}
-    active_contract, _ = load_task_contract({})
-    if isinstance(active_contract, dict):
-        contract = active_contract
-    required_gates = state.get("required_gates") or required_gates_for_task(contract, None, mode=state.get("mode"))
-    if isinstance(contract, dict) and contract.get("requires_human_review") and "human_review" not in required_gates:
-        required_gates = list(required_gates) + ["human_review"]
-    changed = sorted(facts_paths(load_diff_facts({}), None))
-    contract_path = os_state_path(task_id, "contract.json")
-    body = {
-        "schema_version": 1,
-        "kind": "review_request",
-        "task_id": task_id,
-        "repo_key": REPO_KEY,
-        "under_review": {
-            "contract_path": contract_path.relative_to(REPO_ROOT).as_posix() if contract_path.exists() else "",
-            "changed_files": changed,
-        },
-        "gates": required_gates,
-        "questions": payload.get("questions") if isinstance(payload.get("questions"), list) else [],
-        "requested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    body["request_sha256"] = sha256_json({
-        "task_id": task_id, "under_review": body["under_review"],
-        "gates": required_gates, "questions": body["questions"],
-    })
-    path = os_state_path(task_id, "review-request.json")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, body)
-    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + ["review"]))
-    save_os_state(state)
-    json_print({
-        "result": "review_requested",
-        "task_id": task_id,
-        "gates": required_gates,
-        "review_request_path": path.relative_to(REPO_ROOT).as_posix(),
-        "request_sha256": body["request_sha256"],
-    })
-
-
-def review_feedback(argv):
-    """Ingest a structured human-review round, record it as evidence, update state."""
-    try:
-        payload, _ = json_arg_or_stdin(argv, "review-feedback")
-    except Exception as e:
-        json_print({"result": "review_feedback_rejected", "errors": [str(e)]})
-        return
-    if not isinstance(payload, dict):
-        json_print({"result": "review_feedback_rejected", "errors": ["feedback must be a JSON object"]})
-        return
-    state, _ = load_os_state(payload.get("task_id"))
-    if not state:
-        json_print({"result": "review_feedback_rejected", "errors": ["no active OS run; call os-start first"]})
-        return
-    task_id = state["task_id"]
-    errors = validate_review_feedback(payload)
-    if errors:
-        json_print({"result": "review_feedback_rejected", "task_id": task_id, "errors": errors})
-        return
-    existing = review_feedback_records(task_id)
-    try:
-        review_round = int(payload.get("review_round"))
-    except (TypeError, ValueError):
-        review_round = len(existing) + 1
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    record = sanitize_state_value({
-        "schema_version": 1,
-        "kind": "human_review",
-        "task_id": task_id,
-        "repo_key": REPO_KEY,
-        "reviewer": payload.get("reviewer") or "",
-        "review_round": review_round,
-        "verdict": payload.get("verdict"),
-        "finalized": bool(payload.get("finalized")),
-        "message": payload.get("message") or "",
-        "findings": payload.get("findings") or [],
-        "recorded_at": now,
-    }, limit=4000)
-    append_review_feedback(task_id, record)
-    unresolved = [
-        finding.get("id")
-        for finding in record["findings"]
-        if isinstance(finding, dict)
-        and finding.get("severity") in REVIEW_BLOCKING_SEVERITIES
-        and finding.get("disposition") == "request-changes"
-    ]
-    append_os_evidence(task_id, {
-        "id": f"hr-round-{review_round}",
-        "kind": "human_review",
-        "review_round": review_round,
-        "verdict": record["verdict"],
-        "finalized": record["finalized"],
-        "unresolved": unresolved,
-        "reviewer": record["reviewer"],
-        "recorded_at": now,
-    })
-    lifecycle_add = ["review"] + (["repair"] if unresolved else [])
-    state["lifecycle"] = list(dict.fromkeys(state.get("lifecycle", []) + lifecycle_add))
-    if unresolved:
-        state["repair_required"] = True
-        state["open_review_findings"] = unresolved
-    save_os_state(state)
-    json_print({
-        "result": "review_feedback_recorded",
-        "task_id": task_id,
-        "review_round": review_round,
-        "verdict": record["verdict"],
-        "finalized": record["finalized"],
-        "unresolved": unresolved,
-    })
-
-
-def review_verify(argv):
-    """Read-only status of the human_review gate for the active OS run."""
-    state, _ = load_os_state(argv[0] if argv else None)
-    if not state:
-        json_print({"result": "review_verify_failed", "errors": ["no active OS run"]})
-        return
-    contract = state.get("contract") or {}
-    active_contract, _ = load_task_contract({})
-    if isinstance(active_contract, dict):
-        contract = active_contract
-    os_evidence = os_evidence_records(state["task_id"])
-    hr_errors, hr_summary = validate_human_review_gate(state, contract, {}, os_evidence)
-    json_print({
-        "result": "review_verified" if not hr_errors else "review_incomplete",
-        "task_id": state["task_id"],
-        "human_review": hr_summary,
-        "errors": hr_errors,
-    })
-
-
 def os_verify(argv):
     task_id = argv[0] if argv else None
     state, _ = load_os_state(task_id)
@@ -10738,67 +7917,6 @@ def os_verify(argv):
     })
 
 
-def os_report(argv):
-    task_id = argv[0] if argv else None
-    state, path = load_os_state(task_id)
-    if not state:
-        json_print({"result": "os_report_missing", "errors": ["no OS run state found"]})
-        return
-    evidence = os_evidence_records(state.get("task_id"))
-    receipt, receipt_path = load_deliver_receipt({})
-    target_diff = load_json_file(os_state_path(state.get("task_id", ""), "target-diff.json"))
-    target_seal = state.get("target_seal")
-    if not isinstance(target_seal, dict):
-        target_seal = load_json_file(os_state_path(state.get("task_id", ""), "target-seal.json"))
-    target_footprint = state.get("target_footprint")
-    if not isinstance(target_footprint, dict) and isinstance(target_diff, dict):
-        target_footprint = target_footprint_report(state, target_diff)
-    superiority_payloads = consumer_superiority_payloads(receipt or {}, evidence)
-    superiority_passed = consumer_superiority_ok(receipt or {}, evidence)
-    if superiority_payloads:
-        superiority_result = "consumer_value_passed" if superiority_passed else "consumer_value_failed"
-    else:
-        superiority_result = "not_claimed"
-    json_print({
-        "result": "os_report",
-        "task_id": state.get("task_id"),
-        "status": state.get("status"),
-        "state_path": path.relative_to(REPO_ROOT).as_posix() if path else "",
-        "receipt_path": receipt_path.as_posix() if receipt_path else "",
-        "mode": state.get("mode", ""),
-        "adaptive_mode": state.get("adaptive_mode", False),
-        "mode_decisions": state.get("mode_decisions", []),
-        "phase_plan_suggestion": (state.get("contract") or {}).get("phase_plan_suggestion", {}),
-        "model_hints": (state.get("contract") or {}).get("model_hints", {}),
-        "execution_strategy": state.get("execution_strategy", ""),
-        "target_footprint_policy": state.get("target_footprint_policy", ""),
-        "budget": state.get("budget", {}),
-        "success_metrics": state.get("success_metrics", []),
-        "cost_ledger": cost_ledger_summary(evidence),
-        "budget_status": budget_status(state.get("contract") or {}, evidence),
-        "consumer_superiority": {
-            "result": superiority_result,
-            "payload_count": len(superiority_payloads),
-            "policy": "not worse on every mandatory metric, real token telemetry present, and win at least one consumer-visible metric before claiming consumer value",
-        },
-        "target": state.get("target", {}),
-        "target_footprint": target_footprint if isinstance(target_footprint, dict) else {},
-        "target_diff": target_diff if isinstance(target_diff, dict) else {},
-        "target_seal_sha256": target_seal.get("target_seal_sha256", "") if isinstance(target_seal, dict) else "",
-        # Same reason as os-status: the full decision stays in state, and the
-        # router limitations it carries are repeated under `limitations` below.
-        "evidence_router": evidence_route_digest(state.get("evidence_router", {})),
-        "required_gates": state.get("required_gates", []),
-        "evidence_count": len(evidence),
-        "limitations": [
-            "exact LLM token usage is unavailable unless llm_usage metrics record real_token_telemetry=true",
-            "artifact token estimates are not LLM cost telemetry",
-        ] + (
-            state.get("evidence_router", {}).get("limitations", [])
-            if isinstance(state.get("evidence_router"), dict)
-            else []
-        ),
-    })
 # ---------------------------------------------------------------- misc modes
 
 def statusline():
@@ -10853,7 +7971,6 @@ def self_host_required_manifest_paths():
         "pilothOS/runtime/evidence-router-issues.json",
         "pilothOS/scripts/pilothos_guard.py",
         "pilothOS/scripts/pilothos_installer.py",
-        "pilothOS/agent-teams/piloth-team.md",
         "pilothOS/memory/state/README.md",
     }
 
@@ -10874,7 +7991,6 @@ def self_host_check_result():
         PILOTHOS_DIR / "runtime" / "adapter-capabilities.json",
         PILOTHOS_DIR / "runtime" / "specialist-registry.json",
         PILOTHOS_DIR / "runtime" / "model-capabilities.json",
-        PILOTHOS_DIR / "agent-teams" / "piloth-team.md",
         PILOTHOS_DIR / "scripts" / "pilothos_guard.py",
     ]
     for path in required_files:
@@ -11272,15 +8388,6 @@ def state_janitor_findings(keep_runs=None, keep_days=None, kernel_logs=False):
             "reason": "sealed run outside retention (keeps state/seal JSON)",
             "bytes": _artifacts_size_bytes(artifacts),
         })
-    sched_lines = _count_jsonl_lines(SCHEDULER_HISTORY)
-    if sched_lines > SCHEDULER_HISTORY_KEEP:
-        findings.append({
-            "path": SCHEDULER_HISTORY.relative_to(REPO_ROOT).as_posix(),
-            "kind": "jsonl-tail",
-            "action": "truncate",
-            "keep": SCHEDULER_HISTORY_KEEP,
-            "lines": sched_lines,
-        })
     seal_lines = _count_jsonl_lines(RECEIPT_SEALS)
     if seal_lines > RECEIPT_SEALS_WARN_LINES:
         findings.append({
@@ -11330,27 +8437,6 @@ def _prune_artifacts_dir(rel_path):
         return {"path": rel_path, "status": "failed", "reason": str(e)}
 
 
-def _truncate_jsonl_tail(path, keep):
-    rel = path.relative_to(REPO_ROOT).as_posix()
-    if not path.exists():
-        return {"path": rel, "status": "missing"}
-    try:
-        with open(path, encoding="utf-8") as f:
-            lines = [line for line in f if line.strip()]
-    except OSError as e:
-        return {"path": rel, "status": "failed", "reason": str(e)}
-    if len(lines) <= keep:
-        return {"path": rel, "status": "noop", "lines": len(lines)}
-    kept = lines[-keep:]
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            for line in kept:
-                f.write(line if line.endswith("\n") else line + "\n")
-    except OSError as e:
-        return {"path": rel, "status": "failed", "reason": str(e)}
-    return {"path": rel, "status": "truncated", "removed": len(lines) - keep, "kept": len(kept)}
-
-
 def _rotate_md_log(rel_path, item):
     live = REPO_ROOT / rel_path
     archive = REPO_ROOT / item.get("archive", "")
@@ -11390,8 +8476,6 @@ def state_janitor_apply(findings):
         action = item.get("action")
         if action == "remove" and item.get("kind") == "dir":
             actions.append(_prune_artifacts_dir(item.get("path")))
-        elif action == "truncate" and item.get("kind") == "jsonl-tail":
-            actions.append(_truncate_jsonl_tail(SCHEDULER_HISTORY, item.get("keep", SCHEDULER_HISTORY_KEEP)))
         elif action == "rotate" and item.get("kind") == "md-rows":
             actions.append(_rotate_md_log(item.get("path"), item))
     return actions
@@ -11545,8 +8629,6 @@ def manifest_path_is_runtime_state(rel):
     return (
         (rel.startswith("pilothOS/memory/state/") and rel.endswith(".jsonl"))
         or rel.startswith("pilothOS/memory/state/os-runs/")
-        or rel.startswith("pilothOS/memory/state/team-runs/")
-        or rel.startswith("pilothOS/memory/state/codebase-index/")
     )
 
 
@@ -11555,20 +8637,6 @@ def state_doctor_result():
 
     def add_check(name, ok, detail):
         checks.append({"name": name, "ok": bool(ok), "detail": detail})
-
-    scheduler = jsonl_state_doctor(SCHEDULER_HISTORY)
-    scheduler_items = scheduler.pop("items", [])
-    add_check(
-        "scheduler history jsonl",
-        scheduler.get("ok"),
-        scheduler,
-    )
-    deprecated = [item for item in scheduler_items if scheduler_history_deprecated(item)]
-    add_check(
-        "scheduler deprecated history isolation",
-        True,
-        {"deprecated_repo_records_ignored": len(deprecated)},
-    )
 
     seals = jsonl_state_doctor(RECEIPT_SEALS)
     seal_items = seals.pop("items", [])
@@ -11640,7 +8708,6 @@ def state_doctor_result():
             "keep_days": janitor.get("retention", {}).get("keep_days"),
             "prunable_artifact_dirs": len(prunable),
             "reclaimable_bytes": reclaimable,
-            "scheduler_history_lines": _count_jsonl_lines(SCHEDULER_HISTORY),
             "receipt_seals_lines": _count_jsonl_lines(RECEIPT_SEALS),
             "lessons_rows": _md_table_rowcount(LESSONS),
             "review_log_rows": _md_table_rowcount(REVIEW_LOG),
@@ -12054,33 +9121,16 @@ GUARD_HANDLERS = {
     "token-telemetry": token_telemetry,
     "os-close": os_close,
     "os-verify": os_verify,
-    "os-report": os_report,
-    "review-request": review_request,
-    "review-feedback": review_feedback,
-    "review-verify": review_verify,
     "asset-scan": asset_scan,
     "asset-health": asset_health,
     "asset-sync": asset_sync,
     "adapter-capabilities": adapter_capabilities,
     "evidence-route": evidence_route,
-    "route-task": route_task,
-    "context-budget": context_budget,
-    "payload-budget": payload_budget,
-    "codebase-index": codebase_index,
-    "codebase-status": codebase_status,
-    "codebase-query": codebase_query,
-    "rot-status": rot_status,
-    "reuse-scan": reuse_scan,
-    "ds-scan": ds_scan,
-    "scheduler-suggest": scheduler_suggest,
-    "scheduler-record": scheduler_record,
     "receipt-seal": receipt_seal,
     "receipt-verify": receipt_verify,
     "artifact-janitor": artifact_janitor,
     "state-janitor": state_janitor,
     "control-plane-check": control_plane_check,
-    "team-contract-write": team_contract_write,
-    "team-receipt-write": team_receipt_write,
     "log-append": log_append,
     "receipt-template": receipt_template,
     "statusline": statusline,
@@ -12088,8 +9138,6 @@ GUARD_HANDLERS = {
     "self-host-check": self_host_check,
     "preflight": preflight,
     "detect": detect,
-    "audit-assets": audit_consumer_assets,
-    "registry-assets": registry_consumer_assets,
     "state-doctor": state_doctor,
     "production-review": production_review,
 }

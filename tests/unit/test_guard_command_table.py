@@ -145,7 +145,7 @@ def test_never_mutating_modes_reach_no_write_primitive(guard, bundle_functions):
 def test_always_mutating_modes_do_reach_a_write_primitive(guard, bundle_functions):
     """The opposite direction: a `mutates: True` claim must be real, otherwise the
     registry is denying read-only status to a mode that deserves it (the bug that
-    hid codebase-status/codebase-query)."""
+    hid read-only query verbs)."""
     offenders = [
         mode for mode, meta in sorted(guard.GUARD_MODES.items())
         if meta["mutates"] is True
@@ -163,8 +163,7 @@ def test_always_mutating_modes_do_reach_a_write_primitive(guard, bundle_function
     ("state-janitor", [], False),
     ("state-janitor", ["--keep-runs", "5"], False),
     ("state-janitor", ["--fix", "--kernel-logs"], True),
-    ("codebase-status", [], False),
-    ("codebase-index", [], True),
+    ("os-status", [], False),
     ("os-close", [], True),
     # An unknown mode must never be granted a read-only exemption.
     ("definitely-not-a-mode", [], True),
@@ -178,8 +177,6 @@ def test_mode_mutates_reads_flags(guard, mode, args, expected):
     ("artifact-janitor --fix", False),
     ("artifact-janitor --target /tmp/x", False),
     ("state-janitor --fix --kernel-logs", False),
-    ("codebase-status", True),
-    ("codebase-query --symbol foo", True),
     ("os-status", True),
     ("contract-write plan.json", False),
     ("log-append review a b c d e", False),
@@ -238,13 +235,8 @@ def test_table_covers_self_host_required_modes(guard):
 
 
 def test_core_lifecycle_modes_present(guard):
-    for mode in ("os-start", "os-evidence", "os-close", "os-verify", "os-report",
-                 "control-plane-check", "context-budget", "receipt-seal"):
+    for mode in ("os-start", "os-evidence", "os-close", "os-verify",
+                 "control-plane-check", "receipt-seal"):
         assert mode in guard.COMMAND_TABLE
 
 
-def test_human_review_modes_present(guard):
-    for mode in ("review-request", "review-feedback", "review-verify"):
-        assert mode in guard.COMMAND_TABLE
-    # review-verify is read-only and must be registered as such.
-    assert "review-verify" in guard.READ_ONLY_GUARD_MODES

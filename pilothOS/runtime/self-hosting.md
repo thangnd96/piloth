@@ -33,17 +33,16 @@ applicable:
 
 | Layer | Examples | Default Evidence |
 |---|---|---|
-| Runtime | `pilothOS/runtime/**` | lifecycle docs, scheduler/route behavior, docs tests |
+| Runtime | `pilothOS/runtime/**` | lifecycle docs, routing behavior, docs tests |
 | Rules | `pilothOS/rules/**` | rule index, adapter bridge checks, docs tests |
 | Tools/Runtime | `pilothOS/scripts/**`, `pilothOS/tools/**` | `python3 -m py_compile`, evaluation tests |
 | Installer | `pilothOS/scripts/pilothos_installer.py`; in the Piloth source repo: `scripts/stage.py`, `scripts/build_manifest.py` | `tests/install/run-tests.sh` |
 | Evaluation | `pilothOS/evaluation/**`, `tests/evaluation/**` | `tests/evaluation/run-tests.sh` |
 | Docs | `README.md`, `docs/**`, runtime docs | `tests/docs/run-tests.sh` |
 | Adapters | `adapters/**`, templates, commands | adapter bridge checks, docs tests |
-| Agent Teams | `pilothOS/agent-teams/**` | team contract/receipt tests |
 
 `tests/run_all.sh` is the default full release gate. Targeted suites are allowed
-only when the receipt states the limitation or when the scheduler selected a
+only when the receipt states the limitation or when the router selected a
 narrow suite for a narrow change.
 
 ### Shipped Engines Are Amalgamations
@@ -64,7 +63,6 @@ Piloth source assets are consumer assets for self-hosting. Use:
 ```bash
 python3 pilothOS/scripts/pilothos_guard.py asset-scan --format json
 python3 pilothOS/scripts/pilothos_guard.py asset-health --all
-python3 pilothOS/scripts/pilothos_guard.py route-task '{"task_signal":"tool/MCP"}'
 ```
 
 Generated registry content must be written only by:
@@ -80,29 +78,6 @@ notes outside those markers.
 `package-script`, `hook-config`, `mcp-config`, `runner`, `design-system-path`
 and `piloth-owned`. `asset-health` includes `manifest_status` for Piloth-owned
 assets so stale distribution coverage is visible.
-
-## Semantic Reuse
-
-For Piloth runtime, tools, evaluation and tests changes, run `reuse-scan`
-against the relevant allowed paths before adding new helpers or validators.
-Receipts must include `semantic_reuse_review` when high-confidence candidates
-exist. A new guard helper must state why an existing validator/helper was not
-reused.
-
-Piloth being packaged as a plugin does not relax DRY/KISS. For code, runtime,
-rules, adapter or installer changes, the deliver receipt must include
-`reuse_discipline` and a `quality_gates.reuse_non_duplication` result. A receipt
-that declares this gate `FAIL` cannot also claim a successful delivery without a
-documented limitation.
-
-`reuse-scan` reports `learning_suggestions` when high-confidence duplicate or
-reuse candidates appear. If the same candidate recurs in local scheduler history,
-the suggestion marks it as repeated and points the receipt toward
-`learning_review.mistake_checked` such as `duplicated_helper` or
-`duplicated_component`.
-
-For UI-facing code or docs, run `ds-scan` when relevant and include
-`design_system_candidate_review` before new UI code or UI guidance.
 
 ## OS-Like Integrity Controls
 
@@ -124,11 +99,9 @@ Dirty Piloth source checkouts must have a closed/sealed OS run before
 `control-plane-check` can pass in active mode. Seals make receipt/file tampering
 visible but are not code signing or notarization.
 
-## Scheduler
+## Which Suite To Run
 
-Use `scheduler-suggest` before broad Piloth work. The scheduler should prefer:
-
-| Change | Suggested Suite |
+| Change | Suite |
 |---|---|
 | Guard/evaluation policy | `tests/evaluation/run-tests.sh` |
 | Installer/staging | `tests/install/run-tests.sh` |
@@ -136,18 +109,9 @@ Use `scheduler-suggest` before broad Piloth work. The scheduler should prefer:
 | Docs-only | `tests/docs/run-tests.sh` |
 | Cross-layer release | `tests/run_all.sh` |
 
-Scheduler history is local repo memory under
-`pilothOS/memory/state/scheduler-history.jsonl`. It is append-only and must not
-store secrets or full command output.
-
-When history is present and valid, `scheduler-suggest` may apply successful
-repo-local entries with matching task signal or affected layers. `scheduler-record`
-appends sanitized receipt summaries after successful delivery, including route,
-tools, tests, warnings and learning decision. History can add prior evidence
-commands, asset types and risk notes to the suggestion. Missing or corrupt
-history falls back to deterministic routing and must not block work.
-When a receipt omits `task_signal`, the recorder derives it from routed assets;
-deprecated host cleanup paths must not make a new project-local OS entry unusable.
+This is a lookup table, not a learned policy. An earlier build kept a scheduler
+that recorded local history and replayed it as a suggestion; nothing downstream
+ever read its output, so the history is gone and the mapping is stated directly.
 
 Use `state-doctor` before release to audit repo-local OS state:
 
@@ -155,7 +119,7 @@ Use `state-doctor` before release to audit repo-local OS state:
 python3 pilothOS/scripts/pilothos_guard.py state-doctor
 ```
 
-The doctor is read-only. It checks scheduler history JSONL, receipt seal JSONL,
+The doctor is read-only. It checks receipt seal JSONL,
 receipt seal chain continuity and confirms JSONL state files are not shipped in
 the distribution manifest. Missing state is acceptable; corrupt existing state is
 not release-ready.
@@ -187,17 +151,6 @@ python3 pilothOS/scripts/pilothos_guard.py artifact-janitor
 The janitor is read-only by default and detects deterministic local artifacts.
 Explicit `--fix` may remove only known local artifacts such as `.DS_Store`,
 `__pycache__`, `.pytest_cache`, Playwright reports and `test-results`.
-
-## Team Control Plane
-
-Release-level or cross-layer Piloth work may use `piloth-team` through
-`team-contract-write` and `team-receipt-write`. Single-file or trivial work
-should remain single-agent. Team policy lives in `pilothOS/agent-teams/` and
-runtime docs; adapters stay thin.
-
-Team receipts materialize role outputs, QA verdicts, handoff summaries and final
-lead decisions under `pilothOS/memory/state/team-runs/<task-id>/`. Receipt-level
-`edited_paths` are checked against role permissions and team `allowed_paths`.
 
 ## Self-Check
 

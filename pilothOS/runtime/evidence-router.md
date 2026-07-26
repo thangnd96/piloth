@@ -25,8 +25,7 @@ python3 pilothOS/scripts/pilothos_guard.py adapter-capabilities capabilities.jso
 ```
 
 `os-start` calls `evidence-route` directly and stores its decision in the task
-contract, OS state and report. `route-task` and `scheduler-suggest` remain V1
-compatibility wrappers and expose the new decision under `evidence_router`.
+contract and OS state.
 
 Every route contains:
 
@@ -41,8 +40,7 @@ Every evidence item contains `type`, `source`, `required`, `freshness`,
 
 ## Digest by default
 
-`evidence-route`, `os-start`, `os-status`, `route-task` and `scheduler-suggest`
-print a **digest** of the decision: the fields that change what the agent does
+`evidence-route`, `os-start` and `os-status` print a **digest** of the decision: the fields that change what the agent does
 next (plan, gates, budgets, limitations) plus `decision_id`. The full decision
 is always written to the run's `contract.json` and OS state, and
 `evidence-route --verbose` / `os-status --verbose` print it in full.
@@ -123,7 +121,7 @@ external-review gate.
 ## Rollout and state boundary
 
 `off`, `shadow`, `advisory` and `enforced` use the same decision schema.
-`PILOTHOS_EVIDENCE_ROUTER_KILL_SWITCH=1` returns to legacy scheduler plus
+`PILOTHOS_EVIDENCE_ROUTER_KILL_SWITCH=1` returns to
 source-only routing. Adapters must pass the full capability vocabulary before
 enforced execution is enabled; otherwise the effective mode degrades to
 `advisory` and records the exact gaps.
@@ -135,7 +133,7 @@ explicit `router_low_confidence_resolution`; review-bearing routes require an
 independent PASS with evidence. The gate runs inside `os-close`.
 
 The Evidence Router is stateless: routing never creates or updates a database,
-specialist score or policy. `scheduler-record` may append sanitized,
+specialist score or policy. Nothing may append sanitized,
 repo-local compatibility history to `memory/state/scheduler-history.jsonl`
 when explicitly invoked. That history can advise legacy wrappers but cannot
 mutate router policy, promote lessons or upload telemetry.

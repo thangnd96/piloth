@@ -96,7 +96,7 @@ cat > "$TMP/os-request.json" <<JSON
 }
 JSON
 python3 "$G" os-start "$TMP/os-request.json" > "$TMP/os-start.json"
-grep -q '"mode": "lean"' "$TMP/os-start.json"
+grep -q '"mode": "standard"' "$TMP/os-start.json"
 grep -q '"execution_strategy": "controlled_target"' "$TMP/os-start.json"
 grep -q '"target_footprint_policy": "no_control_plane_files"' "$TMP/os-start.json"
 [ ! -e "$HAD/pilothOS" ]
@@ -406,9 +406,22 @@ close=$(printf '%s' '{
   "affected_layers": ["Consumer", "Docs"],
   "verification_command": "browser smoke",
   "result": "passed",
+  "scope_evidence": "only the declared target UI fixture files changed",
+  "context_used": [{"source": "pilothOS/runtime/os-control-plane.md", "reason": "controlled-target contract", "finding": "target footprint policy applies"}],
+  "consumer_asset_routing": [{"task_signal": "UI/component", "asset_type": "not_applicable", "decision": "not_applicable", "reason": "benchmark target has no consumer assets"}],
+  "learning_review": {"mistake_checked": "none", "lesson_decision": "none", "promoted_to": "not_applicable", "reason": "benchmark fixture"},
+  "reuse_discipline": {"existing_code_checked": "target scanned, no prior UI files", "existing_component_checked": "not_applicable", "existing_pattern_followed": "plain semantic HTML + CSS grid", "new_code_reason": "greenfield benchmark target", "duplicate_risk": "none", "kiss_dry_rationale": "flat fixture files, no abstraction"},
+  "design_system_checked": "target scanned; no design system or token source exists",
+  "component_reuse_decision": "not_applicable",
+  "token_reuse_decision": "not_applicable",
+  "design_system_candidate_review": [{"candidate": "all", "decision": "not_applicable", "reason": "benchmark target has no design-system assets"}],
   "quality_gates": {
     "scope": {"result": "PASS", "evidence": "Only target UI fixture files changed."},
     "correctness": {"result": "PASS", "evidence": "browser-smoke passed for required text and CSS grid checks."},
+    "traceability": {"result": "PASS", "evidence": "contract, target diff and os-run evidence trace every change."},
+    "architecture": {"result": "NOT_APPLICABLE", "evidence": "consumer fixture files, no PilothOS layer touched."},
+    "reuse_non_duplication": {"result": "PASS", "evidence": "no prior assets in the benchmark target."},
+    "regression": {"result": "PASS", "evidence": "browser smoke covers the rendered page."},
     "disclosure": {"result": "PASS", "evidence": "Benchmark result is consumer_value_failed; exact LLM token telemetry is unavailable."},
     "design_system": {"result": "PASS", "evidence": "Figma source ref was recorded; no consumer DS exists in this fixture."},
     "ui_quality": {"result": "PASS", "evidence": "ui-quality records viewport, console/page errors, image failures, overflow and visual diff status."}
@@ -425,7 +438,7 @@ close=$(printf '%s' '{
 grep -q '"result": "os_closed"' <<< "$close"
 grep -q '"result": "target_footprint_passed"' <<< "$close"
 python3 "$G" os-verify | grep -q '"result": "os_verify_passed"'
-python3 "$G" os-report > "$TMP/os-report.json"
+python3 "$G" os-status > "$TMP/os-report.json"
 grep -q '"result": "consumer_value_failed"' "$TMP/os-report.json"
 grep -q '"real_tokens": "unavailable"' "$TMP/os-report.json"
 grep -q '"target_footprint_policy": "no_control_plane_files"' "$TMP/os-report.json"

@@ -14,6 +14,9 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[2]
 GUARD_PATH = REPO / "pilothOS" / "scripts" / "pilothos_guard.py"
 INSTALLER_PATH = REPO / "pilothOS" / "scripts" / "pilothos_installer.py"
+# Vendor meter, deliberately outside the shipped kernel: measuring the kernel is
+# the vendor's job, so consumers no longer carry the measurement code.
+MEASURE_PATH = REPO / "scripts" / "measure_budget.py"
 
 
 def _load_module(name, path):
@@ -40,9 +43,6 @@ def guard(monkeypatch, tmp_path):
     monkeypatch.delenv("PILOTHOS_ADAPTER", raising=False)
     for var, _adapter in module.ADAPTER_ENV_SIGNALS:
         monkeypatch.delenv(var, raising=False)
-    # Compatibility history is repo-local runtime state. Unit tests must never
-    # consume or mutate a developer's real scheduler history.
-    module.SCHEDULER_HISTORY = tmp_path / "scheduler-history.jsonl"
     return module
 
 
@@ -61,6 +61,12 @@ def good_receipt():
 @pytest.fixture()
 def light_contract():
     return {"operational_preset": "light"}
+
+
+@pytest.fixture()
+def budget():
+    """The context/tool-output meters, now vendor tooling rather than guard verbs."""
+    return _load_module("measure_budget", MEASURE_PATH)
 
 
 @pytest.fixture()

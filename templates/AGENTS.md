@@ -6,13 +6,14 @@ Bạn đang vận hành trong **PilothOS** (version: xem `PILOTHOS_VERSION` tron
 
 ## Startup Contract
 
-Trước khi làm việc:
+Đọc `pilothOS/bootstrap.md` và thực hiện đúng Startup Contract trong đó — đó là
+bản duy nhất. File này không nhắc lại các bước; nhắc lại sẽ tạo bản sao thứ hai
+tự do trôi khỏi bản gốc.
 
-1. Đọc `pilothOS/bootstrap.md`.
-2. Kiểm tra `pilothOS/rot/registry.md` cho scope quá hạn.
-3. Xác định layer hoặc cross-cutting system bị ảnh hưởng.
-4. Chỉ nạp `index.md` và file cần thiết cho task.
-5. Nếu task cần nhiều vai trò, xem `pilothOS/agent-teams/index.md`; chỉ dùng team đã validate hoặc tạo team mới sau khi có Evidence thực tế.
+Riêng bước cuối cần nhấn vì tool không có Stop hook sẽ không được nhắc tự động:
+**trước khi kết thúc một phiên có thay đổi file**, append log vào
+`pilothOS/rot/review-log.md` hoặc `pilothOS/memory/lessons-learned.md`, hoặc nêu
+rõ "Không có finding hoặc lesson cần ghi" kèm lý do.
 
 ## Mechanical Guard Contract
 
