@@ -4,6 +4,18 @@
 
 Quản lý operational state và quy trình review Rot của PilothOS.
 
+## Responsibilities
+
+- Giữ bảng trạng thái rot hiện tại và due date cho từng scope.
+- Định nghĩa cadence, trigger và workflow review.
+- Lưu lịch sử review append-only.
+
+## Non-Responsibilities
+
+- Không định nghĩa policy hành vi (thuộc `rules/`).
+- Không lưu lesson tái sử dụng (thuộc `memory/lessons-learned.md`).
+- Không quyết định quality gate của task (thuộc `evaluation/`).
+
 ## Contents
 
 | File | Scope | Startup |

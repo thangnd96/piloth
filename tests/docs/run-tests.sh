@@ -256,12 +256,25 @@ echo "== D7 adapter bridge instructions stay thin =="
 python3 - <<'PY'
 import pathlib
 
+# The base adapter used to be the one bridge nobody checked: D7 covered cursor,
+# antigravity and codex but not adapters/claude, i.e. the bridge every install
+# ships was free to fork policy.
 checks = [
     pathlib.Path("templates/AGENTS.md"),
     pathlib.Path("adapters/cursor/rules/pilothos-core.mdc"),
     pathlib.Path("adapters/antigravity/rules/pilothos-core.md"),
     pathlib.Path("adapters/codex/config.toml"),
 ]
+claude_bridges = sorted(pathlib.Path("adapters/claude").rglob("*.md"))
+assert claude_bridges, "adapters/claude has no bridge files to check"
+for path in claude_bridges:
+    body = path.read_text(encoding="utf-8")
+    assert len(body.splitlines()) <= 12, (
+        f"{path}: base-adapter bridge is {len(body.splitlines())} lines; bridges "
+        "point at pilothOS/, they do not restate it"
+    )
+    lowered = body.lower()
+    assert "pilothos" in lowered, f"{path}: bridge never names pilothOS/"
 
 for path in checks:
     text = path.read_text(encoding="utf-8").lower()

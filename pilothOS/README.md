@@ -79,14 +79,18 @@ project (`.claude/`, `.cursor/`, `.codex/`, `.antigravity/`), không nằm trong
 
 ## Layer Index Contract
 
-Mỗi `index.md` của layer hoặc cross-cutting system được chuẩn hóa theo sáu mục khi áp dụng:
+Mỗi `index.md` của layer hoặc cross-cutting system PHẢI có đủ ba mục sau —
+chúng định nghĩa ranh giới mà progressive context loading dựa vào để route:
 
-1. `Purpose`
-2. `Responsibilities`
-3. `Non-Responsibilities`
-4. `Contents`
-5. `Convention`
-6. `Review Checklist`
+1. `Purpose` — layer này tồn tại để làm gì
+2. `Responsibilities` — thuộc về nó
+3. `Non-Responsibilities` — KHÔNG thuộc về nó
+
+Gate: bộ test doc-contract trong repo Piloth (không ship kèm bản cài).
+
+Khuyến nghị thêm khi có nội dung tương ứng: `Contents`, `Convention`,
+`Review Checklist`. Bản trước liệt kê cả sáu mục là bắt buộc "khi áp dụng" —
+mệnh đề thoát đó khiến không gate nào kiểm được, và 5/10 index đã lặng lẽ dùng nó.
 
 `Identity` là ngoại lệ: Identity nằm trong `CLAUDE.md`, còn checklist review của Identity nằm trong `pilothOS/rot/review-guide.md` để giữ đúng ranh giới layer.
 

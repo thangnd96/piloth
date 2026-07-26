@@ -190,11 +190,17 @@ def test_command_is_read_only_guard_end_to_end(guard, suffix, read_only):
     assert guard.command_is_read_only_guard(cmd) is read_only
 
 
+# Modes a consumer never types: the harness invokes them from settings.json, so
+# they belong in the hook config, not in prose. LOWER only — anything else that
+# ships must be findable in a shipped doc.
+HARNESS_INVOKED_MODES = frozenset({
+    "session-start", "prompt-check", "stop-check", "pre-edit", "post-edit",
+    "statusline",
+})
+
+
 def test_modes_named_in_shipped_docs_are_registered(guard):
-    """Shipped docs must not advertise a mode that no longer exists. The reverse
-    is deliberately NOT asserted: self-hosting.md / os-control-plane.md describe
-    the self-hosting contract, not a full CLI reference, so 15 internal modes are
-    legitimately absent from them."""
+    """Shipped docs must not advertise a mode that no longer exists."""
     pattern = re.compile(r"pilothos_guard\.py\s+([a-z][a-z0-9-]+)")
     ghosts = {}
     for doc in sorted((REPO / "pilothOS").rglob("*.md")):
@@ -202,6 +208,38 @@ def test_modes_named_in_shipped_docs_are_registered(guard):
             if mode not in guard.GUARD_MODES:
                 ghosts.setdefault(mode, []).append(doc.relative_to(REPO).as_posix())
     assert not ghosts, f"docs reference unregistered modes: {ghosts}"
+
+
+def test_every_consumer_facing_mode_appears_in_a_shipped_doc(guard):
+    """The reverse direction, previously waived with "15 internal modes are
+    legitimately absent". Those 15 were where 9 orphan verbs hid: nothing invoked
+    them and no doc mentioned them, so nothing could notice they were dead.
+    A mode that ships must be findable by the consumer who ships with it.
+    """
+    prose = "\n".join(
+        doc.read_text(encoding="utf-8", errors="replace")
+        for doc in (REPO / "pilothOS").rglob("*.md")
+    )
+    missing = sorted(
+        mode for mode in guard.GUARD_MODES
+        if mode not in HARNESS_INVOKED_MODES
+        and f"`{mode}`" not in prose
+        and f"pilothos_guard.py {mode}" not in prose
+    )
+    assert not missing, (
+        f"registered but undocumented in the shipped kernel: {missing}. "
+        "Document it, add it to HARNESS_INVOKED_MODES if the harness calls it, "
+        "or delete it."
+    )
+
+
+def test_harness_invoked_modes_are_actually_wired_to_hooks(guard):
+    """The waiver list must not become a hiding place of its own: every mode in
+    it has to appear in the settings payload the installer writes."""
+    payload = (REPO / "pilothOS" / "skills" / "workflow" / "pilothos-init"
+               / "payloads" / "settings.json").read_text(encoding="utf-8")
+    unwired = sorted(m for m in HARNESS_INVOKED_MODES if m not in payload)
+    assert not unwired, f"claimed harness-invoked but absent from settings: {unwired}"
 
 
 def test_every_handler_is_callable_with_valid_kind(guard):

@@ -33,6 +33,8 @@ The project-local OS controls are deterministic, local and auditable:
 - `asset-scan`, `asset-health` and `asset-sync` maintain the consumer asset
   registry without overwriting manual notes;
 - `os-evidence` and `post-edit` capture diff facts and command evidence;
+- `evidence-add` records a verification command on the V1 path
+  (`contract-write` → `receipt-write`) for adapters with no open OS run;
 - `tool-check` can validate declared tool entitlements against the active
   contract;
 - receipts act like project package receipts;
@@ -400,9 +402,10 @@ python3 pilothOS/scripts/pilothos_guard.py state-janitor --fix --kernel-logs
   (defaults `N=10`, `X=14`; override with `--runs`/`--days` or
   `PILOTHOS_RETENTION_RUNS`/`PILOTHOS_RETENTION_DAYS`). Unsealed/in-flight runs
   are never touched.
-- **receipt-seals.jsonl** — **warn only**. It is a hash-chained ledger
-  (`previous_seal_sha256`); `state-janitor` never rewrites it. Archive it
-  manually if it grows large.
+- **receipt-seals.jsonl** — **warn only**, past 500 lines
+  (`PILOTHOS_RECEIPT_SEALS_WARN`). It is a hash-chained ledger
+  (`previous_seal_sha256`); `state-janitor` never rewrites it, because
+  truncating it would break the chain. Archive it manually when warned.
 - **kernel logs** (`--kernel-logs`, opt-in) — `lessons-learned.md` and
   `review-log.md` grow with every session and are re-loaded into context. Rows
   beyond `PILOTHOS_KERNEL_LOG_KEEP` (default 200) are moved **losslessly** to

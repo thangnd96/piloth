@@ -100,7 +100,6 @@ DEFAULT_QUALITY_FLOOR = {
     "route_confidence": 0.80,
     "evidence_item_confidence": 0.80,
     "specialist_score": 70,
-    "team_score": 60,
 }
 ADAPTER_CAPABILITY_REGISTRY = PILOTHOS_DIR / "runtime" / "adapter-capabilities.json"
 SPECIALIST_REGISTRY = PILOTHOS_DIR / "runtime" / "specialist-registry.json"

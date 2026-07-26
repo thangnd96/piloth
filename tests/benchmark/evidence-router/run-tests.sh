@@ -23,19 +23,18 @@ for task in corpus["tasks"]:
     out = guard.evidence_route_payload(task["request"])
     assert out["result"] == "evidence_route", (task["id"], out)
     assert out["task_class"] == task["expected_class"], (task["id"], out["task_class"])
-    assert out["execution_plan"]["team"] is task["expected_team"], task["id"]
+    plan = out["execution_plan"]
+    assert plan["mandatory_independent_review"] is task["expected_independent_review"], task["id"]
     if task.get("expected_mode"):
-        assert out["execution_plan"]["mode"] == task["expected_mode"], task["id"]
-    if out["execution_plan"]["team"]:
-        assert out["execution_plan"]["team_score"] >= 60, task["id"]
-        assert len([
-            package for package in out["execution_plan"]["work_packages"]
-            if package["independent"]
-        ]) >= 2, task["id"]
+        assert plan["mode"] == task["expected_mode"], task["id"]
+    if plan["mandatory_independent_review"]:
+        # The reviewer must be declared, not merely promised in prose.
+        assert [r["id"] for r in plan["roles"]] == ["external_reviewer"], task["id"]
+        assert plan["mode"].startswith("single_with_"), (task["id"], plan["mode"])
     results.append({
         "id": task["id"],
         "class": out["task_class"],
-        "team": out["execution_plan"]["team"],
+        "independent_review": plan["mandatory_independent_review"],
         "confidence": out["confidence"],
         "evidence_items": len(out["evidence_plan"]),
     })

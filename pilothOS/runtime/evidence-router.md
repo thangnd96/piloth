@@ -101,22 +101,13 @@ historical quality 15 and cost 10. Health, adapter, permission or tool gaps
 disqualify the candidate; score must be at least 70. A qualified
 consumer-owned specialist is preferred over a Piloth fallback.
 
-Team score is:
-
-```text
-risk 0-25
-+ complexity 0-20
-+ specialist need 0-20
-+ independent review value 0-20
-+ parallelism value 0-15
-- coordination cost 0-30
-```
-
-Normal team routing requires score at least 60, two declared independent work
-packages and remaining budget. Teams have at most three roles and one repair
-loop. Security, release, data migration and destructive workflows require an
-independent reviewer; adapters without spawn support degrade to an explicit
-external-review gate.
+Piloth does not orchestrate teams. An earlier build scored one and could route
+to a three-role team, but the control plane that would have verified such a
+receipt is gone, and across 32 real runs the score never once selected a team.
+What remains is the honest half: a task class that demands a second pair of eyes
+routes to `single_with_independent_review` when the adapter can spawn one, and
+to `single_with_external_review` — stated as a limitation — when it cannot.
+Security, release, data migration and destructive workflows demand it.
 
 ## Rollout and state boundary
 

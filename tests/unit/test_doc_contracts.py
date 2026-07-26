@@ -1,0 +1,227 @@
+"""Bind every doc that states a machine-enforced value back to the enforcer.
+
+The repo keeps hitting one bug class, logged four times in
+`pilothOS/memory/lessons-learned.md`: a file declares a condition ("ships
+EMPTY", "these gates are required", "these are the valid signals") and nothing
+checks that the declaration is still true. Each of these tests picks one such
+declaration and makes it fail loudly when the doc and the code disagree.
+
+Two rules for anything added here:
+
+1. Parse the doc, never restate its content in the test. A hardcoded expected
+   list is a fourth copy of the fact and drifts exactly like the other three —
+   which is what `DOCUMENTED_REJECTED_CLAIMS` used to be.
+2. Compare values, not shapes. `set(a) == set(b)` on keys passes while
+   `route_confidence` silently drops from 0.80 to 0.5.
+"""
+import json
+import pathlib
+import re
+
+import pytest
+
+REPO = pathlib.Path(__file__).resolve().parents[2]
+KERNEL = REPO / "pilothOS"
+EVIDENCE_ROUTING = KERNEL / "runtime" / "evidence-routing.json"
+EVIDENCE_ROUTER_DOC = KERNEL / "runtime" / "evidence-router.md"
+CONTEXT_LOADING = KERNEL / "runtime" / "context-loading.md"
+QUALITY_GATES = KERNEL / "evaluation" / "quality-gates.md"
+OS_CONTROL_PLANE = KERNEL / "runtime" / "os-control-plane.md"
+STATE_README = KERNEL / "memory" / "state" / "README.md"
+KERNEL_README = KERNEL / "README.md"
+
+
+def _read(path):
+    return path.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------- quality floor
+
+def test_routing_json_quality_floor_matches_the_guard_values(guard):
+    """Key-set equality let a value drift silently.
+
+    The previous gate asserted `set(json) == set(DEFAULT_QUALITY_FLOOR)`, so
+    editing the shipped JSON to `route_confidence: 0.5` changed every routing
+    decision and still passed the whole suite.
+    """
+    routing = json.loads(_read(EVIDENCE_ROUTING))["quality_floor"]
+    assert routing == pytest.approx(guard.DEFAULT_QUALITY_FLOOR), (
+        "evidence-routing.json quality_floor drifted from DEFAULT_QUALITY_FLOOR"
+    )
+
+
+def test_router_doc_states_the_same_floor_numbers_as_the_guard(guard):
+    """The prose in evidence-router.md is bound to nothing; bind it."""
+    doc = _read(EVIDENCE_ROUTER_DOC)
+    floor = guard.DEFAULT_QUALITY_FLOOR
+    expected = {
+        "max_non_inferiority_delta_pp": rf"{floor['max_non_inferiority_delta_pp']} percentage points",
+        "route_confidence": rf"`{floor['route_confidence']:.2f}`",
+        "specialist_score": rf"at least {floor['specialist_score']}",
+    }
+    missing = [k for k, pat in expected.items() if not re.search(pat, doc)]
+    assert not missing, (
+        f"evidence-router.md no longer states these floor values: {missing}. "
+        "Update the prose (or the guard) so they agree."
+    )
+
+
+# ------------------------------------------------------------- task signals
+
+def _documented_signals():
+    """The copy-paste enum a consumer reads out of context-loading.md."""
+    match = re.search(r'"task_signal":\s*"([^"]+)"', _read(CONTEXT_LOADING))
+    assert match, "context-loading.md no longer shows a task_signal enum"
+    return {s.strip() for s in match.group(1).split("|")}
+
+
+def test_documented_task_signal_enum_matches_the_validator(guard):
+    """Two signals were missing from the doc for a whole release.
+
+    `architecture` and `security` are accepted by the validator and have real
+    routes, but the enum a consumer copies from listed neither — so no consumer
+    could discover them.
+    """
+    assert _documented_signals() == {
+        s.strip() for s in guard.ASSET_ROUTING_SIGNALS
+    }
+
+
+def test_documented_routing_table_covers_every_route(guard):
+    """The routing table and TASK_SIGNAL_ROUTES must name the same signals."""
+    rows = re.findall(r"^\|\s*([A-Za-z/_ ]+?)\s*\|.*\|.*\|$",
+                      _read(CONTEXT_LOADING), re.M)
+    documented = {r.strip().lower() for r in rows} - {"task signal"}
+    routed = set(guard.TASK_SIGNAL_ROUTES)
+    assert routed <= documented, (
+        f"context-loading.md routing table is missing routes: {sorted(routed - documented)}"
+    )
+
+
+def test_documented_load_policies_match_the_routes(guard):
+    """A signal documented as task-routed while the guard requires approval is a
+    consumer walking into an approval gate the doc said was not there."""
+    table = re.findall(r"^\|\s*([A-Za-z/_ ]+?)\s*\|[^|]*\|\s*([a-z-]+)\s*\|$",
+                       _read(CONTEXT_LOADING), re.M)
+    documented = {sig.strip().lower(): policy.strip() for sig, policy in table}
+    for signal, route in guard.TASK_SIGNAL_ROUTES.items():
+        if signal in documented:
+            assert documented[signal] == route["load_policy"], (
+                f"{signal}: doc says {documented[signal]}, guard routes {route['load_policy']}"
+            )
+
+
+# ------------------------------------------------------------- required gates
+
+def test_documented_base_gates_match_required_gates_for_task(guard):
+    """quality-gates.md shipped a table that was false in `lean` mode.
+
+    Both lean tiers are gone, so the unconditional statement is true again — this
+    pins it, so a future mode cannot make the shipped doc lie a second time.
+    """
+    row = re.search(r"^\|\s*Any OS-closed task\s*\|\s*(.+?)\s*\|$",
+                    _read(QUALITY_GATES), re.M)
+    assert row, "quality-gates.md no longer has the 'Any OS-closed task' row"
+    documented = {g.strip().strip("`") for g in row.group(1).split(",")}
+    actual = set(guard.required_gates_for_task({}, {}))
+    assert documented <= actual, (
+        f"quality-gates.md promises gates the guard does not require: {sorted(documented - actual)}"
+    )
+
+
+def test_documented_code_change_gates_match_the_guard(guard):
+    """The second row: code changes add architecture/reuse/regression."""
+    row = re.search(r"^\|\s*Code/runtime/rules/adapter/tool changes\s*\|\s*(.+?)\s*\|$",
+                    _read(QUALITY_GATES), re.M)
+    assert row, "quality-gates.md no longer has the code-change row"
+    documented = {g.strip().strip("`") for g in row.group(1).split(",")
+                  if "base gates" not in g}
+    actual = set(guard.required_gates_for_task(
+        {"affected_layers": ["Tools/Runtime"]},
+        {"changed_files": ["src/guard/00_header.py"]},
+    ))
+    assert documented <= actual, sorted(documented - actual)
+
+
+# ----------------------------------------------------------------- constants
+
+@pytest.mark.parametrize(("const", "doc", "pattern"), [
+    ("STATE_RETENTION_KEEP_RUNS", OS_CONTROL_PLANE, r"`N={value}`"),
+    ("STATE_RETENTION_KEEP_DAYS", OS_CONTROL_PLANE, r"`X={value}`"),
+    ("KERNEL_LOG_KEEP_ROWS", OS_CONTROL_PLANE, r"default {value}"),
+    ("RECEIPT_SEALS_WARN_LINES", OS_CONTROL_PLANE, r"{value} dòng|{value} lines"),
+])
+def test_retention_constants_are_documented_with_their_real_value(guard, const, doc, pattern):
+    """Retention defaults lived in the guard and in three docs, bound by nothing.
+
+    RECEIPT_SEALS_WARN_LINES was worse: it existed in code and was documented
+    nowhere, so the threshold that triggers a warning was invisible to whoever
+    had to act on it.
+    """
+    value = getattr(guard, const)
+    assert re.search(pattern.format(value=value), _read(doc)), (
+        f"{doc.name} does not state {const}={value}"
+    )
+
+
+def test_adapter_capability_count_is_derived_not_hardcoded(guard):
+    """Five places said '15 capabilities'. Only the registry decides."""
+    count = len(guard.ADAPTER_CAPABILITY_KEYS)
+    doc = _read(EVIDENCE_ROUTER_DOC)
+    stated = {int(n) for n in re.findall(r"all (\d+) capabilities", doc)}
+    assert stated in ({count}, set()), (
+        f"evidence-router.md states {stated} capabilities, registry has {count}"
+    )
+    registry = json.loads(_read(KERNEL / "runtime" / "adapter-capabilities.json"))
+    profiles = registry.get("adapters") or registry
+    for name, profile in profiles.items():
+        if isinstance(profile, dict) and "capabilities" in profile:
+            assert set(profile["capabilities"]) == set(guard.ADAPTER_CAPABILITY_KEYS), (
+                f"adapter {name} declares a different capability set than the guard"
+            )
+
+
+# ------------------------------------------------------- absolute-claim terms
+
+def test_absolute_claim_terms_in_docs_are_all_actually_rejected(guard):
+    """Three docs listed the rejected terms and disagreed with each other, while
+    the test carried a hardcoded fourth copy. Parse instead: every term a shipped
+    doc promises to reject must really be rejected."""
+    docs = [KERNEL / "runtime" / "task-lifecycle.md", QUALITY_GATES, OS_CONTROL_PLANE]
+    claimed = set()
+    for path in docs:
+        for line in _read(path).splitlines():
+            if "1:1" not in line:
+                continue
+            claimed |= {t.strip("`.,;:()") for t in re.findall(r"`([^`]+)`", line)}
+    claimed = {t for t in claimed if t and not t.startswith("os-")}
+    assert claimed, "no doc lists the rejected absolute claims any more"
+    survivors = [t for t in sorted(claimed) if not guard.ABSOLUTE_CLAIM_RE.search(t)]
+    assert not survivors, (
+        f"docs promise to reject these but the guard accepts them: {survivors}"
+    )
+
+
+# --------------------------------------------------------- layer index contract
+
+def test_every_layer_index_declares_its_boundary():
+    """`pilothOS/README.md` states the contract; this is what makes it true.
+
+    The contract used to list six sections "khi áp dụng" — an escape hatch that
+    made it unenforceable, and half the index files used it. It now names three
+    unconditional sections, so it can be checked.
+    """
+    required = ["Purpose", "Responsibilities", "Non-Responsibilities"]
+    contract = _read(KERNEL_README)
+    for section in required:
+        assert f"`{section}`" in contract, (
+            f"pilothOS/README.md no longer requires {section}; this test and the "
+            "contract must be changed together"
+        )
+    offenders = {}
+    for index in sorted(KERNEL.glob("*/index.md")):
+        heads = set(re.findall(r"^##+\s+(.+?)\s*$", _read(index), re.M))
+        missing = [s for s in required if s not in heads]
+        if missing:
+            offenders[index.relative_to(REPO).as_posix()] = missing
+    assert not offenders, f"index files missing boundary sections: {offenders}"

@@ -783,39 +783,6 @@ def evidence_router_work_packages(request):
     return packages
 
 
-def evidence_router_team_score(request, risk, specialist, mandatory_review):
-    paths = request_paths(request)
-    packages = evidence_router_work_packages(request)
-    independent_count = len([item for item in packages if item.get("independent")])
-    complexity = min(
-        20,
-        (8 if len(paths) > 3 else 3 if paths else 5)
-        + (7 if len({
-            normalize_relative_path_text(p).split("/", 1)[0]
-            for p in paths if p and not path_pattern_is_broad(p)
-        }) >= 2 else 0)
-        + (5 if len(paths) > 8 else 0),
-    )
-    components = {
-        "risk": round(min(25, risk.get("score", 0) * 0.25), 2),
-        "complexity": complexity,
-        "specialist_need": 20 if specialist else (15 if mandatory_review else 5),
-        "independent_review_value": 20 if mandatory_review else (12 if risk.get("score", 0) >= 55 else 4),
-        "parallelism_value": min(15, independent_count * 7.5),
-        "coordination_cost": 8 if independent_count >= 2 else 22,
-    }
-    score = round(
-        components["risk"]
-        + components["complexity"]
-        + components["specialist_need"]
-        + components["independent_review_value"]
-        + components["parallelism_value"]
-        - components["coordination_cost"],
-        2,
-    )
-    return max(0, min(score, 100)), components, packages, independent_count
-
-
 def load_model_tiers():
     registry = load_json_file(MODEL_CAPABILITY_REGISTRY)
     tiers = registry.get("tiers") if isinstance(registry, dict) else None
@@ -854,24 +821,17 @@ def select_model_tier(risk_score, confidence, request):
     return "premium", "raised because no cheaper benchmarked tier meets the floor"
 
 
-def evidence_router_execution_roles(
-    team, mode, mandatory_review, specialist, max_roles, limitations,
-):
+def evidence_router_execution_roles(team, mode, mandatory_review, specialist,
+                                    max_roles, limitations):
+    """Roles the route declares. Only the independent reviewer is ever separate.
+
+    `team` stays in the signature and always arrives False: the field is still
+    written into contracts and receipts, so removing it would break every stored
+    decision. The three-role team it used to build is gone with the team control
+    plane that would have verified it.
+    """
     roles = []
-    if team:
-        roles = [
-            {"id": "lead", "permissions": ["plan", "review"], "read_only": True},
-            {"id": "executor", "permissions": ["edit"], "read_only": False},
-            {"id": "reviewer", "permissions": ["review", "qa"], "read_only": True},
-        ][:max_roles]
-        if len(roles) < 3:
-            team = False
-            mode = "single_with_external_review" if mandatory_review else "single"
-            limitations.append(
-                "max_roles budget cannot preserve the three-role team contract"
-            )
-            roles = []
-    if not team and mandatory_review and not roles:
+    if mandatory_review:
         roles = [{
             "id": "external_reviewer",
             "permissions": ["review", "qa"],
@@ -893,59 +853,27 @@ def evidence_router_execution_plan(
         floor = evidence_router_quality_floor()
     signal = request.get("_classified_signal", "not_applicable")
     mandatory_review = evidence_router_requires_independent_review(request, signal)
-    team_score, components, packages, independent_count = evidence_router_team_score(
-        request, risk, specialist, mandatory_review,
-    )
+    packages = evidence_router_work_packages(request)
+    independent_count = len([item for item in packages if item.get("independent")])
     caps = capability_result.get("capabilities", {})
     overrides = request.get("user_overrides")
     if not isinstance(overrides, dict):
         overrides = {}
-    forced = str(
-        overrides.get("execution_mode")
-        or ("team" if overrides.get("force_team") is True else "")
-        or ("single" if overrides.get("force_single") is True else "")
-    ).lower()
-    team_capable = (
-        caps.get("subagent_spawn") in {"native", "emulated"}
-        and caps.get("role_permissions") in {"native", "emulated"}
-    )
-    team_floor = floor["team_score"]
-    team_eligible = team_score >= team_floor and independent_count >= 2 and not budget["exhausted"]
-    reasons = [
-        f"team score={team_score} (threshold {team_floor})",
-        f"independent work packages={independent_count}",
-    ]
+    reasons = [f"independent work packages={independent_count}"]
     limitations = []
-    if forced == "team":
-        team_eligible = independent_count >= 2 and not budget["exhausted"]
-        reasons.append("user forced team mode")
-    elif forced == "single":
-        team_eligible = False
-        reasons.append("user forced single mode")
-
-    if mandatory_review and forced == "single":
-        reasons.append("safety reviewer overrides forced single acceptance")
-    if mandatory_review and not team_capable:
-        limitations.append(
-            "adapter cannot spawn an independent reviewer; external independent review is required"
-        )
-        team = False
-        mode = "single_with_external_review"
-    elif mandatory_review:
-        team = True
-        mode = "team"
-    elif team_eligible and team_capable:
-        team = True
-        mode = "team"
-    else:
-        team = False
-        mode = "single"
-        if team_eligible and not team_capable:
+    team = False
+    if mandatory_review:
+        reasons.append("task class requires an independent reviewer")
+        if caps.get("subagent_spawn") in {"native", "emulated"}:
+            mode = "single_with_independent_review"
+        else:
+            mode = "single_with_external_review"
             limitations.append(
-                "team score passed but adapter subagent spawn is unavailable; using single-agent fallback"
+                "adapter cannot spawn an independent reviewer; external independent review is required"
             )
+    else:
+        mode = "single"
     if budget["exhausted"]:
-        team = False
         mode = "single_source_first"
         reasons.append("budget exhausted: parallelism disabled")
 
@@ -974,8 +902,6 @@ def evidence_router_execution_plan(
         "model_tier_reason": tier_reason,
         "specialist": specialist,
         "specialist_candidates": ranked,
-        "team_score": team_score,
-        "team_score_components": components,
         "work_packages": packages,
         "max_repair_loops": budget["max_repair_loops"],
         "mandatory_independent_review": mandatory_review,

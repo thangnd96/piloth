@@ -288,25 +288,6 @@ def test_pass_through_fixture_stays_single_agent(guard):
     assert out["execution_plan"]["model_tiers"]["executor"] == "economy"
 
 
-def test_team_requires_score_independence_capability_and_budget(guard, floor):
-    out = guard.evidence_route_payload({
-        "intent": "fix auth bypass across API and policy",
-        "task_signal": "security",
-        "affected_paths": ["src/auth.py", "src/policy.py", "tests/test_auth.py"],
-        "work_packages": [
-            {"id": "implementation", "scope": "auth implementation", "independent": True},
-            {"id": "verification", "scope": "security verification", "independent": True},
-        ],
-        "adapter": "claude",
-    })
-    plan = out["execution_plan"]
-    assert plan["team_score"] >= floor["team_score"]
-    assert plan["team"] is True
-    assert [role["id"] for role in plan["roles"]] == ["lead", "executor", "reviewer"]
-    assert plan["mandatory_independent_review"] is True
-    assert plan["max_repair_loops"] == 1
-
-
 def test_security_degrades_to_external_review_when_spawn_unavailable(guard):
     out = guard.evidence_route_payload({
         "intent": "fix auth bypass",
@@ -321,7 +302,12 @@ def test_security_degrades_to_external_review_when_spawn_unavailable(guard):
     assert any("external independent review" in item for item in out["limitations"])
 
 
-def test_safety_reviewer_overrides_forced_single_acceptance(guard):
+def test_safety_signal_still_demands_an_independent_reviewer(guard):
+    """A user asking for single-agent mode cannot wave away the safety reviewer.
+
+    This used to assert `team is True`. Team routing is gone — the guarantee it
+    was standing in for is that a security task still gets a declared reviewer.
+    """
     out = guard.evidence_route_payload({
         "intent": "fix auth bypass",
         "task_signal": "security",
@@ -329,9 +315,10 @@ def test_safety_reviewer_overrides_forced_single_acceptance(guard):
         "adapter": "claude",
         "user_overrides": {"execution_mode": "single"},
     })
-    assert out["execution_plan"]["team"] is True
-    assert out["execution_plan"]["mandatory_independent_review"] is True
-    assert any("overrides forced single" in reason for reason in out["decision_reasons"])
+    plan = out["execution_plan"]
+    assert plan["mandatory_independent_review"] is True
+    assert plan["mode"] == "single_with_independent_review"
+    assert [role["id"] for role in plan["roles"]] == ["external_reviewer"]
 
 
 def test_budget_exhaustion_stops_parallelism_and_asks_user_if_needed(guard):
@@ -645,14 +632,14 @@ def test_partial_registry_floor_cannot_drop_a_threshold(guard, monkeypatch, tmp_
     """A malformed or truncated quality_floor must not remove a floor — the
     defaults backfill every key the registry omits."""
     matrix = json.loads(guard.EVIDENCE_ROUTER_MATRIX.read_text(encoding="utf-8"))
-    matrix["quality_floor"] = {"specialist_score": 42, "team_score": "not-a-number"}
+    matrix["quality_floor"] = {"specialist_score": 42, "route_confidence": "not-a-number"}
     path = tmp_path / "partial.json"
     path.write_text(json.dumps(matrix), encoding="utf-8")
     monkeypatch.setattr(guard, "EVIDENCE_ROUTER_MATRIX", path)
     resolved = guard.evidence_router_quality_floor()
     assert resolved["specialist_score"] == 42
     # Non-numeric values are ignored rather than accepted as a threshold.
-    assert resolved["team_score"] == guard.DEFAULT_QUALITY_FLOOR["team_score"]
+    assert resolved["route_confidence"] == guard.DEFAULT_QUALITY_FLOOR["route_confidence"]
     assert set(resolved) == set(guard.DEFAULT_QUALITY_FLOOR)
 
 
@@ -677,43 +664,6 @@ def test_raising_specialist_floor_disqualifies_a_qualified_candidate(
     assert raised["execution_plan"]["specialist"] is None
     assert any("101/100" in reason for reason in raised["decision_reasons"])
     assert raised["rollout"]["quality_floor"]["specialist_score"] == 101
-
-
-def test_raising_team_floor_disables_team_execution(guard, monkeypatch, tmp_path):
-    """Team must be reached via team_score here, NOT via a mandatory independent
-    review: for security / release-deploy signals the safety reviewer deliberately
-    overrides the score threshold, so such a route would stay team-mode no matter
-    what the floor says. This payload qualifies on score alone."""
-    payload = {
-        "intent": "restructure module boundaries across api, core and worker layers",
-        "task_signal": "architecture",
-        "affected_paths": [
-            "src/api/a.py", "src/api/b.py", "src/core/c.py", "src/core/d.py",
-            "src/worker/e.py", "src/worker/f.py", "src/db/g.py", "src/db/h.py",
-            "tests/test_all.py",
-        ],
-        "work_packages": [
-            {"id": "impl", "scope": "module split", "independent": True},
-            {"id": "verify", "scope": "boundary verification", "independent": True},
-        ],
-        "specialists": [_consumer_specialist(
-            id="consumer.arch-specialist",
-            domains=["architecture"],
-            task_types=["architecture_change"],
-        )],
-        "adapter": "claude",
-    }
-    baseline = guard.evidence_route_payload(dict(payload))
-    assert baseline["execution_plan"]["mandatory_independent_review"] is False
-    assert baseline["execution_plan"]["team"] is True
-
-    monkeypatch.setattr(
-        guard, "EVIDENCE_ROUTER_MATRIX",
-        _matrix_with_floor(guard, tmp_path, team_score=101),
-    )
-    raised = guard.evidence_route_payload(dict(payload))
-    assert raised["execution_plan"]["team"] is False
-    assert any("threshold 101" in reason for reason in raised["decision_reasons"])
 
 
 def test_receipt_errors_use_the_floor_recorded_in_the_decision(guard, monkeypatch, tmp_path):

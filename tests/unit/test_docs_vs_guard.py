@@ -34,13 +34,18 @@ def test_documented_absolute_claims_are_enforced(guard):
 
 
 def _documented_context_rows():
-    """(task_signal, files, bytes, est_tokens) from the reference table.
+    """(task_signal, files, bytes, est_tokens, pct_full, pct_routable).
 
-    | not_applicable   |   7   | 22,084 |    5,521   |     92.6%      |    84.9%    |
+    | not_applicable   |   7   | 21,717 |    5,430   |     85.2%      |    79.5%    |
+
+    The regex used to stop after column 4, so the two percentage columns — the
+    numbers anyone actually quotes — were free to drift while the byte columns
+    held. They are the whole point of the table.
     """
     row = re.compile(
         r"^\|\s*(?P<signal>[A-Za-z/_ ]+?)\s*\|\s*(?P<files>\d+)\s*\|"
-        r"\s*(?P<bytes>[\d,]+)\s*\|\s*(?P<tokens>[\d,]+)\s*\|",
+        r"\s*(?P<bytes>[\d,]+)\s*\|\s*(?P<tokens>[\d,]+)\s*\|"
+        r"\s*(?P<pct_full>[\d.]+)%\s*\|\s*(?P<pct_routable>[\d.]+)%\s*\|",
     )
     rows = []
     for line in TOKEN_DOC.read_text(encoding="utf-8").splitlines():
@@ -51,6 +56,8 @@ def _documented_context_rows():
                 int(found["files"]),
                 int(found["bytes"].replace(",", "")),
                 int(found["tokens"].replace(",", "")),
+                float(found["pct_full"]),
+                float(found["pct_routable"]),
             ))
     return rows
 
@@ -64,9 +71,18 @@ def test_documented_context_footprints_match_the_meter(budget):
     """
     rows = _documented_context_rows()
     assert len(rows) >= 5, f"reference table not parsed (found {len(rows)} rows)"
-    for signal, files, num_bytes, tokens in rows:
+    for signal, files, num_bytes, tokens, pct_full, pct_routable in rows:
         measured = budget.context_budget_payload({"task_signal": signal})
         assert measured["routed"] is True, signal
+        assert (pct_full, pct_routable) == (
+            measured["savings_pct_vs_full_kernel"],
+            measured["savings_pct_vs_routable_kernel"],
+        ), (
+            f"docs/token-optimization.md row '{signal}' claims {pct_full}% / "
+            f"{pct_routable}% saving but the meter says "
+            f"{measured['savings_pct_vs_full_kernel']}% / "
+            f"{measured['savings_pct_vs_routable_kernel']}%"
+        )
         assert (files, num_bytes, tokens) == (
             measured["loaded_count"],
             measured["loaded_bytes"],
