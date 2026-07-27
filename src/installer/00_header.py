@@ -45,7 +45,8 @@ MARKER = PILOTHOS_DIR / ".initialized"
 GUARD = SCRIPT_DIR / "pilothos_guard.py"
 
 OPS = {"create_from_payload", "prepend_block", "append_lines",
-       "merge_settings", "write_marker", "remove_path", "fill_placeholders"}
+       "merge_settings", "write_marker", "remove_path", "fill_placeholders",
+       "prune_dead_hooks"}
 FILL_PILOTHOS_ALLOWED = {"pilothOS/rot/registry.md"}
 # Self-prune: installer tự dọn mặt tiền install sau khi cài (mặc định).
 # CHỈ các path chính xác dưới đây — payloads/ và manifest-spec.md KHÔNG BAO GIỜ
@@ -99,7 +100,11 @@ OPS (bộ từ vựng đóng — ngoài bộ này là việc của judgment, kh�
 - append_lines{target,lines[]}: nối các dòng ngắn vào cuối (tạo file nếu chưa có).
 - merge_settings{payload,target?}: merge settings.json theo semantics trên.
 - write_marker{}: ghi pilothOS/.initialized (chỉ engine được ghi vào pilothOS/).
-- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- remove_path{target}: xóa có backup; CHỈ cho phép trong self-prune whitelist
+- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- prune_dead_hooks{target?}: xóa các hook entry trong `.claude/settings.json` trỏ
+  tới file `pilothOS/` không còn tồn tại (upgrade giữ settings consumer-owned nên
+  script Piloth đã gỡ vẫn bị gọi và exit 127). Hook của consumer không bị chạm.
+  Engine tự chèn ở `mode=upgrade`; không cần khai tay.
+- remove_path{target}: xóa có backup; CHỈ cho phép trong self-prune whitelist
   (mặt tiền installer: command init + docs nhánh — payloads/ và manifest-spec.md
   không bao giờ xóa được). Uninstall phục hồi tất cả.
 """
@@ -142,6 +147,10 @@ def check_target_writable_zone(path_str, op):
             return
         raise PlanError(
             f"fill_placeholders trong pilothOS/ chi cho phep: {FILL_PILOTHOS_ALLOWED}")
+    if op == "prune_dead_hooks":
+        if path_str == ".claude/settings.json":
+            return
+        raise PlanError(f"prune_dead_hooks chi cho phep .claude/settings.json: {path_str}")
     if op == "remove_path":
         if path_str in SELF_PRUNE_ALLOWED:
             return

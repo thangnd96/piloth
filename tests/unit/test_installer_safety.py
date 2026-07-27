@@ -210,3 +210,82 @@ def test_validate_adapters_must_include_claude(installer, staged_repo):
             "adapters": ["codex"], "steps": [{"op": "write_marker"}]}
     with pytest.raises(installer.PlanError):
         installer.validate_and_simulate(plan)
+
+
+# ------------------------------------------- prune_dead_hooks (upgrade safety)
+
+def test_prune_removes_only_hooks_whose_piloth_script_is_gone(installer, monkeypatch, tmp_path):
+    """An upgrade that stops shipping a script must not leave it wired.
+
+    settings.json is consumer-owned, so upgrade preserves it — which meant every
+    v1.10+ install kept three hooks pointing at tools/review/hooks/review-hook.sh
+    after v2 deleted it. Each one exits 127 on every matching tool use.
+    """
+    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
+    (tmp_path / "pilothOS" / "scripts").mkdir(parents=True)
+    (tmp_path / "pilothOS" / "scripts" / "pilothos_guard.py").write_text("#")
+    settings = {"hooks": {
+        "PreToolUse": [
+            {"matcher": "Edit", "hooks": [
+                {"type": "command", "command": "python3 pilothOS/scripts/pilothos_guard.py pre-edit"},
+                {"type": "command", "command": "sh pilothOS/tools/review/hooks/review-hook.sh gate"},
+            ]},
+            {"matcher": "Bash", "hooks": [
+                {"type": "command", "command": "node .claude/consumer-own.cjs"},
+            ]},
+        ],
+        "Notification": [
+            {"hooks": [{"type": "command", "command": "sh pilothOS/tools/review/hooks/review-hook.sh fire"}]},
+        ],
+    }}
+    pruned, removed = installer.prune_dead_hooks(settings)
+
+    assert len(removed) == 2
+    commands = [
+        h["command"]
+        for groups in pruned["hooks"].values() for g in groups for h in g["hooks"]
+    ]
+    # the live Piloth hook survives
+    assert any("pilothos_guard.py pre-edit" in c for c in commands)
+    # a consumer hook that never mentions pilothOS/ is invisible to this
+    assert "node .claude/consumer-own.cjs" in commands
+    assert not any("review-hook.sh" in c for c in commands)
+    # an event left with no groups is removed, not left as an empty list
+    assert "Notification" not in pruned["hooks"]
+
+
+def test_prune_is_a_noop_when_every_script_exists(installer, monkeypatch, tmp_path):
+    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
+    (tmp_path / "pilothOS" / "scripts").mkdir(parents=True)
+    (tmp_path / "pilothOS" / "scripts" / "pilothos_guard.py").write_text("#")
+    settings = {"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": "python3 pilothOS/scripts/pilothos_guard.py stop-check"}]}]}}
+    pruned, removed = installer.prune_dead_hooks(settings)
+    assert removed == []
+    assert pruned == settings
+
+
+def test_prune_dead_hooks_op_only_targets_consumer_settings(installer):
+    assert installer.check_target_writable_zone(
+        ".claude/settings.json", "prune_dead_hooks") is None
+    for denied in ("pilothOS/bootstrap.md", ".claude/other.json", "src/app.py"):
+        with pytest.raises(installer.PlanError):
+            installer.check_target_writable_zone(denied, "prune_dead_hooks")
+
+
+def test_upgrade_plan_injects_the_prune_step(installer):
+    """Deterministic, engine-injected, visible in dry-run before approval —
+    the same contract the gitignore step follows."""
+    plan = {"plan_version": 1, "mode": "upgrade", "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    ops = [s["op"] for s in plan["steps"]]
+    assert "prune_dead_hooks" in ops
+    assert ops[-1] == "write_marker"          # marker stays last
+    installer.normalize_plan(plan)            # idempotent
+    assert ops.count("prune_dead_hooks") == 1
+
+
+def test_greenfield_plan_does_not_inject_the_prune_step(installer):
+    plan = {"plan_version": 1, "mode": "greenfield", "steps": [{"op": "write_marker"}]}
+    installer.normalize_plan(plan)
+    assert "prune_dead_hooks" not in [s["op"] for s in plan["steps"]]

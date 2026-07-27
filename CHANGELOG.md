@@ -2,6 +2,113 @@
 
 ## Unreleased
 
+## v2.0.0 — 2026-07-27
+
+**Breaking.** Bản cắt bề mặt: 19 CLI verb, 4 hệ con và 3 adapter bị gỡ. Nâng cấp
+từ v1.x cần đọc mục "Đã gỡ" bên dưới trước khi chạy `/piloth:update`.
+
+### Vì sao
+
+Repo 11 ngày tuổi, 0 user ngoài tác giả, và 32/32 dogfood run đều là Piloth làm
+việc trên Piloth. Bốn hệ con lớn chưa từng được dùng một lần nào trong 32 run
+đó, nên chúng bị gỡ thay vì tiếp tục ship và tiếp tục phải bảo trì. Số đo
+trước/sau ở `docs/slim-baseline.md`.
+
+### Đã gỡ
+
+| Hệ con | Lần dùng thật trong 32 run | Ghi chú |
+|---|---:|---|
+| Governed Visual Review (`pilothOS/tools/review/`) | 0 | 23 run có `review-request.json`, không run nào có `review-feedback.jsonl` — round-trip chưa từng hoàn tất. 1.476 dòng JS/HTML không test. |
+| Team orchestration | 0 | `team-runs/` chưa từng tồn tại. |
+| Codebase Intelligence | 0 | 47 extension nhưng chỉ Python có parser; doc tự khai "does not meet the SLA". |
+| Discovery / Prototype | 0 | Kể cả trong run mang tên nó. |
+
+**19 verb bị gỡ:** `os-report`, `review-request`, `review-feedback`,
+`review-verify`, `route-task`, `context-budget`, `payload-budget`,
+`codebase-index`, `codebase-status`, `codebase-query`, `rot-status`,
+`reuse-scan`, `ds-scan`, `scheduler-suggest`, `scheduler-record`,
+`team-contract-write`, `team-receipt-write`, `registry-assets`, `audit-assets`.
+
+**Thay bằng gì:**
+
+| Đã gỡ | Dùng thay |
+|---|---|
+| `route-task` | routing chạy trong `os-start`, kết quả ở `asset_routing` của contract |
+| `os-report` | `os-status` (mang cùng state) |
+| `audit-assets`, `registry-assets` | `asset-scan --format md` (13 cột, superset của bảng cũ) |
+| `context-budget`, `payload-budget` | `scripts/measure_budget.py` trong repo Piloth — công cụ vendor, consumer không cần |
+| `codebase-*` | đọc source trực tiếp (`rg`, glob); kết luận âm vẫn phải nêu coverage |
+| `scheduler-*` | bảng "chạy suite nào" nêu thẳng trong `runtime/self-hosting.md` |
+| `evidence-add` | **giữ nguyên** — không bị thay thế, xem mục Sửa |
+
+**Mode:** `lean` và `micro` bị gỡ (0/32 run từng chọn), `adaptive` resolver cũng
+vậy. Còn `standard` (mặc định) và `strict`. `strict` chỉ thêm gate, không đổi
+lượng context nạp.
+
+**Adapter:** chỉ còn `claude`. `cursor`, `codex`, `antigravity` cộng lại 75 dòng
+văn bản, không hook, không exec surface, 0 test. Harness khác vẫn đọc kernel qua
+`AGENTS.md` và vẫn được Evidence Router lập hồ sơ trung thực. **Mất mát thật:**
+`adapters/cursor/*.mdc` dùng `alwaysApply: true` — cơ chế nạp thật của Cursor;
+sau v2 Cursor không còn tự nạp PilothOS, phải tự trỏ agent vào `AGENTS.md`.
+
+**Team routing:** Evidence Router không còn chấm team score hay trả
+`mode: team`. Security/release vẫn buộc reviewer độc lập
+(`single_with_independent_review`, hoặc `single_with_external_review` kèm
+limitation khi adapter không spawn được).
+
+### Sửa
+
+- **5 claim sai đang ship.** `VALIDATION.md` khai Team control plane "đã kiểm
+  chứng qua vận hành" khi `TEAM_RUNS_DIR` chưa từng tồn tại. `quality-gates.md`
+  ship bảng gate sai ở `mode=lean`. `context-loading.md` giấu hai `task_signal`
+  hợp lệ (`architecture`, `security`) khỏi enum mà consumer copy. `README.md`
+  quote % không khớp mẫu số nào. `templates/AGENTS.md` thiếu 3/4 target của
+  Startup Contract.
+- **`evidence-add` được khôi phục sau khi gỡ nhầm.** Nó không bị `os-evidence`
+  thay thế: `os-evidence` đòi một OS run đang mở, còn `evidence-add` phục vụ
+  đường V1 (`contract-write` → `receipt-write`) và là người ghi duy nhất của
+  `evidence_commands`.
+- **`production-review` không còn duyệt cây repo hai lần** cho một lần kiểm.
+- **`prune_dead_hooks` (op mới, engine tự chèn ở `mode=upgrade`).** `settings.json`
+  là consumer-owned nên upgrade giữ nguyên — nghĩa là mọi install v1.10+ vẫn trỏ
+  tới `tools/review/hooks/review-hook.sh` sau khi v2 xoá nó, và hook đó exit 127
+  mỗi lần có tool use khớp. Op này gỡ đúng các entry trỏ tới file `pilothOS/`
+  không còn tồn tại; hook riêng của consumer không bị chạm.
+
+### Gate
+
+15 điều kiện doc tự khai giờ có test. Nặng nhất: quality floor trước chỉ so
+**key**, nên đặt `route_confidence: 0.5` trong `evidence-routing.json` đổi mọi
+quyết định routing mà vẫn qua toàn bộ suite. Chiều ngược của command-table được
+bật lại — waiver cũ ("15 internal mode vắng mặt hợp lệ") chính là chỗ 9 verb mồ
+côi ẩn mình. Mutation test: gieo 6 lỗi cố tình, cả 6 đều bị bắt.
+
+`remove_path` — op phá huỷ duy nhất của engine — giờ chỉ chạm được self-prune
+whitelist (trước còn xoá được `.cursor`/`.codex`/`.antigravity`).
+
+### Số đo
+
+| | v1.12.0 | v2.0.0 |
+|---|---:|---:|
+| CLI verb | 53 | 34 |
+| Guard bundle (ship tới consumer) | 12.140 dòng | 9.108 dòng |
+| Kernel markdown | 6.906 dòng | 3.269 dòng |
+| File trong `dist-manifest` | 122 | 73 |
+| Full kernel footprint | 296.863 B | 143.935 B |
+
+Tỷ lệ "tiết kiệm context" **giảm** (89,1% → 79,5% cho task `bug fix`) dù byte
+nạp thật cũng giảm: mẫu số giảm nhanh hơn. Mọi phép đo "so với nạp tất cả" đều
+thưởng cho việc có nhiều thứ để không nạp, nên con số đáng theo dõi là byte
+tuyệt đối.
+
+### Chưa làm
+
+Không có benchmark `had-piloth` vs `none-piloth`, nên v2 **không** claim làm
+agent rẻ hơn hay nhanh hơn — chỉ claim bề mặt nhỏ hơn và test vẫn xanh.
+`docs/field-report-first-real-use.md` ghi lần đầu đo Piloth trên hai project
+thật: auto-log gate được dùng 81 lần qua 5 ngày, OS control plane được gọi 1 lần
+và 0 lần hoàn tất. `os-close` chưa được sửa theo phát hiện đó.
+
 ## v1.12.0 — 2026-07-26
 
 Cắt footprint tool-output + mở khóa cost evidence.

@@ -77,6 +77,13 @@ def normalize_plan(plan):
     if not isinstance(steps, list):
         return False
     new_steps = []
+    # Upgrade preserves consumer settings.json by design, so a script this
+    # version stopped shipping keeps being invoked. Engine-injected, same as the
+    # gitignore step: deterministic, visible in dry-run, approved with the plan.
+    if plan.get("mode") == "upgrade" and not any(
+        isinstance(s_, dict) and s_.get("op") == "prune_dead_hooks" for s_ in steps
+    ):
+        new_steps.append({"op": "prune_dead_hooks", "target": ".claude/settings.json"})
     gi_step = gitignore_append_step(plan, steps)
     if gi_step:
         new_steps.append(gi_step)

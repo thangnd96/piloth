@@ -45,7 +45,8 @@ MARKER = PILOTHOS_DIR / ".initialized"
 GUARD = SCRIPT_DIR / "pilothos_guard.py"
 
 OPS = {"create_from_payload", "prepend_block", "append_lines",
-       "merge_settings", "write_marker", "remove_path", "fill_placeholders"}
+       "merge_settings", "write_marker", "remove_path", "fill_placeholders",
+       "prune_dead_hooks"}
 FILL_PILOTHOS_ALLOWED = {"pilothOS/rot/registry.md"}
 # Self-prune: installer tự dọn mặt tiền install sau khi cài (mặc định).
 # CHỈ các path chính xác dưới đây — payloads/ và manifest-spec.md KHÔNG BAO GIỜ
@@ -99,7 +100,11 @@ OPS (bộ từ vựng đóng — ngoài bộ này là việc của judgment, kh�
 - append_lines{target,lines[]}: nối các dòng ngắn vào cuối (tạo file nếu chưa có).
 - merge_settings{payload,target?}: merge settings.json theo semantics trên.
 - write_marker{}: ghi pilothOS/.initialized (chỉ engine được ghi vào pilothOS/).
-- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- remove_path{target}: xóa có backup; CHỈ cho phép trong self-prune whitelist
+- fill_placeholders{target}: điền PERSONA/GOALS/OWNER/<init>=hôm nay vào file đã\n  staging (CLAUDE.md, registry — registry tự tính Next Due theo cadence từng dòng).\n- prune_dead_hooks{target?}: xóa các hook entry trong `.claude/settings.json` trỏ
+  tới file `pilothOS/` không còn tồn tại (upgrade giữ settings consumer-owned nên
+  script Piloth đã gỡ vẫn bị gọi và exit 127). Hook của consumer không bị chạm.
+  Engine tự chèn ở `mode=upgrade`; không cần khai tay.
+- remove_path{target}: xóa có backup; CHỈ cho phép trong self-prune whitelist
   (mặt tiền installer: command init + docs nhánh — payloads/ và manifest-spec.md
   không bao giờ xóa được). Uninstall phục hồi tất cả.
 """
@@ -142,6 +147,10 @@ def check_target_writable_zone(path_str, op):
             return
         raise PlanError(
             f"fill_placeholders trong pilothOS/ chi cho phep: {FILL_PILOTHOS_ALLOWED}")
+    if op == "prune_dead_hooks":
+        if path_str == ".claude/settings.json":
+            return
+        raise PlanError(f"prune_dead_hooks chi cho phep .claude/settings.json: {path_str}")
     if op == "remove_path":
         if path_str in SELF_PRUNE_ALLOWED:
             return
@@ -273,6 +282,67 @@ def merge_settings_content(consumer, payload, options, notes):
     return out
 
 
+
+
+# Piloth-owned hook commands name a path under pilothOS/. When an upgrade stops
+# shipping a script, the consumer's settings.json keeps pointing at it — the file
+# is consumer-owned, so upgrade preserves it by design. The result is a hook that
+# fires on every matching tool use and exits 127. v2 removes tools/review/, which
+# every v1.10+ install still references three times.
+PILOTHOS_PATH_RE = re.compile(r"pilothOS/[^\s\"']+")
+
+
+def dead_pilothos_hook_paths(command):
+    """pilothOS/ paths a hook command names that no longer exist on disk."""
+    return [
+        ref for ref in PILOTHOS_PATH_RE.findall(str(command or ""))
+        if not (REPO_ROOT / ref).exists()
+    ]
+
+
+def prune_dead_hooks(settings):
+    """Drop hook entries whose Piloth script is gone. Returns (settings, removed).
+
+    Only entries naming a missing pilothOS/ path are touched: a consumer hook
+    that never mentions pilothOS/ is invisible to this, and a Piloth hook whose
+    script still exists stays. Empty groups and empty events are cleaned up so an
+    upgrade does not leave `"Notification": []` behind.
+    """
+    out = json.loads(json.dumps(settings))
+    removed = []
+    hooks = out.get("hooks")
+    if not isinstance(hooks, dict):
+        return out, removed
+    for event in list(hooks):
+        groups = hooks.get(event)
+        if not isinstance(groups, list):
+            continue
+        kept_groups = []
+        for group in groups:
+            if not isinstance(group, dict):
+                kept_groups.append(group)
+                continue
+            entries = group.get("hooks")
+            if not isinstance(entries, list):
+                kept_groups.append(group)
+                continue
+            kept = []
+            for entry in entries:
+                dead = dead_pilothos_hook_paths(
+                    entry.get("command") if isinstance(entry, dict) else "")
+                if dead:
+                    removed.append({"event": event, "missing": dead[0],
+                                    "command": str(entry.get("command"))[:120]})
+                else:
+                    kept.append(entry)
+            if kept:
+                group = dict(group, hooks=kept)
+                kept_groups.append(group)
+        if kept_groups:
+            hooks[event] = kept_groups
+        else:
+            del hooks[event]
+    return out, removed
 # ------------------------------------------------------------------ simulate
 
 def validate_and_simulate(plan):
@@ -373,6 +443,20 @@ def validate_and_simulate(plan):
             content = fill_text(cur, fill, target.endswith("rot/registry.md"))
             virtual[target] = content
             actions.append({"target": target, "kind": "modify", "content": content})
+        elif op == "prune_dead_hooks":
+            cur = existing_content(target)
+            if cur is None:
+                continue
+            pruned, removed = prune_dead_hooks(json.loads(cur))
+            if not removed:
+                continue
+            content = json.dumps(pruned, indent=2, ensure_ascii=False) + "\n"
+            virtual[target] = content
+            notes.append(
+                "prune_dead_hooks: go %d hook tro toi file pilothOS/ da bi xoa (%s)"
+                % (len(removed), ", ".join(sorted({r["missing"] for r in removed})))
+            )
+            actions.append({"target": target, "kind": "modify", "content": content})
         elif op == "remove_path":
             if not tpath.exists():
                 raise PlanError(f"step {i}: remove_path target khong ton tai: {target}")
@@ -425,7 +509,7 @@ def do_apply(plan, plan_path):
     else:
         created.append(marker_rel)
     manifest = {
-        "pilothos_version": "1.12.0", "timestamp": ts, "mode": plan["mode"],
+        "pilothos_version": "2.0.0", "timestamp": ts, "mode": plan["mode"],
         "created": created, "modified": modified, "removed": removed,
         "notes": notes,
     }
@@ -445,7 +529,7 @@ def do_apply(plan, plan_path):
                     raise IOError(f"postcondition fail: {a['target']}")
             applied.append(a)
         MARKER.write_text(json.dumps({
-            "initialized_at": ts, "pilothos_version": "1.12.0",
+            "initialized_at": ts, "pilothos_version": "2.0.0",
             "mode": plan["mode"],
             "manifest": str((bdir / 'manifest.json').relative_to(REPO_ROOT)),
         }, indent=2) + "\n", encoding="utf-8")
@@ -576,6 +660,13 @@ def normalize_plan(plan):
     if not isinstance(steps, list):
         return False
     new_steps = []
+    # Upgrade preserves consumer settings.json by design, so a script this
+    # version stopped shipping keeps being invoked. Engine-injected, same as the
+    # gitignore step: deterministic, visible in dry-run, approved with the plan.
+    if plan.get("mode") == "upgrade" and not any(
+        isinstance(s_, dict) and s_.get("op") == "prune_dead_hooks" for s_ in steps
+    ):
+        new_steps.append({"op": "prune_dead_hooks", "target": ".claude/settings.json"})
     gi_step = gitignore_append_step(plan, steps)
     if gi_step:
         new_steps.append(gi_step)

@@ -98,6 +98,20 @@ def validate_and_simulate(plan):
             content = fill_text(cur, fill, target.endswith("rot/registry.md"))
             virtual[target] = content
             actions.append({"target": target, "kind": "modify", "content": content})
+        elif op == "prune_dead_hooks":
+            cur = existing_content(target)
+            if cur is None:
+                continue
+            pruned, removed = prune_dead_hooks(json.loads(cur))
+            if not removed:
+                continue
+            content = json.dumps(pruned, indent=2, ensure_ascii=False) + "\n"
+            virtual[target] = content
+            notes.append(
+                "prune_dead_hooks: go %d hook tro toi file pilothOS/ da bi xoa (%s)"
+                % (len(removed), ", ".join(sorted({r["missing"] for r in removed})))
+            )
+            actions.append({"target": target, "kind": "modify", "content": content})
         elif op == "remove_path":
             if not tpath.exists():
                 raise PlanError(f"step {i}: remove_path target khong ton tai: {target}")

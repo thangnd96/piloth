@@ -66,3 +66,64 @@ def merge_settings_content(consumer, payload, options, notes):
     return out
 
 
+
+
+# Piloth-owned hook commands name a path under pilothOS/. When an upgrade stops
+# shipping a script, the consumer's settings.json keeps pointing at it — the file
+# is consumer-owned, so upgrade preserves it by design. The result is a hook that
+# fires on every matching tool use and exits 127. v2 removes tools/review/, which
+# every v1.10+ install still references three times.
+PILOTHOS_PATH_RE = re.compile(r"pilothOS/[^\s\"']+")
+
+
+def dead_pilothos_hook_paths(command):
+    """pilothOS/ paths a hook command names that no longer exist on disk."""
+    return [
+        ref for ref in PILOTHOS_PATH_RE.findall(str(command or ""))
+        if not (REPO_ROOT / ref).exists()
+    ]
+
+
+def prune_dead_hooks(settings):
+    """Drop hook entries whose Piloth script is gone. Returns (settings, removed).
+
+    Only entries naming a missing pilothOS/ path are touched: a consumer hook
+    that never mentions pilothOS/ is invisible to this, and a Piloth hook whose
+    script still exists stays. Empty groups and empty events are cleaned up so an
+    upgrade does not leave `"Notification": []` behind.
+    """
+    out = json.loads(json.dumps(settings))
+    removed = []
+    hooks = out.get("hooks")
+    if not isinstance(hooks, dict):
+        return out, removed
+    for event in list(hooks):
+        groups = hooks.get(event)
+        if not isinstance(groups, list):
+            continue
+        kept_groups = []
+        for group in groups:
+            if not isinstance(group, dict):
+                kept_groups.append(group)
+                continue
+            entries = group.get("hooks")
+            if not isinstance(entries, list):
+                kept_groups.append(group)
+                continue
+            kept = []
+            for entry in entries:
+                dead = dead_pilothos_hook_paths(
+                    entry.get("command") if isinstance(entry, dict) else "")
+                if dead:
+                    removed.append({"event": event, "missing": dead[0],
+                                    "command": str(entry.get("command"))[:120]})
+                else:
+                    kept.append(entry)
+            if kept:
+                group = dict(group, hooks=kept)
+                kept_groups.append(group)
+        if kept_groups:
+            hooks[event] = kept_groups
+        else:
+            del hooks[event]
+    return out, removed
