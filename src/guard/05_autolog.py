@@ -18,7 +18,7 @@ def repo_changed_since(ts):
 
 
 def logs_touched_since(ts):
-    for log in (REVIEW_LOG, LESSONS):
+    for log in AUTO_LOG_TARGETS:
         try:
             if log.exists() and log.stat().st_mtime > ts:
                 return True
@@ -86,7 +86,9 @@ def stop_check(hook_input):
         reasons.append(
             "Auto-log missing: pilothOS/rot/review-log.md và "
             "pilothOS/memory/lessons-learned.md đều chưa được cập nhật. "
-            "Append log phù hợp hoặc nêu rõ trong reply cuối: "
+            "Ghi bằng `python3 pilothOS/scripts/pilothos_guard.py log-append "
+            "review|lesson <...>` (tự điền ngày, giữ đúng cột, không cần task "
+            "contract riêng) — hoặc nêu rõ trong reply cuối: "
             "'Không có finding hoặc lesson cần ghi' kèm lý do."
         )
     contract, _ = load_task_contract(hook_input)

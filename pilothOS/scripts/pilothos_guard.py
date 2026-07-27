@@ -110,6 +110,12 @@ OS_CURRENT = OS_RUNS_DIR / "current.json"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
+# The two files the Stop-hook auto-log gate accepts. One constant so the gate
+# that DEMANDS a write and the guard that could BLOCK it can never disagree:
+# pre-edit used to classify review-log.md as pilothOS core (via rot/ -> Docs)
+# while letting lessons-learned.md through, so the target bootstrap.md names
+# first was the one an agent could not write (thangnd96/piloth#11).
+AUTO_LOG_TARGETS = (REVIEW_LOG, LESSONS)
 MARKER_DIR = pathlib.Path("/tmp/pilothos")
 ASSET_SYNC_START = "<!-- PILOTHOS-GENERATED-ASSETS:START -->"
 ASSET_SYNC_END = "<!-- PILOTHOS-GENERATED-ASSETS:END -->"
@@ -2342,7 +2348,7 @@ def repo_changed_since(ts):
 
 
 def logs_touched_since(ts):
-    for log in (REVIEW_LOG, LESSONS):
+    for log in AUTO_LOG_TARGETS:
         try:
             if log.exists() and log.stat().st_mtime > ts:
                 return True
@@ -2410,7 +2416,9 @@ def stop_check(hook_input):
         reasons.append(
             "Auto-log missing: pilothOS/rot/review-log.md và "
             "pilothOS/memory/lessons-learned.md đều chưa được cập nhật. "
-            "Append log phù hợp hoặc nêu rõ trong reply cuối: "
+            "Ghi bằng `python3 pilothOS/scripts/pilothos_guard.py log-append "
+            "review|lesson <...>` (tự điền ngày, giữ đúng cột, không cần task "
+            "contract riêng) — hoặc nêu rõ trong reply cuối: "
             "'Không có finding hoặc lesson cần ghi' kèm lý do."
         )
     contract, _ = load_task_contract(hook_input)
@@ -4944,6 +4952,25 @@ def task_contract_write(argv):
     print(f"OK   task contract recorded: {repo_state_file('task-contract.json')}")
 
 
+def docs_only_contract_blocks_path(contract, rel):
+    """Does a Docs/Tests-only contract get refused this pilothOS/ path?
+
+    The single answer to that question, so a test can ask it directly instead of
+    re-deriving it from `contract_docs_tests_only` — which says something subtly
+    different ("is this contract docs-only") and was mistaken for the same thing.
+
+    The two auto-log targets are exempt. They are append-only operational logs
+    that the Stop hook REQUIRES writing every session, not Constitution docs;
+    blocking them meant the doc's first-named way to satisfy one gate was refused
+    by another (thangnd96/piloth#11).
+    """
+    if not rel.startswith("pilothOS/"):
+        return False
+    if rel in {t.relative_to(REPO_ROOT).as_posix() for t in AUTO_LOG_TARGETS}:
+        return False
+    return contract_docs_tests_only(contract)
+
+
 def pre_edit(hook_input):
     # Claude Code plan mode is read-only planning (harness restricts edits to the
     # plan file). Piloth's contract-before-edit gate is for execution, not
@@ -4992,7 +5019,7 @@ def pre_edit(hook_input):
                 f"{contract_path}. allowed_paths={allowed}"
             )
             return
-        if contract_docs_tests_only(contract) and rel.startswith("pilothOS/"):
+        if docs_only_contract_blocks_path(contract, rel):
             block_decision(
                 f"PILOTHOS PRE-EDIT: {rel} touches pilothOS core while the "
                 "contract only declares Docs/Tests layers."

@@ -16,8 +16,7 @@ python3 pilothOS/scripts/pilothos_guard.py asset-health --all
 ```
 
 `asset-scan` is the generated
-source for V2 routing and includes `Detected At`, `Last Health`, `Status` and
-`Confidence`. It is a baseline for routing; the model/user still applies
+source for V2 routing. It is a baseline for routing; the model/user still applies
 judgment for missing capabilities, ambiguous ownership or project-specific risk.
 JSON output also includes `detected_signals` and asset health output includes
 `manifest_status` for Piloth-owned assets.
@@ -40,8 +39,11 @@ Generated registry sections must use these markers:
 <!-- PILOTHOS-GENERATED-ASSETS:END -->
 ```
 
-Only `asset-sync --source scan.json` may rewrite that marked section. Manual
-notes outside the markers are consumer-owned and must be preserved.
+Only `asset-sync --source scan.json` may rewrite that marked section; it
+preserves notes outside the markers. Upgrade keeps only the marked section and
+retakes the rest from the release, because `self-check` requires the vocabulary
+below to be current. Notes that must survive an upgrade go in
+`pilothOS/knowledge/`.
 
 Generated table contract:
 

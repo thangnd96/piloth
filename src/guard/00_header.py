@@ -110,6 +110,12 @@ OS_CURRENT = OS_RUNS_DIR / "current.json"
 SETTINGS = REPO_ROOT / ".claude" / "settings.json"
 REVIEW_LOG = PILOTHOS_DIR / "rot" / "review-log.md"
 LESSONS = PILOTHOS_DIR / "memory" / "lessons-learned.md"
+# The two files the Stop-hook auto-log gate accepts. One constant so the gate
+# that DEMANDS a write and the guard that could BLOCK it can never disagree:
+# pre-edit used to classify review-log.md as pilothOS core (via rot/ -> Docs)
+# while letting lessons-learned.md through, so the target bootstrap.md names
+# first was the one an agent could not write (thangnd96/piloth#11).
+AUTO_LOG_TARGETS = (REVIEW_LOG, LESSONS)
 MARKER_DIR = pathlib.Path("/tmp/pilothos")
 ASSET_SYNC_START = "<!-- PILOTHOS-GENERATED-ASSETS:START -->"
 ASSET_SYNC_END = "<!-- PILOTHOS-GENERATED-ASSETS:END -->"
