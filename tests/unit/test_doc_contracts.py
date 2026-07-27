@@ -425,3 +425,97 @@ def test_staging_knows_every_value_flag_the_installer_accepts():
         "INSTALLER_VALUE_OPTIONS does not list them; the space form will be "
         "parsed as an extra target"
     )
+
+
+# ---------------------------------------------- auto-log gate: one gate, one shape
+
+AUTOLOG_FRAGMENT = REPO / "src" / "guard" / "05_autolog.py"
+BOOTSTRAP = KERNEL / "bootstrap.md"
+
+
+def _autolog_targets(guard):
+    """The two paths the Stop-hook gate accepts, read off the guard itself."""
+    return [guard.REVIEW_LOG, guard.LESSONS]
+
+
+def test_both_autolog_targets_behave_the_same_under_a_docs_only_contract(guard):
+    """One gate, two accepted targets, opposite pre-edit verdicts.
+
+    `bootstrap.md` step 6 offers review-log.md and lessons-learned.md as equal
+    ways to satisfy the same gate, but pre-edit classified the first as "pilothOS
+    core" and blocked it while letting the second through — a side effect of
+    `layer_for_path` mapping `rot/` to Docs and `memory/` to Memory
+    (thangnd96/piloth#11). An agent following the doc hits a wall on the target
+    the doc names first.
+    """
+    verdicts = {}
+    for path in _autolog_targets(guard):
+        rel = path.relative_to(guard.REPO_ROOT).as_posix()
+        contract = {"affected_layers": ["docs"], "allowed_paths": [rel]}
+        # The question pre-edit actually asks, not the classifier it happens to
+        # call: "is this contract docs-only" and "may a docs-only contract write
+        # here" are different questions that were treated as one.
+        verdicts[rel] = guard.docs_only_contract_blocks_path(contract, rel)
+    assert len(set(verdicts.values())) == 1, (
+        f"the two targets of one gate disagree: {verdicts}. Whatever the rule "
+        "is, it has to treat both the same — the doc offers them as equals."
+    )
+    assert not any(verdicts.values()), (
+        "an append-only operational log that another gate REQUIRES writing every "
+        "session must not be classed as pilothOS core"
+    )
+
+
+def test_narrowing_scope_to_an_autolog_target_does_not_start_blocking(guard):
+    """A contract that declares less must not be treated as more dangerous.
+
+    `contract_docs_tests_only` is an `all(...)`, so declaring only the log file
+    made the contract "docs-only" and tripped the core guard, while adding an
+    unrelated source file made it pass. The disciplined contract was the one
+    rejected.
+    """
+    for path in _autolog_targets(guard):
+        rel = path.relative_to(guard.REPO_ROOT).as_posix()
+        narrow = {"affected_layers": ["docs"], "allowed_paths": [rel]}
+        wide = {"affected_layers": ["docs"], "allowed_paths": [rel, "src/foo.ts"]}
+        assert not (guard.docs_only_contract_blocks_path(narrow, rel)
+                    and not guard.docs_only_contract_blocks_path(wide, rel)), (
+            f"narrowing allowed_paths to {rel} flips the verdict from pass to "
+            "block; declaring exactly what you touch is the behaviour contracts "
+            "exist to reward"
+        )
+
+
+def test_autolog_reason_names_the_verb_not_only_the_paths():
+    """The message an agent reads while blocked must say how to comply.
+
+    The gate named two file paths, so an agent did the literal thing — opened an
+    editor on them — and got blocked by pre-edit. `log-append` exists for exactly
+    this and appeared nowhere on that path (thangnd96/piloth#10).
+    """
+    assert "log-append" in _read(AUTOLOG_FRAGMENT), (
+        "the auto-log gate's reason text does not mention log-append"
+    )
+    assert "log-append" in _read(BOOTSTRAP), (
+        "bootstrap.md step 6 names the log files but not the verb that writes them"
+    )
+
+
+def test_every_mutating_skill_flow_documents_how_it_satisfies_the_autolog_gate():
+    """init has a Log stage; update, which rewrites more kernel files than any
+    other flow, had none (thangnd96/piloth#10). Both are sessions that change
+    files, so both meet the same Stop hook."""
+    shipped = _shipped_paths()
+    offenders = []
+    for skill in sorted(KERNEL.glob("skills/**/SKILL.md")):
+        rel = skill.relative_to(REPO).as_posix()
+        if rel not in shipped:
+            continue
+        text = _read(skill)
+        mutates = any(k in text for k in ("stage.sh", "installer.py", "write_marker"))
+        if mutates and "log-append" not in text:
+            offenders.append(rel)
+    assert not offenders, (
+        f"skill flows that change files but never say how to satisfy the "
+        f"auto-log gate: {offenders}"
+    )

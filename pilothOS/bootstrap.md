@@ -13,6 +13,8 @@ Trước mỗi task:
 5. Chỉ nạp thêm Memory, Knowledge, Skills, Agents, Tools, Governance hoặc Evaluation khi task cần.
 6. Trước khi kết thúc một phiên có thay đổi file: append log phù hợp vào `rot/review-log.md` (finding/thay đổi kiến trúc) hoặc `memory/lessons-learned.md` (bài học tái sử dụng), hoặc nêu rõ "Không có finding hoặc lesson cần ghi" kèm lý do. Gate này được enforce tự động bởi Stop hook (auto-log gate).
 
+   Ghi bằng verb, đừng mở editor: `python3 pilothOS/scripts/pilothos_guard.py log-append review|lesson <...>` tự điền ngày và giữ đúng cột. Nó cũng không cần task contract riêng — mở `Edit` lên hai file đó khi contract hiện hành khai `out_of_scope_paths: ["pilothOS/**"]` sẽ bị pre-edit chặn.
+
 ## Progressive Context Loading
 
 Không nạp toàn bộ `pilothOS/` vào context.

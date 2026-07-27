@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import datetime
@@ -36,6 +37,23 @@ UPGRADE_PRESERVE = CONSUMER_OWNED | {
     "pilothOS/rot/registry.md",
     "pilothOS/rot/review-log.md",
     "pilothOS/memory/lessons-learned.md",
+}
+
+# Files upgrade neither overwrites nor preserves whole: it takes the vendor text
+# and carries the installed file's marked region across.
+#
+# `runtime/consumer-assets.md` was overwritten by every upgrade, losing the
+# registry `asset-sync` had written (thangnd96/piloth#13). Preserving it whole
+# was tried first and is NOT viable: `self-check` asserts the file contains the
+# current release's asset vocabulary, so a frozen v1 copy fails the check, which
+# rolls the whole upgrade back. The file genuinely has two owners — the kernel
+# owns the contract prose and vocabulary, `asset-sync` owns what is between the
+# markers — so the only correct upgrade is a merge along that seam.
+MARKER_MERGE = {
+    "pilothOS/runtime/consumer-assets.md": (
+        "<!-- PILOTHOS-GENERATED-ASSETS:START -->",
+        "<!-- PILOTHOS-GENERATED-ASSETS:END -->",
+    ),
 }
 # Which installer options take a value. This has to match the engine's argparse
 # exactly: the wrapper needs the arity to know whether the next token is the
@@ -100,6 +118,22 @@ def backup_existing(dest: Path, rel_dest: str, backup_root: Path) -> None:
     shutil.copy2(dest, backup)
 
 
+def merge_marked_region(vendor: str, installed: str, start: str, end: str) -> str:
+    """Vendor text with the installed file's start..end region spliced in.
+
+    Returns the vendor text unchanged when either side lacks the markers — a v1
+    install that predates them has no consumer region to carry, and a vendor file
+    that lost them is a packaging bug this is not the place to paper over.
+    """
+    kept = re.search(re.escape(start) + r".*?" + re.escape(end), installed, re.S)
+    if kept is None:
+        return vendor
+    return re.sub(
+        re.escape(start) + r".*?" + re.escape(end),
+        lambda _: kept.group(0), vendor, count=1, flags=re.S,
+    )
+
+
 def place_one(src: Path, dest: Path, rel_dest: str) -> None:
     """Put one staged file in place: byte copy, or header-only for ship-empty logs.
 
@@ -112,6 +146,13 @@ def place_one(src: Path, dest: Path, rel_dest: str) -> None:
         dest.write_text(
             log_header_only(src.read_text(encoding="utf-8")), encoding="utf-8",
         )
+        return
+    if rel_dest in MARKER_MERGE and dest.is_file():
+        start, end = MARKER_MERGE[rel_dest]
+        dest.write_text(merge_marked_region(
+            src.read_text(encoding="utf-8"),
+            dest.read_text(encoding="utf-8"), start, end,
+        ), encoding="utf-8")
         return
     shutil.copy2(src, dest)
 
@@ -137,52 +178,60 @@ def copy_one(src: Path, rel_dest: str, counts: dict[str, int],
     counts["copied"] += 1
 
 
-# Runtime state and the manifest itself are never listed IN the manifest, so a
-# naive "delete anything not in the manifest" would take out the marker, the
-# pending plan, the backups it just wrote — and the manifest that drives the
-# whole comparison.
-PRUNE_PRESERVE_FILES = {
-    "pilothOS/dist-manifest.json",
-    "pilothOS/.initialized",
-    "pilothOS/.pending-plan.json",
-}
-PRUNE_PRESERVE_PREFIXES = ("pilothOS/.backup/", "pilothOS/memory/state/")
-
-
-def prune_orphans(target: Path, backup_root: Optional[Path],
-                  counts: dict[str, int]) -> list[str]:
-    """Delete kernel files this version no longer ships. Backed up first.
-
-    Staging used to only ever add and overwrite, so every subsystem a release
-    removed stayed on the consumer's disk: after v1.11 -> v2.0.1 that was 41
-    files, and `dist-manifest.json` stopped describing the tree it is supposed to
-    be the source of truth for. Worse, the leftover files kept their hooks alive
-    and gave `os-close` / rot / routing two versions of the same doc to read
-    (thangnd96/piloth#7).
-
-    Deleting inside a consumer tree is not reversible through git — most
-    consumers gitignore `pilothOS/` — so every removal is copied into the same
-    `.backup/stage-upgrade-<ts>` the overwrite path already uses.
-    """
-    manifest_path = target / "pilothOS" / "dist-manifest.json"
+def read_manifest_paths(target: Path) -> Optional[set[str]]:
+    """Paths the manifest ON DISK lists, or None when it cannot be read."""
     try:
-        shipped = {item["path"] for item in
-                   json.loads(manifest_path.read_text(encoding="utf-8"))["files"]}
-    except (OSError, KeyError, json.JSONDecodeError) as e:
-        fail(f"khong doc duoc dist-manifest.json de prune: {e}")
+        data = json.loads(
+            (target / "pilothOS" / "dist-manifest.json").read_text(encoding="utf-8"))
+        return {item["path"] for item in data["files"]}
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def prune_orphans(target: Path, old_shipped: Optional[set[str]],
+                  backup_root: Optional[Path], counts: dict[str, int]) -> list[str]:
+    """Delete what a PREVIOUS release shipped and this one does not.
+
+    The first version of this compared the disk against the new manifest and
+    deleted anything absent from it. That treated "not in the manifest" as "stale
+    distribution content", which is wrong for three groups that are never in a
+    manifest: files the consumer writes, files the kernel generates at runtime
+    (`*-archive.md` from state-janitor), and — worst — the directories
+    `knowledge/index.md` explicitly invites the consumer to create. Architecture
+    decisions, domain facts and standards were deleted, and the trailing rmdir
+    took the directories too, so it looked like they had never existed
+    (thangnd96/piloth#12).
+
+    Comparing the two manifests instead says exactly what was meant all along:
+    something this distribution used to ship and no longer does. Anything never
+    shipped is by construction not our litter, with no preserve list to maintain
+    — and a preserve list is the thing that drifted here in the first place.
+
+    Deleting inside a consumer tree is not reversible through git (most consumers
+    gitignore `pilothOS/`), so removals are copied into the same
+    `.backup/stage-upgrade-<ts>` the overwrite path uses.
+    """
+    if old_shipped is None:
+        print("Bo qua prune: khong doc duoc dist-manifest.json cu truoc khi stage. "
+              "Xoa la thao tac khong lui duoc nen khi khong biet ban cu ship gi, "
+              "khong go gi ca.")
+        return []
+    new_shipped = read_manifest_paths(target)
+    if new_shipped is None:
+        print("Bo qua prune: khong doc duoc dist-manifest.json moi.")
+        return []
+    stale = old_shipped - new_shipped
     removed = []
-    kernel = target / "pilothOS"
-    for path in sorted(p for p in kernel.rglob("*") if p.is_file()):
-        rel = path.relative_to(target).as_posix()
-        if (rel in shipped or rel in PRUNE_PRESERVE_FILES
-                or rel.startswith(PRUNE_PRESERVE_PREFIXES)):
+    for rel in sorted(stale):
+        path = target / rel
+        if not path.is_file():
             continue
         if backup_root is not None:
             backup_existing(path, rel, backup_root)
             counts["backed_up"] += 1
         path.unlink()
         removed.append(rel)
-    for d in sorted((p for p in kernel.rglob("*") if p.is_dir()),
+    for d in sorted((p for p in (target / "pilothOS").rglob("*") if p.is_dir()),
                     key=lambda p: -len(p.parts)):
         if not any(d.iterdir()):
             d.rmdir()
@@ -200,6 +249,9 @@ def main() -> int:
         fail(f"{target / 'pilothOS'} da ton tai — xoa/phuc hoi truoc hoac dung --upgrade.")
 
     counts = {"copied": 0, "updated": 0, "backed_up": 0, "skipped": 0}
+    # Read BEFORE the copy loop: the loop overwrites dist-manifest.json, and the
+    # old one is the only record of what a previous release put on this disk.
+    old_shipped = read_manifest_paths(target) if upgrade else None
     backup_root = None
     if upgrade:
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -218,7 +270,7 @@ def main() -> int:
                 copy_one(child, f"{dest_rel}/{rel}", counts, target, upgrade,
                          backup_root)
 
-    pruned = prune_orphans(target, backup_root, counts) if upgrade else []
+    pruned = prune_orphans(target, old_shipped, backup_root, counts) if upgrade else []
 
     print(
         "OK: staging du — "
@@ -227,11 +279,12 @@ def main() -> int:
         + (f", pruned={len(pruned)}" if pruned else "")
     )
     if pruned:
-        print(f"Da go {len(pruned)} file khong con trong ban phan phoi nay:")
-        for rel in pruned[:8]:
+        # Full list, never a count with an ellipsis: a delete that git cannot undo
+        # has to be readable. "pruned=41" tells a consumer nothing about whether
+        # one of those was theirs.
+        print(f"Da go {len(pruned)} file ban phan phoi nay khong con ship:")
+        for rel in pruned:
             print(f"  - {rel}")
-        if len(pruned) > 8:
-            print(f"  ... va {len(pruned) - 8} file nua (xem backup)")
     if backup_root and counts["backed_up"]:
         print(f"Backup upgrade: {backup_root}")
     if unattended:

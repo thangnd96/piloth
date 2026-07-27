@@ -5,6 +5,7 @@ export PYTHONDONTWRITEBYTECODE=1
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 W=$(mktemp -d); trap "rm -rf $W" EXIT
 ENG="pilothOS/scripts/pilothos_installer.py"
+GRD="pilothOS/scripts/pilothos_guard.py"
 CMD_TIMEOUT="${CMD_TIMEOUT:-20s}"
 
 echo "== C10a greenfield: layout FR-3 + completeness =="
@@ -123,10 +124,15 @@ echo "C10b3 PASS: conflicts stop before settings overwrite"
 echo "== C10b4 brownfield: hook merge order and dedupe =="
 mkdir -p $W/hookmerge/.claude
 cd $W/hookmerge
-cat > .claude/settings.json <<'JSON'
+# Version lay tu payload cua release, khong hard-code: fixture nay tung ghim
+# "2.0.2" nen moi lan bump version la merge_settings bao env_conflict va case
+# chet o rc=4, che mat thu no thuc su kiem la thu tu hook. Xung dot env da co
+# C10b3 lo.
+PILOTHOS_VERSION=$(python3 -c "import json;print(json.load(open('$REPO/pilothOS/skills/workflow/pilothos-init/payloads/settings.json'))['env']['PILOTHOS_VERSION'])")
+cat > .claude/settings.json <<JSON
 {
   "env": {
-    "PILOTHOS_VERSION": "2.0.2"
+    "PILOTHOS_VERSION": "$PILOTHOS_VERSION"
   },
   "statusLine": {
     "type": "command",
@@ -278,10 +284,22 @@ mkdir -p $W/orphan && cd $W/orphan
 bash "$REPO/scripts/stage.sh" "$W/orphan" > /dev/null
 python3 $ENG unattended --mode greenfield --persona P --goals G --owner O > /dev/null
 
-# Gia lap install phien ban cu: file kernel ngoai manifest + hook tro toi chung
+# Gia lap install phien ban cu: file ma ban TRUOC tung ship (co trong manifest
+# tren dia) nhung ban moi khong con — cong hook tro toi chung. Phai them vao
+# manifest cu: tu v2.0.3 prune so manifest cu voi manifest moi, nen file chua
+# bao gio duoc ship thi khong phai rac cua ban phan phoi (#12).
 mkdir -p pilothOS/tools/review/hooks pilothOS/agent-teams
 printf 'exit 0\n' > pilothOS/tools/review/hooks/review-hook.sh
 printf '# team\n'  > pilothOS/agent-teams/index.md
+python3 - << 'OLDMANIFEST'
+import json, pathlib
+m = pathlib.Path("pilothOS/dist-manifest.json")
+data = json.loads(m.read_text())
+for rel in ("pilothOS/tools/review/hooks/review-hook.sh",
+            "pilothOS/agent-teams/index.md"):
+    data["files"].append({"path": rel, "class": "verbatim"})
+m.write_text(json.dumps(data, indent=2))
+OLDMANIFEST
 python3 - << 'SETUP'
 import json, pathlib
 p = pathlib.Path(".claude/settings.json"); d = json.loads(p.read_text())
@@ -333,5 +351,115 @@ assert any("consumer-own.cjs" in c for c in cmds), "hook consumer bi xoa nham"
 assert any("pilothos_guard.py" in c for c in cmds), "hook Piloth con song bi xoa nham"
 print("C11 PASS: upgrade don sach file mo coi va hook cua chung, giu hook consumer")
 CHECK
+
+echo "== C12 upgrade khong xoa noi dung do consumer hay kernel tao ra =="
+# v2.0.2 prune coi "vang mat trong dist-manifest.json" la "rac cua ban cu". Sai:
+# file consumer tu viet, file kernel sinh luc runtime (*-archive.md), va file ma
+# kernel CHU DONG MOI consumer tao (knowledge/**) cung khong bao gio o trong
+# manifest — nen ca ba nhom deu bi xoa, va rmdir con go luon thu muc rong
+# (thangnd96/piloth#12, #13).
+mkdir -p $W/keep && cd $W/keep
+bash "$REPO/scripts/stage.sh" "$W/keep" > /dev/null
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O > /dev/null
+
+# Danh sach thu muc lay TU DOC, khong hard-code: neu doc doi thi test doi theo.
+python3 - << 'SEED'
+import pathlib, re
+index = pathlib.Path("pilothOS/knowledge/index.md").read_text(encoding="utf-8")
+invited = sorted({m for m in re.findall(r"`([a-z]+)/`", index)})
+assert invited, "knowledge/index.md khong con moi consumer tao thu muc nao"
+pathlib.Path("invited.txt").write_text("\n".join(invited))
+for name in invited:
+    d = pathlib.Path("pilothOS/knowledge") / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "consumer-fact.md").write_text(f"# fact cua consumer trong {name}\n")
+# state-janitor sinh cac file nay khi log vuot nguong; khong co trong manifest
+pathlib.Path("pilothOS/rot/review-log-archive.md").write_text("| 2026-01-01 | x |\n")
+pathlib.Path("pilothOS/memory/lessons-learned-archive.md").write_text("| 2026-01-01 | y |\n")
+# Registry cua consumer, ghi qua chinh `asset-sync` chu khong cay tay: no la
+# producer that, va no ghi VAO GIUA cap marker — day la ranh gioi upgrade merge.
+pathlib.Path("scan.json").write_text(
+    '{"assets":[{"asset":"my-tool","type":"tool","owner":"consumer",'
+    '"capability":"build","config_path":"scripts/x.sh","risk":"low",'
+    '"load_when":"always","health_check":"ok","confidence":0.9}]}')
+SEED
+python3 $GRD asset-sync --source scan.json > /dev/null
+
+sleep 1
+bash "$REPO/scripts/stage.sh" --upgrade "$W/keep" > /dev/null
+
+python3 - << 'VERIFY'
+import pathlib
+missing = []
+for name in pathlib.Path("invited.txt").read_text().split():
+    p = pathlib.Path("pilothOS/knowledge") / name / "consumer-fact.md"
+    if not p.exists():
+        missing.append(p.as_posix())
+for rel in ("pilothOS/rot/review-log-archive.md",
+            "pilothOS/memory/lessons-learned-archive.md"):
+    if not pathlib.Path(rel).exists():
+        missing.append(rel)
+assert not missing, f"upgrade xoa noi dung khong phai cua ban phan phoi: {missing}"
+
+registry = pathlib.Path("pilothOS/runtime/consumer-assets.md").read_text(encoding="utf-8")
+assert "my-tool" in registry, (
+    "consumer-assets.md bi ghi de: row do asset-sync ghi da mat. File nay la "
+    "registry cua consumer, khong phai doc thuan cua kernel (#13)")
+# Mat con lai cua cung mot seam. Giu nguyen ca file thay vi merge tung duoc thu
+# va no dong bang tu vung cua ban cu, khien `self-check` fail va apply rollback —
+# upgrade khong con chay duoc. Nen phan ngoai marker PHAI theo ban vendor.
+print("C12 PASS: knowledge/**, *-archive.md va row registry deu song sot upgrade")
+VERIFY
+
+echo "== C13 prune van go dung thu tung duoc ship =="
+# Doi trong voi C12: prune phai VAN lam viec cua no. File tung nam trong manifest
+# cu ma khong con o manifest moi la rac that va phai bi go.
+cd $W/keep
+python3 - << 'SEED2'
+import json, pathlib
+# gia lap mot file ma ban truoc TUNG ship: co trong manifest tren dia, khong co
+# trong ban phan phoi moi
+m = pathlib.Path("pilothOS/dist-manifest.json")
+data = json.loads(m.read_text())
+data["files"].append({"path": "pilothOS/runtime/legacy-subsystem.md", "class": "verbatim"})
+m.write_text(json.dumps(data, indent=2))
+pathlib.Path("pilothOS/runtime/legacy-subsystem.md").write_text("# he con cua ban cu\n")
+SEED2
+sleep 1
+bash "$REPO/scripts/stage.sh" --upgrade "$W/keep" > /dev/null
+[ ! -f pilothOS/runtime/legacy-subsystem.md ]
+[ -f pilothOS/rot/review-log-archive.md ]
+echo "C13 PASS: go file tung duoc ship, giu file chua bao gio duoc ship"
+
+echo "== C14 upgrade lam moi contract cua consumer-assets.md, giu vung marker =="
+# Mat con lai cua seam o C12, va la ca da lam upgrade v1.11.0 -> v2.0.3 rollback:
+# `self-check` doi file nay mang tu vung cua ban HIEN TAI, nen giu nguyen ca file
+# se dong bang tu vung cu -> self-check FAIL -> apply rollback -> khong the nang
+# cap. Phan ngoai marker phai theo vendor, phan trong marker phai theo consumer.
+mkdir -p $W/seam && cd $W/seam
+bash "$REPO/scripts/stage.sh" "$W/seam" > /dev/null
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O > /dev/null
+python3 - << 'AGED'
+import pathlib
+# mot ban "cu": thieu tu vung ma release nay yeu cau, co san vung marker cua consumer
+pathlib.Path("pilothOS/runtime/consumer-assets.md").write_text(
+    "# Consumer Asset Registry\n\nban cu, khong co tu vung moi\n\n"
+    "<!-- PILOTHOS-GENERATED-ASSETS:START -->\n"
+    "| `my-tool` | tool | consumer |\n"
+    "<!-- PILOTHOS-GENERATED-ASSETS:END -->\n", encoding="utf-8")
+AGED
+sleep 1
+bash "$REPO/scripts/stage.sh" --upgrade "$W/seam" > /dev/null
+python3 - << 'SEAM'
+import pathlib
+text = pathlib.Path("pilothOS/runtime/consumer-assets.md").read_text(encoding="utf-8")
+assert "specialist" in text, (
+    "upgrade khong lam moi contract: tu vung cua release nay vang mat, "
+    "`self-check` se fail va apply rollback")
+assert "my-tool" in text, "upgrade lam mat vung marker cua consumer"
+SEAM
+# phep do quyet dinh: sau upgrade, self-check phai xanh
+python3 $GRD self-check > /dev/null
+echo "C14 PASS: contract theo vendor, vung marker theo consumer, self-check xanh"
 
 echo "INSTALL SUITE: ALL PASS"

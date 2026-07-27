@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+## v2.0.3 — 2026-07-27
+
+Vá bốn issue từ cùng consumer sau khi nâng lên v2.0.2
+([#10](https://github.com/thangnd96/piloth/issues/10),
+[#11](https://github.com/thangnd96/piloth/issues/11),
+[#12](https://github.com/thangnd96/piloth/issues/12),
+[#13](https://github.com/thangnd96/piloth/issues/13)).
+**#12 là hồi quy do prune mà chính v2.0.2 giới thiệu, và nó gây mất dữ liệu.**
+Nếu bạn đang ở v2.0.2, hãy lên thẳng bản này trước lần upgrade tiếp theo.
+
+### Sửa mất dữ liệu: prune xoá nội dung của consumer (#12)
+
+Prune của v2.0.2 xoá mọi thứ dưới `pilothOS/` vắng mặt trong
+`dist-manifest.json`. Sai ở tiền đề: "không có trong manifest" không đồng nghĩa
+với "rác của bản cũ". Ba nhóm khác cũng không bao giờ nằm trong manifest —
+file consumer tự viết, file kernel sinh lúc chạy (`*-archive.md`), và thư mục
+kernel **chủ động mời** consumer tạo (`knowledge/**`). Tái hiện được đầy đủ:
+`knowledge/architecture/adr-001.md`, `knowledge/domain/glossary.md`,
+`rot/review-log-archive.md` đều bị xoá, và `rmdir` gỡ luôn thư mục rỗng nên
+trông như chưa từng tồn tại.
+
+Giờ prune = `manifest_cũ − manifest_mới`: chỉ gỡ thứ **từng được ship** mà bản
+này không còn ship. Thứ chưa bao giờ được ship thì theo định nghĩa không phải
+rác của bản phân phối, nên không cần đoán trước consumer sẽ viết vào đâu — bỏ
+được luôn cái danh sách chép tay, đúng loại danh sách đã trôi ở #8. Không đọc
+được manifest cũ → **không prune**, in cảnh báo. Và in **đủ danh sách path đã
+gỡ**, không phải con số: xoá không lùi được thì consumer phải đọc được mình vừa
+mất gì.
+
+### Sửa mất dữ liệu: `runtime/consumer-assets.md` bị ghi đè mỗi upgrade (#13)
+
+File này do `asset-sync` ghi và `self-check` kiểm, nhưng upgrade chép đè template
+lên nó mọi lần, xoá sạch registry của consumer.
+
+Giữ nguyên cả file **không khả thi** — và điều này chỉ lộ ra khi dựng lại một
+install v1.11.0 thật: `self-check` đòi file mang từ vựng asset của bản hiện tại,
+nên một bản đóng băng ở v1 làm self-check FAIL → apply rollback → **không nâng
+cấp được nữa**. File thật sự có hai chủ, nên upgrade giờ merge đúng theo đường
+biên đó: phần giữa cặp marker `PILOTHOS-GENERATED-ASSETS` theo consumer, phần
+còn lại theo release. Ghi chú cần sống sót upgrade thì để ở `pilothOS/knowledge/`
+— doc đã nói rõ ranh giới này thay vì hứa suông.
+
+### Sửa
+
+- **`rot/review-log.md` bị pre-edit chặn còn `memory/lessons-learned.md` thì
+  không** (#11), dù cả hai là target của cùng một auto-log gate: agent bị Stop
+  hook bắt ghi log, rồi bị contract docs-only chặn không cho ghi. Đã miễn trừ
+  tường minh cho đúng hai target đó qua hằng số `AUTO_LOG_TARGETS` dùng chung
+  giữa `pre-edit` và `stop-check`. 11 kernel doc còn lại (`PilothOS.md`,
+  `bootstrap.md`, `registry.md`…) vẫn bị chặn — đó là bảo vệ Constitution, giữ
+  nguyên.
+- **`pilothos-update/SKILL.md` thiếu bước Log** trong khi `pilothos-init` có
+  (#10), nên chạy update là chắc chắn đụng auto-log gate. Thêm bước, và nêu
+  `log-append` trong reason text của `stop-check` — chỗ agent thực sự đọc lúc bị
+  chặn.
+
+### Gate
+
+Bảy gate mới, tất cả đỏ trước khi vá: nội dung consumer sống sót upgrade (danh
+sách thư mục quét từ `knowledge/index.md`, không hard-code); prune vẫn gỡ đúng
+thứ từng được ship; upgrade làm mới contract của `consumer-assets.md` trong khi
+giữ vùng marker, kết thúc bằng `self-check` xanh; hai auto-log target hành xử
+giống nhau; thu hẹp `allowed_paths` không biến pass thành block; mọi
+`skills/**/SKILL.md` mô tả flow ghi file phải có bước thoả auto-log gate; reason
+text phải nêu verb ghi log.
+
 ## v2.0.2 — 2026-07-27
 
 Vá ba issue nữa từ cùng consumer, phát hiện khi nâng v1.11.0 → v2.0.1

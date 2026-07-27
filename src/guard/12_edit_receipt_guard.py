@@ -21,6 +21,25 @@ def task_contract_write(argv):
     print(f"OK   task contract recorded: {repo_state_file('task-contract.json')}")
 
 
+def docs_only_contract_blocks_path(contract, rel):
+    """Does a Docs/Tests-only contract get refused this pilothOS/ path?
+
+    The single answer to that question, so a test can ask it directly instead of
+    re-deriving it from `contract_docs_tests_only` — which says something subtly
+    different ("is this contract docs-only") and was mistaken for the same thing.
+
+    The two auto-log targets are exempt. They are append-only operational logs
+    that the Stop hook REQUIRES writing every session, not Constitution docs;
+    blocking them meant the doc's first-named way to satisfy one gate was refused
+    by another (thangnd96/piloth#11).
+    """
+    if not rel.startswith("pilothOS/"):
+        return False
+    if rel in {t.relative_to(REPO_ROOT).as_posix() for t in AUTO_LOG_TARGETS}:
+        return False
+    return contract_docs_tests_only(contract)
+
+
 def pre_edit(hook_input):
     # Claude Code plan mode is read-only planning (harness restricts edits to the
     # plan file). Piloth's contract-before-edit gate is for execution, not
@@ -69,7 +88,7 @@ def pre_edit(hook_input):
                 f"{contract_path}. allowed_paths={allowed}"
             )
             return
-        if contract_docs_tests_only(contract) and rel.startswith("pilothOS/"):
+        if docs_only_contract_blocks_path(contract, rel):
             block_decision(
                 f"PILOTHOS PRE-EDIT: {rel} touches pilothOS core while the "
                 "contract only declares Docs/Tests layers."

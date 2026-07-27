@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
- "piloth_version": "2.0.2",
- "generated_at": "2026-07-27T06:41:53.983999+00:00",
+ "piloth_version": "2.0.3",
+ "generated_at": "2026-07-27T10:36:17.400328+00:00",
  "files": [
   {
    "path": ".claude/agents/README.md",

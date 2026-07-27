@@ -31,6 +31,7 @@ Kiến trúc như init: **Claude làm judgment + UI**, **staging/engine làm det
 | Re-stage | Xác định `<SOURCE>` (ưu tiên `${CLAUDE_PLUGIN_ROOT}`, else clone). Chạy `bash "<SOURCE>/scripts/stage.sh" --upgrade <project>` (target = cwd). Backup tự ghi vào `pilothOS/.backup/stage-upgrade-<ts>`; kernel/adapter `verbatim` bị ghi đè; **GIỮ**: `CLAUDE.md`/`AGENTS.md`/`.gitignore`/`.claude/settings.json`, `pilothOS/.initialized`, `pilothOS/rot/registry.md`, `pilothOS/rot/review-log.md`, `pilothOS/memory/lessons-learned.md`. **GỠ**: file dưới `pilothOS/` vắng mặt trong `dist-manifest.json` mới (backup trước khi xoá; state + marker + backup được giữ). Số file gỡ được in ra ở cuối. |
 | Record | Ghi nhận version mới qua engine — plan tối thiểu `mode=upgrade`: `dry-run` (phải `plan_valid`) → `apply`. Engine đóng dấu `pilothos_version` mới vào `.initialized` + manifest. |
 | Verify | Đọc RECEIPT (trường `completeness_missing` phải VẮNG). `python3 pilothOS/scripts/pilothos_guard.py self-check` → `SELF-CHECK PASSED`. Nhắc user mở session Claude Code **MỚI** (để hook/version mới có hiệu lực). |
+| Log | `python3 pilothOS/scripts/pilothos_guard.py log-append review <scope> <findings> <action> <evidence> <reviewer>` — Evidence = manifest path từ stage Record. Upgrade thay hàng chục file kernel nên đây là phiên "có thay đổi file": Stop hook auto-log gate áp dụng đầy đủ. Dùng verb, đừng mở editor lên hai file log. |
 
 ## Plan mẫu
 
