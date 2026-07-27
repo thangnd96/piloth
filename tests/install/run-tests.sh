@@ -126,7 +126,7 @@ cd $W/hookmerge
 cat > .claude/settings.json <<'JSON'
 {
   "env": {
-    "PILOTHOS_VERSION": "2.0.1"
+    "PILOTHOS_VERSION": "2.0.2"
   },
   "statusLine": {
     "type": "command",
@@ -268,4 +268,70 @@ pay = pathlib.Path("$REPO/pilothOS/skills/workflow/pilothos-init/payloads/identi
 assert pay.strip() in tpl, "templates/CLAUDE.md KHONG chua identity payload — drift!"
 print("sync-templates PASS")
 EOP
+echo "== C11 upgrade khong de lai file mo coi hay hook tro toi chung =="
+# v2.0.0 them prune_dead_hooks de go hook tro file da bi xoa, nhung op chi go
+# entry tro path KHONG TON TAI, con staging thi khong prune — nen tren dung
+# upgrade path file van con, hook khong "dead", va op khong bao gio chay
+# (thangnd96/piloth#7). Test cu chi dung fixture khong co file do, tuc no dung
+# san dieu kien op can — kiem logic ham, khong kiem duong ham phuc vu.
+mkdir -p $W/orphan && cd $W/orphan
+bash "$REPO/scripts/stage.sh" "$W/orphan" > /dev/null
+python3 $ENG unattended --mode greenfield --persona P --goals G --owner O > /dev/null
+
+# Gia lap install phien ban cu: file kernel ngoai manifest + hook tro toi chung
+mkdir -p pilothOS/tools/review/hooks pilothOS/agent-teams
+printf 'exit 0\n' > pilothOS/tools/review/hooks/review-hook.sh
+printf '# team\n'  > pilothOS/agent-teams/index.md
+python3 - << 'SETUP'
+import json, pathlib
+p = pathlib.Path(".claude/settings.json"); d = json.loads(p.read_text())
+h = d.setdefault("hooks", {})
+for ev in ("PreToolUse", "PostToolUse"):
+    h.setdefault(ev, []).append({"hooks": [{"type": "command",
+        "command": "sh pilothOS/tools/review/hooks/review-hook.sh fire"}]})
+h.setdefault("PreToolUse", []).append({"matcher": "Bash", "hooks": [
+    {"type": "command", "command": "node .claude/consumer-own.cjs"}]})
+p.write_text(json.dumps(d, indent=2))
+SETUP
+[ -f pilothOS/tools/review/hooks/review-hook.sh ]
+[ "$(grep -c review-hook .claude/settings.json)" = "2" ]
+
+# Dung chuoi thao tac SKILL.md mo ta: Re-stage roi Record.
+# sleep 1: backup dir dat ten theo giay va do_apply dung exist_ok=False co chu
+# dich (hai lan apply khong duoc chung backup), nen greenfield + upgrade trong
+# cung mot giay se dung nhau. Khong lien quan den thu test nay kiem.
+sleep 1
+bash "$REPO/scripts/stage.sh" --upgrade "$W/orphan" > /dev/null
+printf '{"plan_version":1,"mode":"upgrade","steps":[{"op":"write_marker"}]}' > up.json
+python3 $ENG apply up.json > up-receipt.json
+grep -q '"result": "applied"' up-receipt.json
+
+python3 - << 'CHECK'
+import json, pathlib, re
+ship = {f["path"] for f in json.loads(
+    pathlib.Path("pilothOS/dist-manifest.json").read_text())["files"]}
+# Runtime state va manifest chinh no khong bao gio nam trong manifest.
+PRESERVE = {"pilothOS/dist-manifest.json", "pilothOS/.initialized",
+            "pilothOS/.pending-plan.json"}
+orphans = sorted(
+    p.as_posix() for p in pathlib.Path("pilothOS").rglob("*")
+    if p.is_file() and ".backup" not in p.parts and "state" not in p.parts
+    and p.as_posix() not in ship and p.as_posix() not in PRESERVE)
+assert not orphans, f"file kernel ngoai manifest con lai sau upgrade: {orphans}"
+
+# Hook kiem theo MANIFEST, khong theo exists() — exists() chinh la cho bug an.
+settings = json.loads(pathlib.Path(".claude/settings.json").read_text())
+dead = [f"{event}: {ref}"
+        for event, groups in (settings.get("hooks") or {}).items()
+        for g in groups for entry in g.get("hooks", [])
+        for ref in re.findall(r"pilothOS/[^\s\"']+", str(entry.get("command", "")))
+        if ref not in ship]
+assert not dead, f"hook tro path ngoai manifest con lai: {dead}"
+
+cmds = [h["command"] for gs in settings["hooks"].values() for g in gs for h in g["hooks"]]
+assert any("consumer-own.cjs" in c for c in cmds), "hook consumer bi xoa nham"
+assert any("pilothos_guard.py" in c for c in cmds), "hook Piloth con song bi xoa nham"
+print("C11 PASS: upgrade don sach file mo coi va hook cua chung, giu hook consumer")
+CHECK
+
 echo "INSTALL SUITE: ALL PASS"

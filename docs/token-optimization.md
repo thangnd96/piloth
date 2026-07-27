@@ -46,7 +46,7 @@ Kết quả trả về `loaded_bytes`, `loaded_tokens_est`, `full_kernel_tokens_
 
 Hai denominator, **cùng báo cáo** để không tự khen:
 
-- `full_kernel_*` — **44 file, ~35.8k token**: mọi `.md` dưới `pilothOS/`, tức
+- `full_kernel_*` — **44 file, ~35.9k token**: mọi `.md` dưới `pilothOS/`, tức
   trần "nạp tất cả" một cách ngây thơ.
 - `routable_kernel_*` — **33 file, ~26.4k token**: bỏ `skills/**` (chỉ mở khi
   chính skill đó chạy) và `README`/`VALIDATION` (tài liệu cho người, không phải
@@ -59,8 +59,8 @@ Hai denominator, **cùng báo cáo** để không tự khen:
 | task_signal      | files | bytes  | est tokens | vs full-kernel | vs routable |
 |------------------|:-----:|:------:|:----------:|:--------------:|:-----------:|
 | not_applicable   |   7   | 21,547 |    5,387   |     85.0%      |    79.6%    |
-| UI/component     |   8   | 23,272 |    5,818   |     83.7%      |    78.0%    |
-| API/backend      |   8   | 25,481 |    6,371   |     82.2%      |    75.9%    |
+| UI/component     |   8   | 23,272 |    5,818   |     83.8%      |    78.0%    |
+| API/backend      |   8   | 25,481 |    6,371   |     82.3%      |    75.9%    |
 | release/deploy   |   9   | 27,363 |    6,841   |     80.9%      |    74.1%    |
 | bug fix          |   9   | 29,534 |    7,384   |     79.4%      |    72.0%    |
 

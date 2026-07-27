@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+## v2.0.2 — 2026-07-27
+
+Vá ba issue nữa từ cùng consumer, phát hiện khi nâng v1.11.0 → v2.0.1
+([#7](https://github.com/thangnd96/piloth/issues/7),
+[#8](https://github.com/thangnd96/piloth/issues/8),
+[#9](https://github.com/thangnd96/piloth/issues/9)).
+
+### Đổi hành vi: staging giờ GỠ file không còn được ship
+
+`stage.sh --upgrade` trước nay chỉ thêm và ghi đè, không bao giờ xoá. Hệ quả:
+mọi hệ con một release gỡ đi vẫn nằm lại trên đĩa consumer. Đo trên một upgrade
+thật v1.11.0 → v2.0.1: **41 file kernel v1 còn lại, `dist-manifest.json` nói 57
+file trong khi đĩa có 99** — manifest thôi là SSOT của completeness, và
+`os-close`/rot/routing đọc được cả hai phiên bản của cùng một doc.
+
+Giờ staging gỡ mọi file dưới `pilothOS/` vắng mặt trong manifest mới. **Backup
+trước khi xoá** vào `.backup/stage-upgrade-<ts>` — hầu hết consumer gitignore
+`pilothOS/` nên không có đường lùi bằng git. Giữ lại: `dist-manifest.json` (nó
+không tự liệt kê mình), `.initialized`, `.pending-plan.json`, `.backup/**`,
+`memory/state/**`.
+
+### Sửa
+
+- **`prune_dead_hooks` không bao giờ kích hoạt trên upgrade path** (#7). Op thêm
+  ở v2.0.0 để gỡ hook trỏ file đã xoá chỉ nhận diện "đã xoá" bằng
+  `os.path.exists()` — mà staging không prune, nên lúc Record file vẫn còn, hook
+  không "dead", và op không chạy. **Op sinh ra để sửa lớp lỗi này không chạm
+  được nó trên chính đường đó.** Giờ kiểm theo `dist-manifest.json`: một hook
+  giữ sống hệ con mà bản này không ship là drift kể cả khi nó chạy được, và
+  cách kiểm đó đúng không phụ thuộc thứ tự thao tác.
+- **`--adapters` được doc nhưng staging không implement** (#8), và **`--gitignore-scope`
+  vỡ y hệt** — flag hợp lệ, được doc, mà `--gitignore-scope runtime <target>`
+  hard-fail `qua nhieu target`. Gốc chung: `INSTALLER_VALUE_OPTIONS` là bản chép
+  tay của argparse installer và đã trôi, nên wrapper không biết flag nào nhận
+  giá trị; token tiếp theo thành target thứ hai. Bảng đã đồng bộ và có test khoá.
+- **Flag lạ không còn bị nuốt im lặng.** Nhánh catch-all `elif arg.startswith("--")`
+  forward mọi thứ sang installer — đó là thứ biến một flag không tồn tại thành
+  no-op, dạng tệ hơn hard-fail vì consumer tin mình vừa chọn xong. Giờ fail rõ
+  ràng kèm danh sách flag hợp lệ.
+- **`/piloth:adapter` trong `pilothos-update/SKILL.md`** (#9) — command và skill
+  không còn ship từ v2.0.0.
+
+### Gate
+
+- **Upgrade end-to-end** (`tests/install`, C11): fixture một install có file
+  ngoài manifest + hook trỏ tới chúng, chạy đúng chuỗi thao tác SKILL.md, assert
+  không còn file mồ côi **và** không còn hook trỏ path ngoài manifest — **so với
+  manifest, không dùng `exists()`**, vì `exists()` chính là chỗ bug ẩn. Đây là
+  test lẽ ra phải có ở v2.0.0: fixture cũ chỉ kiểm logic của hàm và dựng sẵn
+  điều kiện hàm cần, nên không bao giờ chạm tới đường mà hàm phục vụ.
+- **Luật doc-reference mở hai chiều** — quét thêm `skills/**/SKILL.md`, và nhận
+  thêm token `/piloth:<verb>`. Đúng hai chiều mà `/piloth:adapter` lọt qua.
+- **Flag trong doc phải được tool xử lý tường minh**, và bảng option của staging
+  phải khớp argparse của installer.
+
+### Ghi chú
+
+`ENGINE_LINE_BUDGETS[installer]` nâng 920 → 940. Hai lần nâng liên tiếp là tín
+hiệu mà chính luật đó tồn tại để phát: lần phình tiếp theo phải tách phần settings
+ra khỏi `00_header.py` chứ không nâng nữa.
+
+`os-close` vẫn chưa sửa. Vẫn là bản vá hồi quy.
+
 ## v2.0.1 — 2026-07-27
 
 Vá ba issue từ consumer đầu tiên nâng lên v2.0.0

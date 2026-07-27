@@ -10,7 +10,7 @@
     ]
   },
   "env": {
-    "PILOTHOS_VERSION": "2.0.1"
+    "PILOTHOS_VERSION": "2.0.2"
   },
   "statusLine": {
     "type": "command",

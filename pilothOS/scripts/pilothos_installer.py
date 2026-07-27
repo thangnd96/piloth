@@ -323,12 +323,32 @@ def merge_settings_content(consumer, payload, options, notes):
 PILOTHOS_PATH_RE = re.compile(r"pilothOS/[^\s\"']+")
 
 
+def _shipped_kernel_paths():
+    """Paths this version actually ships, from dist-manifest.json."""
+    try:
+        data = json.loads(
+            (PILOTHOS_DIR / "dist-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return {item.get("path") for item in data.get("files", [])}
+
+
 def dead_pilothos_hook_paths(command):
-    """pilothOS/ paths a hook command names that no longer exist on disk."""
-    return [
-        ref for ref in PILOTHOS_PATH_RE.findall(str(command or ""))
-        if not (REPO_ROOT / ref).exists()
-    ]
+    """pilothOS/ paths a hook names that THIS VERSION does not ship.
+
+    Manifest, not disk. `.exists()` made the op unable to fire on the one path it
+    exists for: staging did not prune, so the old script was still sitting there,
+    the hook was not "dead", nothing was removed (thangnd96/piloth#7). A hook
+    keeping a removed subsystem alive is drift even while it runs.
+
+    Falls back to the disk check when the manifest is unreadable — a corrupt
+    manifest must not turn pruning into "remove everything".
+    """
+    shipped = _shipped_kernel_paths()
+    refs = PILOTHOS_PATH_RE.findall(str(command or ""))
+    if shipped is None:
+        return [ref for ref in refs if not (REPO_ROOT / ref).exists()]
+    return [ref for ref in refs if ref not in shipped]
 
 
 def prune_dead_hooks(settings):
@@ -540,7 +560,7 @@ def do_apply(plan, plan_path):
     else:
         created.append(marker_rel)
     manifest = {
-        "pilothos_version": "2.0.1", "timestamp": ts, "mode": plan["mode"],
+        "pilothos_version": "2.0.2", "timestamp": ts, "mode": plan["mode"],
         "created": created, "modified": modified, "removed": removed,
         "notes": notes,
     }
@@ -560,7 +580,7 @@ def do_apply(plan, plan_path):
                     raise IOError(f"postcondition fail: {a['target']}")
             applied.append(a)
         MARKER.write_text(json.dumps({
-            "initialized_at": ts, "pilothos_version": "2.0.1",
+            "initialized_at": ts, "pilothos_version": "2.0.2",
             "mode": plan["mode"],
             "manifest": str((bdir / 'manifest.json').relative_to(REPO_ROOT)),
         }, indent=2) + "\n", encoding="utf-8")

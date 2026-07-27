@@ -64,11 +64,12 @@ def test_god_function_allowlist_only_shrinks():
 # src/ fragment first and check whether the growth belongs in the engine at all.
 ENGINE_LINE_BUDGETS = {
     GUARD: 9_500,
-    # Raised 900 -> 920 for `load_plan_arg`: the engine has to accept the plan
-    # shape its own documented commands use, and that is input handling, not
-    # something a separate fragment would make clearer. Deliberate, per the rule
-    # above — check first whether the growth belongs in the engine at all.
-    INSTALLER: 920,
+    # Raised twice in consecutive patches: 900 -> 920 for `load_plan_arg`
+    # (v2.0.1) and 920 -> 940 for manifest-based hook pruning (v2.0.2). Both are
+    # input/correctness handling that belongs in the engine, but two raises in a
+    # row is the signal this rule exists to send: the NEXT growth should split
+    # settings handling out of 00_header.py rather than raise again.
+    INSTALLER: 940,
 }
 
 

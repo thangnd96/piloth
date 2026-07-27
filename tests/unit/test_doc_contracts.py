@@ -258,6 +258,47 @@ def _resolves_to_shipped(index_path, ref, shipped):
     return False
 
 
+SLASH_CMD_RE = re.compile(r"`?/piloth:([a-z][a-z0-9-]*)`?")
+
+
+def _reference_docs(shipped):
+    """index.md + SKILL.md — the two kinds a consumer follows to act.
+
+    index.md is how progressive context loading decides what to open; SKILL.md is
+    a procedure someone types. A dead reference in either sends the reader after
+    something that is not there, which is worse than dead prose.
+    """
+    for pattern in ("**/index.md", "skills/**/SKILL.md"):
+        for doc in sorted(KERNEL.glob(pattern)):
+            if doc.relative_to(REPO).as_posix() in shipped:
+                yield doc
+
+
+def test_every_documented_slash_command_ships_a_command_file():
+    """`/piloth:adapter` survived in pilothos-update/SKILL.md through v2.0.1.
+
+    Rule 1 missed it twice over: it is not a `.md` path, and it is not in an
+    index.md (thangnd96/piloth#9). For a CLI's own docs a verb name is a
+    first-class reference — same as a path.
+    """
+    shipped = _shipped_paths()
+    verbs = {
+        path.rsplit("/", 1)[-1].removeprefix("pilothos-").removesuffix(".md")
+        for path in shipped if path.startswith(".claude/commands/")
+    }
+    offenders = []
+    for doc in _reference_docs(shipped):
+        rel = doc.relative_to(REPO).as_posix()
+        for lineno, line in enumerate(_read(doc).splitlines(), 1):
+            for verb in SLASH_CMD_RE.findall(line):
+                if verb not in verbs:
+                    offenders.append(f"{rel}:{lineno} -> /piloth:{verb}")
+    assert not offenders, (
+        f"doc names a slash command with no shipped command file (have: "
+        f"{sorted(verbs)}):\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_every_index_reference_resolves_to_a_shipped_file():
     """An index that names a file the distribution does not contain.
 
@@ -273,10 +314,8 @@ def test_every_index_reference_resolves_to_a_shipped_file():
     """
     shipped = _shipped_paths()
     offenders = []
-    for index_path in sorted(KERNEL.rglob("index.md")):
+    for index_path in _reference_docs(shipped):
         rel = index_path.relative_to(REPO).as_posix()
-        if rel not in shipped:
-            continue
         for lineno, line in enumerate(_read(index_path).splitlines(), 1):
             for ref in MD_REF_RE.findall(line):
                 if "/" not in ref and ref in STRUCTURAL_FILENAMES:
@@ -334,4 +373,55 @@ def test_routing_json_and_guard_declare_the_same_context(guard):
     assert not mismatches, (
         "evidence-routing.json and TASK_SIGNAL_ROUTES disagree:\n  "
         + "\n  ".join(mismatches)
+    )
+
+
+STAGE_SCRIPT = REPO / "scripts" / "stage.py"
+UPDATE_SKILL = KERNEL / "skills" / "workflow" / "pilothos-update" / "SKILL.md"
+
+
+def test_every_staging_flag_the_docs_mention_is_handled_explicitly():
+    """A documented flag that no branch knows about is worse than a missing one.
+
+    `--adapters` was documented for staging and never implemented
+    (thangnd96/piloth#8). Because `parse_args` ends in a catch-all
+    `elif arg.startswith("--")`, the space form pushed its value into `targets`
+    and hard-failed with "qua nhieu target", while the `=` form was forwarded and
+    silently did nothing — the consumer believed they had selected an adapter.
+
+    The same catch-all hides `--gitignore-scope`, a flag that IS real. Nobody
+    reported that one; it was found by comparing the two tables.
+    """
+    stage_src = _read(STAGE_SCRIPT)
+    known = set(re.findall(r'"(--[a-z][a-z-]*)"', stage_src))
+    documented = set(re.findall(r"`(--[a-z][a-z-]*)[ =`]", _read(UPDATE_SKILL)))
+    unknown = sorted(documented - known)
+    assert not unknown, (
+        f"pilothos-update/SKILL.md documents staging flags that stage.py never "
+        f"names: {unknown}. Implement them or stop documenting them — the "
+        "catch-all branch turns an unknown flag into a silent no-op."
+    )
+
+
+def test_staging_knows_every_value_flag_the_installer_accepts():
+    """stage.py's option table is a hand-copy of the installer's argparse.
+
+    It drifted: `--adapters` and `--gitignore-scope` both take a value, and
+    stage.py did not know it, so `--gitignore-scope runtime <target>` read the
+    value as a second target and failed. Forwarding is only safe when the wrapper
+    knows the arity.
+    """
+    installer_src = _read(REPO / "src" / "installer" / "05_unattended.py")
+    takes_value = {
+        flag for flag in re.findall(r'add_argument\("(--[a-z-]+)"', installer_src)
+        if f'add_argument("{flag}", action="store_true")' not in installer_src
+    }
+    stage_src = _read(STAGE_SCRIPT)
+    block = re.search(r"INSTALLER_VALUE_OPTIONS = \{(.*?)\}", stage_src, re.S).group(1)
+    known = set(re.findall(r'"(--[a-z-]+)"', block))
+    missing = sorted(takes_value - known)
+    assert not missing, (
+        f"installer takes a value for {missing} but stage.py's "
+        "INSTALLER_VALUE_OPTIONS does not list them; the space form will be "
+        "parsed as an extra target"
     )

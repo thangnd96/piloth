@@ -217,6 +217,25 @@ def test_validate_adapters_must_include_claude(installer, staged_repo):
 
 # ------------------------------------------- prune_dead_hooks (upgrade safety)
 
+def _fake_install(installer, monkeypatch, root, ships, on_disk):
+    """An install whose manifest and disk can disagree — the real upgrade shape.
+
+    Staging does not prune, so after an upgrade the disk is a superset of what
+    the version ships. Pruning has to read the manifest; reading the disk is
+    reading the exact blind spot (thangnd96/piloth#7).
+    """
+    monkeypatch.setattr(installer, "REPO_ROOT", root)
+    monkeypatch.setattr(installer, "PILOTHOS_DIR", root / "pilothOS")
+    for rel in on_disk:
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("#")
+    manifest = root / "pilothOS" / "dist-manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps({"files": [{"path": p} for p in ships]}))
+
+
+
 def test_prune_removes_only_hooks_whose_piloth_script_is_gone(installer, monkeypatch, tmp_path):
     """An upgrade that stops shipping a script must not leave it wired.
 
@@ -224,9 +243,12 @@ def test_prune_removes_only_hooks_whose_piloth_script_is_gone(installer, monkeyp
     v1.10+ install kept three hooks pointing at tools/review/hooks/review-hook.sh
     after v2 deleted it. Each one exits 127 on every matching tool use.
     """
-    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
-    (tmp_path / "pilothOS" / "scripts").mkdir(parents=True)
-    (tmp_path / "pilothOS" / "scripts" / "pilothos_guard.py").write_text("#")
+    _fake_install(installer, monkeypatch, tmp_path,
+                  ships=["pilothOS/scripts/pilothos_guard.py"],
+                  on_disk=["pilothOS/scripts/pilothos_guard.py",
+                           # still on disk after an upgrade, but no longer shipped:
+                           # this is the case the old .exists() check could not see
+                           "pilothOS/tools/review/hooks/review-hook.sh"])
     settings = {"hooks": {
         "PreToolUse": [
             {"matcher": "Edit", "hooks": [
@@ -258,9 +280,12 @@ def test_prune_removes_only_hooks_whose_piloth_script_is_gone(installer, monkeyp
 
 
 def test_prune_is_a_noop_when_every_script_exists(installer, monkeypatch, tmp_path):
-    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
-    (tmp_path / "pilothOS" / "scripts").mkdir(parents=True)
-    (tmp_path / "pilothOS" / "scripts" / "pilothos_guard.py").write_text("#")
+    _fake_install(installer, monkeypatch, tmp_path,
+                  ships=["pilothOS/scripts/pilothos_guard.py"],
+                  on_disk=["pilothOS/scripts/pilothos_guard.py",
+                           # still on disk after an upgrade, but no longer shipped:
+                           # this is the case the old .exists() check could not see
+                           "pilothOS/tools/review/hooks/review-hook.sh"])
     settings = {"hooks": {"Stop": [{"hooks": [
         {"type": "command", "command": "python3 pilothOS/scripts/pilothos_guard.py stop-check"}]}]}}
     pruned, removed = installer.prune_dead_hooks(settings)
