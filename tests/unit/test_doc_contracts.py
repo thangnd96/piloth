@@ -225,3 +225,113 @@ def test_every_layer_index_declares_its_boundary():
         if missing:
             offenders[index.relative_to(REPO).as_posix()] = missing
     assert not offenders, f"index files missing boundary sections: {offenders}"
+
+
+# ------------------------------------------- references resolve to shipped files
+
+DIST_MANIFEST = KERNEL / "dist-manifest.json"
+# index.md / SKILL.md / README.md exist all over the kernel: naming one bare is a
+# reference to a KIND of file, not to a location. Anything else is a path claim.
+STRUCTURAL_FILENAMES = {"index.md", "SKILL.md", "README.md"}
+MD_REF_RE = re.compile(r"`([A-Za-z0-9._/-]+\.md)`")
+
+
+def _shipped_paths():
+    return {item["path"] for item in json.loads(_read(DIST_MANIFEST))["files"]}
+
+
+def _resolves_to_shipped(index_path, ref, shipped):
+    """sibling → kernel root → repo root.
+
+    Three bases because index tables legitimately use all three: a layer index
+    names its own siblings, a cross-layer note uses a kernel-relative path, and
+    `agents/index.md` points at the consumer's root `CLAUDE.md` (Identity lives
+    outside the kernel by design, and CLAUDE.md does ship).
+    """
+    for candidate in (index_path.parent / ref, KERNEL / ref, REPO / ref):
+        try:
+            rel = candidate.resolve().relative_to(REPO).as_posix()
+        except ValueError:
+            continue
+        if rel in shipped:
+            return True
+    return False
+
+
+def test_every_index_reference_resolves_to_a_shipped_file():
+    """An index that names a file the distribution does not contain.
+
+    v2.0.0 deleted four subsystems and left six references behind: three
+    team-role rows in agents/index.md, two rows in runtime/index.md and a line in
+    tools/index.md. A consumer's first real upgrade found them
+    (thangnd96/piloth#5, #6). Nothing caught it because D1b only asks whether a
+    backticked path is vendor-only, never whether it exists.
+
+    Upgrade from v1.x hides this class of defect: staging does not prune, so the
+    v1 file stays on disk and the path still resolves. Only a fresh install sees
+    it — which is why this gate reads dist-manifest.json rather than the disk.
+    """
+    shipped = _shipped_paths()
+    offenders = []
+    for index_path in sorted(KERNEL.rglob("index.md")):
+        rel = index_path.relative_to(REPO).as_posix()
+        if rel not in shipped:
+            continue
+        for lineno, line in enumerate(_read(index_path).splitlines(), 1):
+            for ref in MD_REF_RE.findall(line):
+                if "/" not in ref and ref in STRUCTURAL_FILENAMES:
+                    continue
+                if not _resolves_to_shipped(index_path, ref, shipped):
+                    offenders.append(f"{rel}:{lineno} -> {ref}")
+    assert not offenders, (
+        "index references a file the distribution does not ship:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_every_routed_context_path_is_shipped(guard):
+    """Routing that loads a file which is not there.
+
+    `task_signal: architecture` routed to knowledge/architecture/README.md for
+    the whole v2.0.0 release. These paths are kernel-relative by construction, so
+    unlike prose there is nothing to disambiguate — either the file ships or the
+    route is broken.
+    """
+    shipped = _shipped_paths()
+    offenders = []
+    matrix = json.loads(_read(EVIDENCE_ROUTING)).get("task_matrix", {})
+    for signal, row in matrix.items():
+        for path in row.get("context", []):
+            if f"pilothOS/{path}" not in shipped:
+                offenders.append(f"evidence-routing.json[{signal}].context -> {path}")
+    for signal, route in guard.TASK_SIGNAL_ROUTES.items():
+        for path in route["context_layers"]:
+            if f"pilothOS/{path}" not in shipped:
+                offenders.append(f"TASK_SIGNAL_ROUTES[{signal}] -> {path}")
+    for path in guard.BOOTSTRAP_CONTEXT_FILES if hasattr(
+        guard, "BOOTSTRAP_CONTEXT_FILES") else ():
+        if f"pilothOS/{path}" not in shipped:
+            offenders.append(f"BOOTSTRAP_CONTEXT_FILES -> {path}")
+    assert not offenders, "routed context path is not shipped:\n  " + "\n  ".join(offenders)
+
+
+def test_routing_json_and_guard_declare_the_same_context(guard):
+    """The same context list lives in two files; nothing compared them.
+
+    thangnd96/piloth#5 guessed that duplicating the literal was the root cause of
+    the architecture drift. It already was: `ui/component` had drifted too —
+    consumer-assets.md in the JSON, context-loading.md in the guard — and no one
+    noticed, because the two were never compared. Same failure mode the quality
+    floor had before this file started comparing values instead of key sets.
+    """
+    matrix = json.loads(_read(EVIDENCE_ROUTING)).get("task_matrix", {})
+    mismatches = []
+    for signal, route in guard.TASK_SIGNAL_ROUTES.items():
+        documented = list(matrix.get(signal, {}).get("context", []))
+        enforced = list(route["context_layers"])
+        if documented != enforced:
+            mismatches.append(f"{signal}: json={documented} guard={enforced}")
+    assert not mismatches, (
+        "evidence-routing.json and TASK_SIGNAL_ROUTES disagree:\n  "
+        + "\n  ".join(mismatches)
+    )

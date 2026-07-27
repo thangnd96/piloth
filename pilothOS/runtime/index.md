@@ -29,7 +29,6 @@ Intake → Plan → Execute → Review → Repair → Deliver
 |---|---|
 | `task-lifecycle.md` | State machine và exit criteria |
 | `context-loading.md` | Progressive context loading |
-| `codebase-intelligence.md` | Adaptive code graph, freshness, coverage and source fallback |
 | `consumer-assets.md` | Registry và routing policy cho tài sản consumer |
 | `evidence-router.md` | Canonical evidence planning, adapter handshake, specialist/team/model selection, rollout and state boundary |
 | `evidence-routing.json` | Declarative task/evidence matrix and quality floor |
@@ -39,7 +38,6 @@ Intake → Plan → Execute → Review → Repair → Deliver
 | `energy-token-policy.md` | Resource budget cho context, search, build/test, target footprint và tool runtime |
 | `os-control-plane.md` | Project-local OS lifecycle, controlled-target governor, UI quality evidence, real cost ledger, benchmark value policy, entitlement profile, truth-in-seal and receipt seal mechanics |
 | `self-hosting.md` | Dogfood contract for operating the Piloth repo through PilothOS |
-| `team-orchestration.md` | Multi-agent handoff, QA and stop-condition runtime protocol |
 
 ## Convention
 

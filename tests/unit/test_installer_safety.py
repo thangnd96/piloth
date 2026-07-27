@@ -5,6 +5,9 @@ byte more". These pin the path-safety and writable-zone guards, plus the
 settings-merge conflict rules, so a regression there can't silently widen what a
 plan is allowed to touch.
 """
+import json
+import pathlib
+import re
 import pytest
 
 
@@ -289,3 +292,60 @@ def test_greenfield_plan_does_not_inject_the_prune_step(installer):
     plan = {"plan_version": 1, "mode": "greenfield", "steps": [{"op": "write_marker"}]}
     installer.normalize_plan(plan)
     assert "prune_dead_hooks" not in [s["op"] for s in plan["steps"]]
+
+
+# ------------------------------------- plan arg: inline JSON or path (issue #4)
+
+UPDATE_SKILL = pathlib.Path(__file__).resolve().parents[2] / (
+    "pilothOS/skills/workflow/pilothos-update/SKILL.md")
+
+
+def test_documented_engine_commands_use_a_shape_the_installer_accepts():
+    """The commands in the upgrade skill must run as written.
+
+    pilothos-update/SKILL.md told the agent to pass the plan inline; the engine
+    only took a path, so every `/piloth:update` that followed the doc exactly
+    died at the Record stage with exit 2 (thangnd96/piloth#4). A doc that calls
+    itself the source of truth for a flow has to be executable verbatim, so this
+    parses the commands out of the doc rather than restating them.
+    """
+    text = UPDATE_SKILL.read_text(encoding="utf-8")
+    invocations = re.findall(
+        r"pilothos_installer\.py\s+(validate|dry-run|apply)\s+(\S+)", text)
+    assert invocations, "pilothos-update/SKILL.md no longer shows an engine command"
+    for cmd, arg in invocations:
+        assert arg.startswith(("'{", '"{', "{")) or arg.endswith(".json"), (
+            f"SKILL.md passes `{arg}` to `{cmd}`, which is neither inline JSON "
+            "nor a .json path — the engine accepts only those two shapes"
+        )
+
+
+def test_inline_plan_is_materialised_so_approve_equals_execute(installer, monkeypatch, tmp_path):
+    """Inline JSON must land on disk before it is normalised.
+
+    `main()` writes the normalised plan back to the plan file so that what a
+    human approved is what the engine ran. Accepting inline JSON without
+    materialising it would keep engine-injected steps (`prune_dead_hooks`, the
+    gitignore append) out of every artifact — the plan file is where they become
+    visible.
+    """
+    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(installer, "PILOTHOS_DIR", tmp_path / "pilothOS")
+    monkeypatch.setattr(installer, "PENDING_PLAN",
+                        tmp_path / "pilothOS" / ".pending-plan.json")
+    raw = '{"plan_version":1,"mode":"upgrade","steps":[{"op":"write_marker"}]}'
+    plan, path = installer.load_plan_arg(raw, "dry-run")
+
+    assert plan["mode"] == "upgrade"
+    assert path == installer.PENDING_PLAN
+    assert path.exists(), "inline plan was not written to .pending-plan.json"
+    assert json.loads(path.read_text())["steps"] == [{"op": "write_marker"}]
+
+
+def test_path_form_still_works_and_stays_the_write_target(installer, monkeypatch, tmp_path):
+    monkeypatch.setattr(installer, "REPO_ROOT", tmp_path)
+    p = tmp_path / "plan.json"
+    p.write_text('{"plan_version":1,"mode":"upgrade","steps":[]}')
+    plan, path = installer.load_plan_arg("plan.json", "dry-run")
+    assert plan["mode"] == "upgrade"
+    assert path == p, "a plan given as a path must be normalised back into that path"

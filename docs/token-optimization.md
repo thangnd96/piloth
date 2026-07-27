@@ -46,9 +46,9 @@ Kết quả trả về `loaded_bytes`, `loaded_tokens_est`, `full_kernel_tokens_
 
 Hai denominator, **cùng báo cáo** để không tự khen:
 
-- `full_kernel_*` — **44 file, ~36.0k token**: mọi `.md` dưới `pilothOS/`, tức
+- `full_kernel_*` — **44 file, ~35.8k token**: mọi `.md` dưới `pilothOS/`, tức
   trần "nạp tất cả" một cách ngây thơ.
-- `routable_kernel_*` — **33 file, ~26.6k token**: bỏ `skills/**` (chỉ mở khi
+- `routable_kernel_*` — **33 file, ~26.4k token**: bỏ `skills/**` (chỉ mở khi
   chính skill đó chạy) và `README`/`VALIDATION` (tài liệu cho người, không phải
   instruction cho task). **Đây là con số nên trích dẫn.**
 - Cả hai trần đều **loại** `rot/review-log.md` + `memory/lessons-learned.md`: kích
@@ -58,11 +58,11 @@ Hai denominator, **cùng báo cáo** để không tự khen:
 
 | task_signal      | files | bytes  | est tokens | vs full-kernel | vs routable |
 |------------------|:-----:|:------:|:----------:|:--------------:|:-----------:|
-| not_applicable   |   7   | 21,731 |    5,433   |     84.9%      |    79.6%    |
-| UI/component     |   8   | 23,456 |    5,864   |     83.7%      |    78.0%    |
-| API/backend      |   8   | 25,786 |    6,447   |     82.1%      |    75.8%    |
-| release/deploy   |   9   | 27,668 |    6,917   |     80.8%      |    74.0%    |
-| bug fix          |   9   | 29,718 |    7,430   |     79.4%      |    72.1%    |
+| not_applicable   |   7   | 21,547 |    5,387   |     85.0%      |    79.6%    |
+| UI/component     |   8   | 23,272 |    5,818   |     83.7%      |    78.0%    |
+| API/backend      |   8   | 25,481 |    6,371   |     82.2%      |    75.9%    |
+| release/deploy   |   9   | 27,363 |    6,841   |     80.9%      |    74.1%    |
+| bug fix          |   9   | 29,534 |    7,384   |     79.4%      |    72.0%    |
 
 Nói cách khác: một task được route kéo **~21-28%** routable kernel vào context
 thay vì 100%.

@@ -181,3 +181,34 @@ def load_payload(name, fill):
     return _fill_persona_goals(p.read_text(encoding="utf-8"), fill)
 
 
+PENDING_PLAN = PILOTHOS_DIR / ".pending-plan.json"
+
+
+def load_plan_arg(raw, cmd):
+    """Plan từ inline JSON hoặc path. Trả (plan, path-để-ghi-lại).
+
+    Inline được ghi ra `.pending-plan.json` chứ không giữ trong bộ nhớ: `main()`
+    ghi plan ĐÃ NORMALIZE ngược về file, nên không có file thì các step engine tự
+    chèn (`prune_dead_hooks`, `.gitignore`) không hiện ra ở đâu và "thứ approve =
+    thứ thực thi" mất chỗ bám. Guard nhận cả hai dạng từ lâu; installer chỉ nhận
+    path là lý do pilothos-update/SKILL.md không chạy được nguyên văn (#4).
+    """
+    text = str(raw).strip()
+    if text.startswith("{"):
+        try:
+            plan = json.loads(text)
+        except json.JSONDecodeError as e:
+            fail(2, {"error": f"plan inline khong phai JSON hop le: {e}"})
+        PENDING_PLAN.parent.mkdir(parents=True, exist_ok=True)
+        PENDING_PLAN.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return plan, PENDING_PLAN
+    path = pathlib.Path(text)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    if not path.exists():
+        fail(2, {"error": f"plan khong ton tai: {raw}"})
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), path
+    except json.JSONDecodeError as e:
+        fail(2, {"error": f"plan khong phai JSON hop le: {e}"})

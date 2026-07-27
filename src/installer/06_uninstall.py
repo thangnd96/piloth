@@ -53,14 +53,8 @@ def main():
         return
     if cmd in ("validate", "dry-run", "apply"):
         if len(args) < 2:
-            fail(2, {"error": f"{cmd} can duong dan plan.json"})
-        plan_path = pathlib.Path(args[1])
-        if not plan_path.exists():
-            fail(2, {"error": f"plan khong ton tai: {plan_path}"})
-        try:
-            plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
-            fail(2, {"error": f"plan khong phai JSON hop le: {e}"})
+            fail(2, {"error": f"{cmd} can duong dan plan.json hoac inline JSON"})
+        plan, plan_path = load_plan_arg(args[1], cmd)
         # Normalize: sinh remove_path (adapter khong chon) + append_lines
         # (.gitignore) deterministic từ ý định khai báo. Chạy ở dry-run/apply
         # và ghi lại file để "thứ approve = thứ thực thi". `validate` giữ

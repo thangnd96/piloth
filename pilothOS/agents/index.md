@@ -20,9 +20,6 @@ Mỗi Agent chỉ định nghĩa Role, Model, Permissions và Responsibilities.
 |---|---|---|---|
 | Root Identity | AI System Architect and Maintainer identity | Model do runtime cung cấp | `CLAUDE.md` |
 | Software Engineer | Default single-agent executor for clear, low-to-moderate risk tasks | Model do runtime cung cấp | `software-engineer.md` |
-| Lead Solution Architect | Team lead, scope keeper, contract resolver | Model do runtime/team quyết định | `team-roles/lead-solution-architect.md` |
-| Solution Generator | Proposal generator and implementation path designer | Model do runtime/team quyết định | `team-roles/solution-generator.md` |
-| Critical Evaluator | Independent critique, risk and Evidence checker | Model do runtime/team quyết định | `team-roles/critical-evaluator.md` |
 
 ## Convention
 

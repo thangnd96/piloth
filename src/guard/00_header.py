@@ -586,7 +586,7 @@ TASK_SIGNAL_ROUTES = {
         "task_signal": "architecture",
         "asset_types": ("specialist", "agent", "convention", "doc"),
         "load_policy": "task-routed",
-        "context_layers": ("knowledge/architecture/README.md", "runtime/context-loading.md"),
+        "context_layers": ("knowledge/index.md", "runtime/context-loading.md"),
     },
     "security": {
         "task_signal": "security",

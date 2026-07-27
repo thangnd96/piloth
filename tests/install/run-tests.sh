@@ -126,7 +126,7 @@ cd $W/hookmerge
 cat > .claude/settings.json <<'JSON'
 {
   "env": {
-    "PILOTHOS_VERSION": "2.0.0"
+    "PILOTHOS_VERSION": "2.0.1"
   },
   "statusLine": {
     "type": "command",

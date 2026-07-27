@@ -64,7 +64,11 @@ def test_god_function_allowlist_only_shrinks():
 # src/ fragment first and check whether the growth belongs in the engine at all.
 ENGINE_LINE_BUDGETS = {
     GUARD: 9_500,
-    INSTALLER: 900,
+    # Raised 900 -> 920 for `load_plan_arg`: the engine has to accept the plan
+    # shape its own documented commands use, and that is input handling, not
+    # something a separate fragment would make clearer. Deliberate, per the rule
+    # above — check first whether the growth belongs in the engine at all.
+    INSTALLER: 920,
 }
 
 

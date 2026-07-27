@@ -94,7 +94,7 @@
       ],
       "context": [
         "rules/ui-design-system.md",
-        "runtime/consumer-assets.md"
+        "runtime/context-loading.md"
       ],
       "tools": [
         "asset-scan",
@@ -168,7 +168,7 @@
         }
       ],
       "context": [
-        "knowledge/architecture/README.md",
+        "knowledge/index.md",
         "runtime/context-loading.md"
       ],
       "tools": [

@@ -22,10 +22,8 @@ Quản lý INTEGRATION với thế giới bên ngoài.
 | `evidence-route` | Internal CLI | Read-only task/risk/evidence/specialist/team/model decision | JSON payload | low | schema + router corpus | none | short | canonical route decision and fallbacks |
 | `adapter-capabilities` | Internal CLI | Read-only native/emulated/unavailable handshake | JSON payload | low | complete vocabulary test | none | short | normalized capabilities, sources and limitations |
 
-Codebase CLI contract và adaptive policy:
-`pilothOS/runtime/codebase-intelligence.md`. PilothOS vẫn không phụ thuộc external
-tool cụ thể; reference engine dùng Python standard library và local SQLite.
-Evidence Router contract: `pilothOS/runtime/evidence-router.md`.
+PilothOS không phụ thuộc external tool cụ thể; engine dùng Python standard
+library. Evidence Router contract: `pilothOS/runtime/evidence-router.md`.
 
 Consumer Asset Registry liên quan: `pilothOS/runtime/consumer-assets.md`.
 Consumer assets có type `tool`, `mcp`, `command`, `test-runner` hoặc

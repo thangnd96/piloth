@@ -181,6 +181,37 @@ def load_payload(name, fill):
     return _fill_persona_goals(p.read_text(encoding="utf-8"), fill)
 
 
+PENDING_PLAN = PILOTHOS_DIR / ".pending-plan.json"
+
+
+def load_plan_arg(raw, cmd):
+    """Plan từ inline JSON hoặc path. Trả (plan, path-để-ghi-lại).
+
+    Inline được ghi ra `.pending-plan.json` chứ không giữ trong bộ nhớ: `main()`
+    ghi plan ĐÃ NORMALIZE ngược về file, nên không có file thì các step engine tự
+    chèn (`prune_dead_hooks`, `.gitignore`) không hiện ra ở đâu và "thứ approve =
+    thứ thực thi" mất chỗ bám. Guard nhận cả hai dạng từ lâu; installer chỉ nhận
+    path là lý do pilothos-update/SKILL.md không chạy được nguyên văn (#4).
+    """
+    text = str(raw).strip()
+    if text.startswith("{"):
+        try:
+            plan = json.loads(text)
+        except json.JSONDecodeError as e:
+            fail(2, {"error": f"plan inline khong phai JSON hop le: {e}"})
+        PENDING_PLAN.parent.mkdir(parents=True, exist_ok=True)
+        PENDING_PLAN.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return plan, PENDING_PLAN
+    path = pathlib.Path(text)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    if not path.exists():
+        fail(2, {"error": f"plan khong ton tai: {raw}"})
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), path
+    except json.JSONDecodeError as e:
+        fail(2, {"error": f"plan khong phai JSON hop le: {e}"})
 # ------------------------------------------------------------ placeholders
 
 CADENCE_RE = re.compile(r"(\d+)\s*[–-]\s*(\d+)?\s*(tuần|tháng)")
@@ -509,7 +540,7 @@ def do_apply(plan, plan_path):
     else:
         created.append(marker_rel)
     manifest = {
-        "pilothos_version": "2.0.0", "timestamp": ts, "mode": plan["mode"],
+        "pilothos_version": "2.0.1", "timestamp": ts, "mode": plan["mode"],
         "created": created, "modified": modified, "removed": removed,
         "notes": notes,
     }
@@ -529,7 +560,7 @@ def do_apply(plan, plan_path):
                     raise IOError(f"postcondition fail: {a['target']}")
             applied.append(a)
         MARKER.write_text(json.dumps({
-            "initialized_at": ts, "pilothos_version": "2.0.0",
+            "initialized_at": ts, "pilothos_version": "2.0.1",
             "mode": plan["mode"],
             "manifest": str((bdir / 'manifest.json').relative_to(REPO_ROOT)),
         }, indent=2) + "\n", encoding="utf-8")
@@ -833,14 +864,8 @@ def main():
         return
     if cmd in ("validate", "dry-run", "apply"):
         if len(args) < 2:
-            fail(2, {"error": f"{cmd} can duong dan plan.json"})
-        plan_path = pathlib.Path(args[1])
-        if not plan_path.exists():
-            fail(2, {"error": f"plan khong ton tai: {plan_path}"})
-        try:
-            plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
-            fail(2, {"error": f"plan khong phai JSON hop le: {e}"})
+            fail(2, {"error": f"{cmd} can duong dan plan.json hoac inline JSON"})
+        plan, plan_path = load_plan_arg(args[1], cmd)
         # Normalize: sinh remove_path (adapter khong chon) + append_lines
         # (.gitignore) deterministic từ ý định khai báo. Chạy ở dry-run/apply
         # và ghi lại file để "thứ approve = thứ thực thi". `validate` giữ

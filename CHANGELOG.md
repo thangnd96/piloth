@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+## v2.0.1 — 2026-07-27
+
+Vá ba issue từ consumer đầu tiên nâng lên v2.0.0
+([#4](https://github.com/thangnd96/piloth/issues/4),
+[#5](https://github.com/thangnd96/piloth/issues/5),
+[#6](https://github.com/thangnd96/piloth/issues/6)). Cả ba cùng một gốc: v2 xoá
+file nhưng không có gì kiểm rằng mọi tham chiếu tới chúng đã biến mất.
+
+### Sửa
+
+- **`/piloth:update` chạy được đúng như doc viết** (#4). `pilothos-update/SKILL.md`
+  ghi lệnh engine dạng inline JSON, nhưng installer chỉ nhận đường dẫn — mọi lần
+  update làm đúng doc đều fail ở stage Record với exit 2, để lại kernel v2 mà
+  marker còn version cũ. Installer giờ nhận cả hai dạng; plan inline được ghi ra
+  `pilothOS/.pending-plan.json` trước khi normalize, nên tính chất "thứ approve =
+  thứ thực thi" giữ nguyên: các step engine tự chèn (`prune_dead_hooks`,
+  `.gitignore`) vẫn hiện trong một artifact đọc được.
+- **Sáu tham chiếu trỏ file v2 không ship** (#5, #6). `agents/index.md` còn 3 row
+  team-role; `runtime/index.md` còn `team-orchestration.md` **và**
+  `codebase-intelligence.md`; `tools/index.md` còn trỏ
+  `runtime/codebase-intelligence.md`; `evidence-routing.json` và
+  `TASK_SIGNAL_ROUTES` cùng trỏ `knowledge/architecture/README.md`. Task
+  `task_signal: architecture` giờ route tới `knowledge/index.md` — file có thật,
+  và index chính là chỗ nói consumer đặt fact kiến trúc ở đâu.
+- **`ui/component` đã lệch giữa hai nguồn context** và không ai thấy —
+  `evidence-routing.json` nói `consumer-assets.md`, guard nói
+  `context-loading.md`. Issue #5 ngờ rằng duplicate literal ở hai nơi là gốc của
+  drift; nó đã sinh ra một drift thứ hai, độc lập. Sửa JSON theo guard (guard là
+  thứ `route_task_payload` thực sự đọc, nên **không đổi hành vi routing**).
+
+Ba trong sáu defect trên không issue nào bắt được — chúng lộ ra khi viết gate.
+
+### Gate
+
+Ba luật mới ở `tests/unit/test_doc_contracts.py`:
+
+1. Mọi backtick `*.md` trong `**/index.md` phải resolve tới path có trong
+   `dist-manifest.json` (sibling → kernel root → repo root). Miễn trừ tên trần
+   `index.md`/`SKILL.md`/`README.md` — chúng chỉ một *loại* file, không phải vị trí.
+2. Mọi context path trong `evidence-routing.json`, `TASK_SIGNAL_ROUTES` và
+   `BOOTSTRAP_CONTEXT_FILES` phải có trong manifest.
+3. Hai nguồn context phải khớp **theo giá trị**.
+
+Gate đọc `dist-manifest.json` chứ không đọc đĩa, vì upgrade từ v1.x che đúng lớp
+lỗi này: staging không prune nên file v1 còn nằm lại và path vẫn resolve. Chỉ
+install mới mới thấy — và đó là lý do consumer phát hiện được còn CI thì không.
+
+Thêm test parse chuỗi lệnh **trực tiếp từ** `pilothos-update/SKILL.md` và kiểm
+engine nhận được shape đó. Loại lỗi #4 chỉ lộ khi có người làm theo doc nguyên văn.
+
+### Ghi chú
+
+`ENGINE_LINE_BUDGETS[installer]` nâng 900 → 920 cho `load_plan_arg`, có ghi lý do
+tại chỗ: engine phải nhận được shape mà chính doc của nó bảo dùng, và đó là xử lý
+đầu vào chứ không phải thứ tách fragment riêng sẽ rõ hơn.
+
+`os-close` **chưa** được sửa. `docs/field-report-first-real-use.md` chỉ ra đó là
+chỗ người dùng bỏ cuộc, nhưng trộn thiết kế lại vào một bản vá hồi quy làm cả hai
+khó review.
+
 ## v2.0.0 — 2026-07-27
 
 **Breaking.** Bản cắt bề mặt: 19 CLI verb, 4 hệ con và 3 adapter bị gỡ. Nâng cấp
