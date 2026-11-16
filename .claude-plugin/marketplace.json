@@ -17,6 +17,21 @@
       "source": "./",
       "category": "development",
       "homepage": "https://github.com/thangnd96/piloth"
+    },
+    {
+      "name": "fe-delivery",
+      "description": "Governed front-end delivery: Jira/Figma intake, two-axis classification, Spec Kit tiers, hook-enforced gates and evidence, pilothify knowledge graph.",
+      "author": {
+        "name": "ThangND4"
+      },
+      "source": {
+        "source": "github",
+        "repo": "thangnd96/fe-delivery",
+        "ref": "fe-delivery--v0.1.0",
+        "sha": "ead34050d353d1b40cd31553b5c1cca0138e31c8"
+      },
+      "category": "development",
+      "homepage": "https://github.com/thangnd96/fe-delivery"
     }
   ]
 }
