@@ -17,12 +17,17 @@ concurrency:
 jobs:
   gate:
     name: test-gate (py${{ matrix.python }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         # Floor (3.9, matches type hints used in scripts) + current stable tiers.
-        python: ["3.9", "3.11", "3.13"]
+        # 3.9 is past end of life and setup-python has no build of it for
+        # ubuntu-latest (26.04), so the floor runs on 24.04, which still has one.
+        include:
+          - { python: "3.9", os: ubuntu-24.04 }
+          - { python: "3.11", os: ubuntu-latest }
+          - { python: "3.13", os: ubuntu-latest }
     steps:
       - uses: actions/checkout@v4
 
