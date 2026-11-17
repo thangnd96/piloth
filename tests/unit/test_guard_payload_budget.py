@@ -40,26 +40,42 @@ def test_printed_bytes_match_what_json_print_would_write(budget):
     assert budget.printed_payload_bytes(payload) == expected
 
 
-# Measured output per command plus headroom. LOWER only — raising one means every
-# task pays more tokens. route-task is excluded: its size tracks how many assets
-# the surrounding repo has, so it is guarded structurally below instead.
+# Measured output per command plus headroom, on whichever adapter path is larger.
+# LOWER only — raising one means every task pays more tokens. route-task is
+# excluded: its size tracks how many assets the surrounding repo has, so it is
+# guarded structurally below instead.
 PAYLOAD_BYTE_CEILINGS = {
+    # Worst case is the Claude Code path (1,498 B): it lists emulated capabilities.
     "adapter-capabilities": 1_600,
-    # Measured on the unknown-adapter path (the fixture clears adapter env), i.e.
-    # the worst case: it still carries the aggregate "unavailable" limitation.
-    "evidence-route": 2_300,
+    # Worst case is the unknown-adapter path (2,383 B): it still carries the
+    # aggregate "unavailable" limitation. The 2,300 set in 8b118cf was measured
+    # inside a Claude Code session, where CLAUDECODE selected the lighter claude
+    # path, so CI (no adapter env) failed from that commit on. The payload did
+    # not grow; the measurement was taken on the wrong path.
+    "evidence-route": 2_500,
 }
 
+# The adapter env each measurement runs under, so the result no longer depends on
+# which harness runs the suite. None = no adapter signal (CI, a plain shell).
+ADAPTER_PATHS = {"unknown": None, "claude": "CLAUDECODE"}
 
+
+@pytest.mark.parametrize("adapter", sorted(ADAPTER_PATHS))
 @pytest.mark.parametrize("command", sorted(PAYLOAD_BYTE_CEILINGS))
-def test_per_task_command_output_stays_under_its_ceiling(budget, command):
+def test_per_task_command_output_stays_under_its_ceiling(budget, monkeypatch, command, adapter):
+    monkeypatch.delenv("PILOTHOS_ADAPTER", raising=False)
+    for var, _adapter in budget.guard.ADAPTER_ENV_SIGNALS:
+        monkeypatch.delenv(var, raising=False)
+    if ADAPTER_PATHS[adapter]:
+        monkeypatch.setenv(ADAPTER_PATHS[adapter], "1")
     sizes = {
         item["command"]: item["bytes"]
         for item in budget.payload_budget_payload()["commands"]
     }
     ceiling = PAYLOAD_BYTE_CEILINGS[command]
     assert sizes[command] <= ceiling, (
-        f"{command} now prints {sizes[command]} bytes (ceiling {ceiling}). "
+        f"{command} now prints {sizes[command]} bytes on the {adapter} adapter "
+        f"path (ceiling {ceiling}). "
         "Trim the payload or raise the ceiling deliberately."
     )
 
