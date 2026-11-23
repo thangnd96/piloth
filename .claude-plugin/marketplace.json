@@ -27,8 +27,8 @@
       "source": {
         "source": "github",
         "repo": "thangnd96/fe-delivery",
-        "ref": "fe-delivery--v0.3.1",
-        "sha": "58ed36f98c1f41f2eff242fd710453b3b584b402"
+        "ref": "fe-delivery--v0.4.0",
+        "sha": "f5952cd76d5563d0b0e9faa53ea0d7d5ee7d62d4"
       },
       "category": "development",
       "homepage": "https://github.com/thangnd96/fe-delivery"
